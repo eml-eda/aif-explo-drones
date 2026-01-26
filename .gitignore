@@ -1,0 +1,84 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.env.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# Experiment outputs / logs
+# -------------------------
+experiments/outputs/
+runs/
+logs/
+*.log
+
+# Ignore media outputs
+experiments/outputs/**/*.png
+experiments/outputs/**/*.jpg
+experiments/outputs/**/*.jpeg
+experiments/outputs/**/*.mp4
+experiments/outputs/**/*.avi
+experiments/outputs/**/*.mov
+experiments/outputs/**/*.mkv
+
+# -------------------------
+# ML artifacts / data
+# -------------------------
+data/
+datasets/
+models/         
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.tflite
+*.npz
+*.npy
+
+# -------------------------
+# Webots caches / generated
+# -------------------------
+**/.webots/
+**/tmp/
+**/*.wbproj
+*.wbt.~*
+*.proto.~*
+*.wbt.bak
+*.proto.bak
+
+# Controller build artifacts
+webots/controllers/**/build/
+webots/controllers/**/*.exe
+
+# -------------------------
+# Ignore empty Webots folders
+# -------------------------
+webots/libraries/
+webots/plugins/
+webots/protos/docs/
+
+# Ignore copied reference controller
+webots/controllers/crazyflie_py_wallfollowing/
