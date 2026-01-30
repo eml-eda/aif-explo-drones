@@ -4,7 +4,6 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "../protos/CrazyFlieDownCam.proto"
-
 WorldInfo {
 }
 Viewpoint {
@@ -15,8 +14,8 @@ TexturedBackground {
 TexturedBackgroundLight {
 }
 RectangleArena {
-  floorSize 3 3
-  wallHeight 1.6
+  floorSize 5.5 6.5
+  wallHeight 1.2
 }
 CrazyflieDownCam {
 }

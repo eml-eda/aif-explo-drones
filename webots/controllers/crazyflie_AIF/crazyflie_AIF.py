@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 from controller import Keyboard
 from controller import Robot
@@ -11,6 +12,26 @@ from vision.detector import Detector
 
 
 FLYING_ATTITUDE = 1.0
+
+ARENA_WIDTH_M = 5.5
+ARENA_HEIGHT_M = 6.5
+CELL_SIZE_M = 0.5
+GRID_COLS = int(ARENA_WIDTH_M / CELL_SIZE_M)
+GRID_ROWS = int(ARENA_HEIGHT_M / CELL_SIZE_M)
+MIN_X = -ARENA_WIDTH_M / 2.0
+MIN_Y = -ARENA_HEIGHT_M / 2.0
+MAX_X = ARENA_WIDTH_M / 2.0
+MAX_Y = ARENA_HEIGHT_M / 2.0
+
+
+def _cell_from_position(x, y):
+    if x < MIN_X or x >= MAX_X or y < MIN_Y or y >= MAX_Y:
+        return None
+    col = int((x - MIN_X) / CELL_SIZE_M)
+    row = int((y - MIN_Y) / CELL_SIZE_M)
+    if col < 0 or col >= GRID_COLS or row < 0 or row >= GRID_ROWS:
+        return None
+    return row, col
 
 
 def load_policy(name):
@@ -34,6 +55,19 @@ if __name__ == "__main__":
     policy = load_policy(policy_name)
     detector = Detector()
     logger = ExperimentLogger(enabled=False)
+
+    occupancy_time_s = [[0.0 for _ in range(GRID_COLS)] for _ in range(GRID_ROWS)]
+    current_cell = None
+
+    log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    occupancy_log_path = os.path.join(log_dir, f"occupancy_log_{timestamp}.csv")
+    occupancy_summary_path = os.path.join(log_dir, f"occupancy_summary_{timestamp}.csv")
+    occupancy_log = open(occupancy_log_path, "w", encoding="utf-8")
+    occupancy_log.write(
+        "time_s,x_m,y_m,row,col,dt_s,inside\n"
+    )
 
     pid_controller = pid_velocity_fixed_height_controller()
 
@@ -91,6 +125,25 @@ if __name__ == "__main__":
             timestamp=observation["camera"]["time"],
         )
 
+        x_pos = observation["gps"]["x"]
+        y_pos = observation["gps"]["y"]
+        cell = _cell_from_position(x_pos, y_pos)
+        inside = cell is not None
+        current_cell = cell
+        if inside:
+            row, col = cell
+            occupancy_time_s[row][col] += dt
+
+        if inside:
+            row, col = cell
+            occupancy_log.write(
+                f"{observation['time']:.6f},{x_pos:.4f},{y_pos:.4f},{row},{col},{dt:.6f},1\n"
+            )
+        else:
+            occupancy_log.write(
+                f"{observation['time']:.6f},{x_pos:.4f},{y_pos:.4f},-1,-1,{dt:.6f},0\n"
+            )
+
         if autonomous_mode:
             policy_action = policy.compute_action(
                 {
@@ -128,3 +181,16 @@ if __name__ == "__main__":
         )
 
     logger.close()
+
+    occupancy_log.close()
+    with open(occupancy_summary_path, "w", encoding="utf-8") as summary_file:
+        summary_file.write(
+            "arena_width_m,arena_height_m,cell_size_m,min_x,max_x,min_y,max_y,rows,cols\n"
+        )
+        summary_file.write(
+            f"{ARENA_WIDTH_M},{ARENA_HEIGHT_M},{CELL_SIZE_M},{MIN_X},{MAX_X},{MIN_Y},{MAX_Y},{GRID_ROWS},{GRID_COLS}\n"
+        )
+        summary_file.write("row,col,time_s\n")
+        for row in range(GRID_ROWS):
+            for col in range(GRID_COLS):
+                summary_file.write(f"{row},{col},{occupancy_time_s[row][col]:.6f}\n")
