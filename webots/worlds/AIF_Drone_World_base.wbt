@@ -1,20 +1,32 @@
 #VRML_SIM R2025a utf8
 
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
-EXTERNPROTO "../protos/CrazyFlieDownCam.proto"
+
 WorldInfo {
 }
 Viewpoint {
-  position -0.48561230497838176 6.013218572010341e-05 0.011369631295775165
+  orientation 0.12357377021149181 0.8768954619344114 -0.4645254268116574 0.5890866585259558
+  position -5.6018958243577615 1.630355676287626 3.8867517060054975
 }
 TexturedBackground {
 }
-TexturedBackgroundLight {
+DirectionalLight {
+  castShadows TRUE
 }
 RectangleArena {
-  floorSize 5.5 6.5
+  floorSize 6.5 5.5
+  floorTileSize 5.5 6.5
+  floorAppearance PBRAppearance {
+    baseColorMap ImageTexture {
+      url [
+        "world_resources/floor_grid_texture.png"
+      ]
+      filtering 1
+    }
+    roughness 1
+    metalness 0
+  }
   wallHeight 1.2
 }
 CrazyflieDownCam {

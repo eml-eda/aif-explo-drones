@@ -1,0 +1,7 @@
+# Requires Webots 2025a (controller runtime provided by Webots)
+numpy
+ultralytics
+pillow
+matplotlib
+torch
+torchvision

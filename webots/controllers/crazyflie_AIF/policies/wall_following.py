@@ -239,11 +239,17 @@ class WallFollowingPolicy:
             max_forward_speed=max_forward_speed,
             init_state=WallFollowing.StateWallFollowing.FORWARD,
         )
+        self._step_count = 0
 
     def compute_action(self, observation):
+        self._step_count += 1
         ranges = observation["ranges"]
         yaw = observation["imu"]["yaw"]
         time_now = observation["time"]
+        detections = observation.get("detections", [])
+        if self._step_count % 20 == 0:
+            sample = detections[0] if detections else None
+            print(f"[detections] {sample}")
 
         direction = WallFollowing.WallFollowingDirection.LEFT
         side_range_value = ranges["right"]
