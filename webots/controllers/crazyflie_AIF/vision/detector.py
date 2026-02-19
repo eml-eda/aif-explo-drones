@@ -1,3 +1,5 @@
+# detector.py - YOLO visual detection model
+
 import os
 
 import numpy as np
@@ -13,16 +15,40 @@ class DetectorOutput:
 
 
 class Detector:
-    def __init__(self, model_name=None, device=None, conf=0.25, iou=0.45, img_size=320):
+    def __init__(
+        self,
+        model_name=None,
+        device='cuda:0',
+        conf=0.25,
+        iou=0.45,
+        img_size=320,
+        class_names=None,  
+    ):
         if model_name is None:
             model_name = os.environ.get("AIF_YOLO_MODEL", "yolo11n.pt")
         self.model_name = model_name
-        self.device = device or os.environ.get("AIF_YOLO_DEVICE", None)
+
+        self.device = device
+
         self.conf = float(os.environ.get("AIF_YOLO_CONF", conf))
         self.iou = float(os.environ.get("AIF_YOLO_IOU", iou))
         self.img_size = int(os.environ.get("AIF_YOLO_IMGSZ", img_size))
 
         self.model = YOLO(self.model_name)
+
+        # Class filtering by names 
+        if class_names is None:
+            class_names = ["bottle"]  
+
+        name_to_id = {v: k for k, v in self.model.names.items()}
+        self.classes = [name_to_id[n] for n in class_names if n in name_to_id]
+
+        # If none matched, disable filtering
+        if not self.classes:
+            self.classes = None
+        
+        print("YOLO classes example:", list(self.model.names.items())[:5])
+        print("Filtering classes:", self.classes)
 
     def _image_from_webots(self, image, width, height):
         if image is None or width is None or height is None:
@@ -46,6 +72,7 @@ class Detector:
             conf=self.conf,
             iou=self.iou,
             device=self.device,
+            classes=self.classes,
             verbose=False,
         )
 

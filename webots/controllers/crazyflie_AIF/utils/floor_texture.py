@@ -1,56 +1,72 @@
 from PIL import Image, ImageDraw
 
 # -----------------------------
-# Grid definition 
+# Grid definition
 # -----------------------------
 
-NUM_COLS = 11   # horizontal cells (x direction, width)
-NUM_ROWS = 13   # vertical cells (y direction, height)
+NUM_COLS = 11   # horizontal cells
+NUM_ROWS = 13   # vertical cells
 
 # -----------------------------
-# Texture resolution
+# Texture resolution (square, power of 2)
 # -----------------------------
-# Width and height are powers of two
-# Aspect ratio = 11 : 13
 
-TEXTURE_WIDTH = 4096
-TEXTURE_HEIGHT = TEXTURE_WIDTH * NUM_ROWS // NUM_COLS  # keeps exact ratio
+TEXTURE_SIZE = 4096  # 4096 x 4096
 
 # -----------------------------
 # Appearance
 # -----------------------------
 
-BACKGROUND_COLOR = (255, 255, 255)  # white
-LINE_COLOR = (0, 0, 0)              # black
-LINE_WIDTH = 5                      # thin lines (pixels)
+BACKGROUND_COLOR = (255, 255, 255)
+LINE_COLOR = (0, 0, 0)
+LINE_WIDTH = 5
 
-OUTPUT_FILENAME = "floor_grid_11x13.jpg"
+OUTPUT_FILENAME = "floor_grid_11x13_square.png"
 
 # -----------------------------
 # Image creation
 # -----------------------------
 
-img = Image.new("RGB", (TEXTURE_WIDTH, TEXTURE_HEIGHT), BACKGROUND_COLOR)
+img = Image.new("RGB", (TEXTURE_SIZE, TEXTURE_SIZE), BACKGROUND_COLOR)
 draw = ImageDraw.Draw(img)
 
-cell_width = TEXTURE_WIDTH / NUM_COLS
-cell_height = TEXTURE_HEIGHT / NUM_ROWS
+# Compute cell size (must be square)
+cell_size = min(
+    TEXTURE_SIZE / NUM_COLS,
+    TEXTURE_SIZE / NUM_ROWS
+)
 
-# Vertical grid lines (columns)
+grid_width = cell_size * NUM_COLS
+grid_height = cell_size * NUM_ROWS
+
+# Center the grid
+offset_x = (TEXTURE_SIZE - grid_width) / 2
+offset_y = (TEXTURE_SIZE - grid_height) / 2
+
+# Vertical grid lines
 for col in range(NUM_COLS + 1):
-    x = round(col * cell_width)
-    draw.line([(x, 0), (x, TEXTURE_HEIGHT)], fill=LINE_COLOR, width=LINE_WIDTH)
+    x = round(offset_x + col * cell_size)
+    draw.line(
+        [(x, round(offset_y)), (x, round(offset_y + grid_height))],
+        fill=LINE_COLOR,
+        width=LINE_WIDTH
+    )
 
-# Horizontal grid lines (rows)
+# Horizontal grid lines
 for row in range(NUM_ROWS + 1):
-    y = round(row * cell_height)
-    draw.line([(0, y), (TEXTURE_WIDTH, y)], fill=LINE_COLOR, width=LINE_WIDTH)
+    y = round(offset_y + row * cell_size)
+    draw.line(
+        [(round(offset_x), y), (round(offset_x + grid_width), y)],
+        fill=LINE_COLOR,
+        width=LINE_WIDTH
+    )
 
 # Save image
-img.save("floor_grid_texture.png", "PNG")
+img.save(OUTPUT_FILENAME, "PNG")
 
 print(
-    f"Saved '{OUTPUT_FILENAME}' "
-    f"({TEXTURE_WIDTH} x {TEXTURE_HEIGHT}) "
-    f"with {NUM_COLS} columns × {NUM_ROWS} rows"
+    f"Saved '{OUTPUT_FILENAME}' ({TEXTURE_SIZE} x {TEXTURE_SIZE})\n"
+    f"Grid: {NUM_COLS} × {NUM_ROWS} cells\n"
+    f"Cell size: {cell_size:.2f} px\n"
+    f"Grid area: {int(grid_width)} x {int(grid_height)} px"
 )

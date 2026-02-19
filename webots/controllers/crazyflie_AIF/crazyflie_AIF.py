@@ -1,4 +1,7 @@
+# crazyflie_AIF.py
+
 import os
+from datetime import datetime
 
 from controller import Keyboard
 from controller import Robot
@@ -10,9 +13,19 @@ from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
 from vision.detector import Detector
 
+from env.env_manager import GridSpec, FoVSpec, GridEnvManager
 
-FLYING_ATTITUDE = 1.0
 
+# ---- Run toggles ----
+ENABLE_LOGGING = True
+ENABLE_CAPTURES = True
+LOG_EVERY_N_STEPS = 10
+CAPTURE_EVERY_N_STEPS = 20
+
+# ---- Flight preference ----
+FLYING_ATTITUDE = 1.5
+
+# ---- Spatial parameters ----
 ARENA_WIDTH_M = 5.5
 ARENA_HEIGHT_M = 6.5
 CELL_SIZE_M = 0.5
@@ -23,14 +36,53 @@ MIN_Y = -ARENA_HEIGHT_M / 2.0
 MAX_X = ARENA_WIDTH_M / 2.0
 MAX_Y = ARENA_HEIGHT_M / 2.0
 
+# ---- Camera FoV footprint on floor (meters) at 1.5m altitude ----
+FOV_WIDTH_M = 1.35
+FOV_FORWARD_M = 0.55
+FOV_BACKWARD_M = 0.45
 
-def load_policy(name):
+# ---- FoV → cell thresholds ----
+COVERAGE_UPDATE_THRESHOLD = 0.30
+
+# ---- Single debug config (controls controller + policy prints) ----
+DEBUG = {
+    "every_n": 50,
+
+    # Controller
+    "fov": True,          # prints [FOV DEBUG]
+    "cmd": True,          # prints [cmd]
+
+    # Policy
+    "policy_grid": True,       # prints [POLICY GRID]
+    "policy_detections": False # print top-1 detection only when non-empty
+}
+
+
+def rc_to_cxcy(rc):
+    if rc is None:
+        return None
+    r, c = rc
+    return (c, r)
+
+
+def dict_rc_to_cxcy(d):
+    return {(c, r): v for (r, c), v in d.items()}
+
+
+def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = os.path.join(base_log_dir, f"{prefix}_{ts}")
+    os.makedirs(run_dir, exist_ok=True)
+    return run_dir
+
+
+def load_policy(name, debug=None):
     registry = {
         "wall_following": WallFollowingPolicy,
     }
     if name not in registry:
         raise ValueError(f"Unknown policy '{name}'. Available: {', '.join(sorted(registry))}")
-    return registry[name]()
+    return registry[name](debug=debug)
 
 
 if __name__ == "__main__":
@@ -42,31 +94,52 @@ if __name__ == "__main__":
     keyboard.enable(timestep)
 
     policy_name = os.environ.get("AIF_POLICY", "wall_following")
-    policy = load_policy(policy_name)
+    policy = load_policy(policy_name, debug=DEBUG)
     detector = Detector()
-    log_dir = os.path.join(os.path.dirname(__file__), "logs")
-    grid = {
-        "arena_width": ARENA_WIDTH_M,
-        "arena_height": ARENA_HEIGHT_M,
-        "cell_size": CELL_SIZE_M,
-        "min_x": MIN_X,
-        "max_x": MAX_X,
-        "min_y": MIN_Y,
-        "max_y": MAX_Y,
-        "rows": GRID_ROWS,
-        "cols": GRID_COLS,
-    }
-    logger = ExperimentLogger(
-        enabled=os.environ.get("POSITION_LOG_CF", "0") == "1",
-        log_dir=log_dir,
-        grid=grid,
+
+    # ---- Grid spec ----
+    grid_spec = GridSpec(
+        min_x=MIN_X,
+        max_x=MAX_X,
+        min_y=MIN_Y,
+        max_y=MAX_Y,
+        cell_size=CELL_SIZE_M,
+        rows=GRID_ROWS,
+        cols=GRID_COLS,
     )
-    current_cell = None
+
+    # ---- FoV spec ----
+    fov_spec = FoVSpec(
+        half_left=FOV_WIDTH_M / 2.0,
+        half_right=FOV_WIDTH_M / 2.0,
+        forward=FOV_FORWARD_M,
+        backward=FOV_BACKWARD_M,
+    )
+
+    env_mgr = GridEnvManager(grid_spec, fov_spec)
+
+    print("\n[FoV setup]")
+    print(f"  cell_size={CELL_SIZE_M}m grid={GRID_ROWS}x{GRID_COLS} "
+          f"x∈[{MIN_X:.2f},{MAX_X:.2f}] y∈[{MIN_Y:.2f},{MAX_Y:.2f}]")
+    print(f"  footprint width={FOV_WIDTH_M:.2f}m forward={FOV_FORWARD_M:.2f}m backward={FOV_BACKWARD_M:.2f}m")
+
+    base_log_dir = os.path.join(os.path.dirname(__file__), "logs")
+
+    run_dir = None
+    if ENABLE_LOGGING or ENABLE_CAPTURES:
+        run_dir = make_run_dir(base_log_dir, prefix=f"log_run_{policy_name}")
+        print("Run output dir:", run_dir)
+
+    logger = ExperimentLogger(
+        enabled=ENABLE_LOGGING,
+        log_dir=run_dir,
+        grid_spec=grid_spec,
+    )
 
     pid_controller = pid_velocity_fixed_height_controller()
 
     height_desired = FLYING_ATTITUDE
-    autonomous_mode = True
+    autonomous_mode = False
     step_count = 0
 
     print("\n====== AIF Controller ======\n")
@@ -75,7 +148,6 @@ if __name__ == "__main__":
     print("Press A to enable autonomous mode, D to disable\n")
 
     try:
-
         while robot.step(timestep) != -1:
             step_count += 1
             observation = devices.read()
@@ -122,35 +194,112 @@ if __name__ == "__main__":
                 height=observation["camera"]["height"],
                 timestamp=observation["camera"]["time"],
             )
-            if step_count % 20 == 0:
+
+            if ENABLE_CAPTURES and (step_count % CAPTURE_EVERY_N_STEPS == 0):
                 save_capture(
                     observation["camera"]["image"],
                     width=observation["camera"]["width"],
                     height=observation["camera"]["height"],
                     timestamp=observation["camera"]["time"],
-                    output_dir=os.path.join(log_dir, "current_run_captures"),
+                    output_dir=os.path.join(run_dir, "captures"),
                 )
 
             x_pos = observation["gps"]["x"]
             y_pos = observation["gps"]["y"]
-            if step_count % 10 == 0:
-                current_cell = logger.log_occupancy(
+            yaw = observation["imu"]["yaw"]
+
+            # ---- Detection -> grid confidence map (row,col internally) ----
+            det_conf_rc = {}
+            img_w = observation["camera"]["width"]
+            img_h = observation["camera"]["height"]
+
+            for det in detector_output.detections:
+                bbox = det.get("bbox_xyxy")
+                conf = float(det.get("confidence", 0.0))
+                cell_rc = env_mgr.detection_cell_from_bbox(
+                    bbox_xyxy=bbox,
+                    img_w=img_w,
+                    img_h=img_h,
+                    drone_x=x_pos,
+                    drone_y=y_pos,
+                    drone_yaw=yaw,
+                )
+                if cell_rc is None:
+                    continue
+                prev = det_conf_rc.get(cell_rc, 0.0)
+                if conf > prev:
+                    det_conf_rc[cell_rc] = conf
+
+            det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
+
+            coverages = env_mgr.compute_cell_coverages(x_pos, y_pos, yaw)
+            visible_mask = env_mgr.coverage_to_visible_mask(
+                coverages, threshold=COVERAGE_UPDATE_THRESHOLD
+            )
+
+            current_cell_rc = grid_spec.rowcol_from_xy(x_pos, y_pos)
+            current_cell_cxcy = rc_to_cxcy(current_cell_rc)
+
+            coverages_cxcy = dict_rc_to_cxcy(coverages)
+            visible_mask_cxcy = dict_rc_to_cxcy(visible_mask)
+
+            # ---- Controller debug: only FoV geometry sanity ----
+            if DEBUG.get("fov", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
+                top_rc = sorted(coverages.items(), key=lambda kv: kv[1], reverse=True)[:12]
+                num_vis = sum(1 for v in visible_mask.values() if v)
+
+                print("\n[FOV DEBUG]")
+                print(f"  step={step_count}  pos=({x_pos:.2f},{y_pos:.2f}) yaw={yaw:.3f} rad ({yaw * 180.0 / 3.14159:.1f} deg)")
+                print(f"  current_cell(cx,cy)={current_cell_cxcy}")
+                print(f"  coverages: {len(coverages)} cells intersect FoV; {num_vis} >= {COVERAGE_UPDATE_THRESHOLD:.2f}")
+
+                for (r, c), frac in top_rc:
+                    print(f"    cell=(cx={c},cy={r}) coverage={frac*100:5.1f}% visible={visible_mask[(r,c)]}")
+
+            # ---- Logging ----
+            if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
+                logger.log_occupancy(
                     time_s=observation["time"],
                     x_m=x_pos,
                     y_m=y_pos,
                     dt_s=dt,
                 )
 
+            # ---- Build coherent policy observation ----
+            obs_for_policy = {
+                **observation,
+                "step": step_count,
+                "pose": {"x": x_pos, "y": y_pos, "yaw": yaw},
+                "grid_spec": {
+                    "min_x": grid_spec.min_x,
+                    "max_x": grid_spec.max_x,
+                    "min_y": grid_spec.min_y,
+                    "max_y": grid_spec.max_y,
+                    "cell_size": grid_spec.cell_size,
+                    "rows": grid_spec.rows,
+                    "cols": grid_spec.cols,
+                },
+                "detections": detector_output.detections,
+                "grid": {
+                    "current_cell": current_cell_cxcy,
+                    "coverages": coverages_cxcy,
+                    "visible_mask": visible_mask_cxcy,
+                    "coverage_threshold": COVERAGE_UPDATE_THRESHOLD,
+                    "det_confidence": det_conf_cxcy,
+                },
+            }
+
             if autonomous_mode:
-                policy_action = policy.compute_action(
-                    {
-                        **observation,
-                        "detections": detector_output.detections,
-                    }
-                )
+                policy_action = policy.compute_action(obs_for_policy)
                 forward_desired = policy_action.get("forward", 0.0)
                 sideways_desired = policy_action.get("sideways", 0.0)
                 yaw_desired = policy_action.get("yaw_rate", 0.0)
+
+            # ---- Controller debug: only actuation sanity ----
+            if DEBUG.get("cmd", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
+                print(f"[cmd] step={step_count} auto={autonomous_mode} "
+                      f"fwd={forward_desired:.2f} side={sideways_desired:.2f} yaw={yaw_desired:.2f} "
+                      f"h_des={height_desired:.2f} z={observation['gps']['z']:.2f}")
 
             motor_power = pid_controller.pid(
                 dt,
@@ -168,7 +317,7 @@ if __name__ == "__main__":
 
             devices.set_motor_speeds(motor_power)
 
-            if step_count % 10 == 0:
+            if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
                 logger.log_step(
                     time=observation["time"],
                     forward=forward_desired,

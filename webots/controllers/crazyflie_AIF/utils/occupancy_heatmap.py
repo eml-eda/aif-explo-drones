@@ -1,4 +1,9 @@
-import argparse
+# utils/occupancy_heatmap.py
+#
+# Set SUMMARY_CSV_PATH below and run:
+#   python3 webots/controllers/crazyflie_AIF/utils/occupancy_heatmap.py
+#
+
 import csv
 from pathlib import Path
 
@@ -6,15 +11,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def _load_summary(path):
-    with open(path, newline="", encoding="utf-8") as csvfile:
+# ---- EDIT THIS ----
+SUMMARY_CSV_PATH = "webots/controllers/crazyflie_AIF/logs/log_run_wall_following_20260219_150648/occupancy_summary_20260219_150648.csv"
+# -------------------
+
+
+def main():
+    summary_path = Path(SUMMARY_CSV_PATH)
+    if not summary_path.exists():
+        raise FileNotFoundError(f"Summary CSV not found: {summary_path}")
+
+    with open(summary_path, newline="", encoding="utf-8") as csvfile:
         reader = csv.reader(csvfile)
+
         header = next(reader, None)
         if header is None or header[0] != "arena_width_m":
             raise ValueError("Invalid summary file: missing arena metadata header.")
+
         meta = next(reader, None)
         if meta is None or len(meta) < 9:
             raise ValueError("Invalid summary file: missing arena metadata values.")
+
         arena_width = float(meta[0])
         arena_height = float(meta[1])
         cell_size = float(meta[2])
@@ -39,22 +56,7 @@ def _load_summary(path):
             if 0 <= r < rows and 0 <= c < cols:
                 grid[r, c] = t
 
-    return {
-        "grid": grid,
-        "arena_width": arena_width,
-        "arena_height": arena_height,
-        "cell_size": cell_size,
-        "min_x": min_x,
-        "max_x": max_x,
-        "min_y": min_y,
-        "max_y": max_y,
-    }
-
-
-def render_heatmap(summary_path, output_path=None, show=True):
-    data = _load_summary(summary_path)
-    grid = data["grid"]
-    extent = [data["min_x"], data["max_x"], data["min_y"], data["max_y"]]
+    extent = [min_x, max_x, min_y, max_y]
 
     fig, ax = plt.subplots(figsize=(8, 9))
     im = ax.imshow(
@@ -70,21 +72,8 @@ def render_heatmap(summary_path, output_path=None, show=True):
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label("Seconds")
 
-    if output_path:
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    if show:
-        plt.show()
+    plt.show()
     plt.close(fig)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Render occupancy heatmap from summary CSV.")
-    parser.add_argument("summary_csv", help="Path to occupancy_summary_*.csv")
-    parser.add_argument("--output", help="Optional output image path")
-    parser.add_argument("--no-show", action="store_true", help="Do not open a window")
-    args = parser.parse_args()
-
-    render_heatmap(Path(args.summary_csv), args.output, show=not args.no_show)
 
 
 if __name__ == "__main__":

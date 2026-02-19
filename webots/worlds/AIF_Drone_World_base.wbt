@@ -2,12 +2,14 @@
 
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "../protos/CrazyFlieDownCam.proto"
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/drinks/protos/BeerBottle.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.12357377021149181 0.8768954619344114 -0.4645254268116574 0.5890866585259558
-  position -5.6018958243577615 1.630355676287626 3.8867517060054975
+  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
+  position 1.8996080951642066e-05 8.643238450265438e-05 11.341034861234583
 }
 TexturedBackground {
 }
@@ -15,19 +17,41 @@ DirectionalLight {
   castShadows TRUE
 }
 RectangleArena {
-  floorSize 6.5 5.5
-  floorTileSize 5.5 6.5
+  floorSize 5.5 6.5
+  floorTileSize 0.5 0.5
   floorAppearance PBRAppearance {
     baseColorMap ImageTexture {
       url [
-        "world_resources/floor_grid_texture.png"
+        "world_resources/white_square_border_512.png"
       ]
       filtering 1
     }
     roughness 1
     metalness 0
   }
-  wallHeight 1.2
+  wallHeight 2.2
 }
-CrazyflieDownCam {
+DEF SPAWN_ROOT Group {
+}
+
+CrazyFlieDownCam {
+  rotation 0 0 1 1.5707996938995747
+  controller "crazyflie_AIF"
+  # optional comms hook for later:
+  # extensionSlot [
+  #   Receiver { name "rx" channel 1 }
+  #   Emitter  { name "tx" channel 2 }
+  # ]
+}
+
+# Supervisor robot (no body needed)
+Robot {
+  name "supervisor"
+  supervisor TRUE
+  controller "worldgen_cross_pattern"
+  children [
+    # optional comms hook for later:
+    # Receiver { name "rx" channel 2 }
+    # Emitter  { name "tx" channel 1 }
+  ]
 }

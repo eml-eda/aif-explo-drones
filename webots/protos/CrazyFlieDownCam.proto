@@ -5,7 +5,7 @@
 # keywords: robot/flying
 # The "Crazyflie" is a robot developed by "Bitcraze": https://bitcraze.io
 
-PROTO CrazyflieDownCam [
+PROTO CrazyFlieDownCam [
   field SFVec3f    translation     0 0 0.015   # Is `Pose.translation`.
   field SFRotation rotation        0 0 1 0     # Is `Pose.rotation`.
   field SFString   name            "Crazyflie" # Is `Solid.name`.
