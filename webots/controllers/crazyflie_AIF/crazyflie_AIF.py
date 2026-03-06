@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime
+import json
 
 from controller import Keyboard
 from controller import Robot
@@ -9,17 +10,20 @@ from controller import Robot
 from devices import CrazyflieDevices
 from pid.pid_controller import pid_velocity_fixed_height_controller
 from policies.wall_following import WallFollowingPolicy
+from policies.aif_saccade import AIFSaccadePolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
 from vision.detector import Detector
+from vision.ground_truth_detector import GroundTruthDetector
 
 from env.env_manager import GridSpec, FoVSpec, GridEnvManager
 
+from config import AIF_POLICY as DEFAULT_POLICY
 
 # ---- Run toggles ----
-ENABLE_LOGGING = True
-ENABLE_CAPTURES = True
-LOG_EVERY_N_STEPS = 10
+ENABLE_LOGGING = False
+ENABLE_CAPTURES = False
+LOG_EVERY_N_STEPS = 20
 CAPTURE_EVERY_N_STEPS = 20
 
 # ---- Flight preference ----
@@ -42,7 +46,7 @@ FOV_FORWARD_M = 0.55
 FOV_BACKWARD_M = 0.45
 
 # ---- FoV → cell thresholds ----
-COVERAGE_UPDATE_THRESHOLD = 0.30
+COVERAGE_UPDATE_THRESHOLD = 0.05
 
 # ---- Single debug config (controls controller + policy prints) ----
 DEBUG = {
@@ -54,8 +58,18 @@ DEBUG = {
 
     # Policy
     "policy_grid": True,       # prints [POLICY GRID]
-    "policy_detections": False # print top-1 detection only when non-empty
+    "policy_detections": True # print top-1 detection only when non-empty
 }
+
+# ---- Detection mode ----
+USE_GROUND_TRUTH_DETECTIONS = True
+GT_CONFIDENCE = 1.0
+GT_JSON_FILENAME = "spawned_objects.json"
+
+# ---- Takeoff warm-up ----
+AUTO_START_AUTONOMY = True
+AUTONOMY_START_DELAY_S = 15.0
+
 
 
 def rc_to_cxcy(rc):
@@ -68,6 +82,24 @@ def rc_to_cxcy(rc):
 def dict_rc_to_cxcy(d):
     return {(c, r): v for (r, c), v in d.items()}
 
+def _shared_gt_json_path(filename: str) -> str:
+    # crazyflie_AIF.py is in: webots/controllers/crazyflie_AIF/
+    # shared dir is:          webots/controllers/shared/
+    here = os.path.dirname(__file__)
+    shared_dir = os.path.abspath(os.path.join(here, "..", "shared"))
+    return os.path.join(shared_dir, filename)
+
+
+def load_gt_objects_xy(json_path: str):
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    objs = data.get("objects", [])
+    out = []
+    for o in objs:
+        if "x" in o and "y" in o:
+            out.append((float(o["x"]), float(o["y"])))
+    return out
 
 def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -79,11 +111,11 @@ def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
 def load_policy(name, debug=None):
     registry = {
         "wall_following": WallFollowingPolicy,
+        "aif_saccade": AIFSaccadePolicy,
     }
     if name not in registry:
         raise ValueError(f"Unknown policy '{name}'. Available: {', '.join(sorted(registry))}")
     return registry[name](debug=debug)
-
 
 if __name__ == "__main__":
     robot = Robot()
@@ -93,9 +125,8 @@ if __name__ == "__main__":
     keyboard = Keyboard()
     keyboard.enable(timestep)
 
-    policy_name = os.environ.get("AIF_POLICY", "wall_following")
+    policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
     policy = load_policy(policy_name, debug=DEBUG)
-    detector = Detector()
 
     # ---- Grid spec ----
     grid_spec = GridSpec(
@@ -117,6 +148,26 @@ if __name__ == "__main__":
     )
 
     env_mgr = GridEnvManager(grid_spec, fov_spec)
+
+    detector = None
+    gt_detector = None
+    gt_objects_xy = None
+
+    if USE_GROUND_TRUTH_DETECTIONS:
+        gt_path = _shared_gt_json_path(GT_JSON_FILENAME)
+        gt_objects_xy = load_gt_objects_xy(gt_path)
+        print(f"[GT] Loaded {len(gt_objects_xy)} objects from {gt_path}")
+        # temp debug
+        print("[GT] Example objects:", gt_objects_xy[:3])
+
+        gt_detector = GroundTruthDetector(
+            object_positions_xy=gt_objects_xy,
+            grid_spec=grid_spec,
+            fov_spec=fov_spec,
+            confidence=GT_CONFIDENCE,
+        )
+    else:
+        detector = Detector()
 
     print("\n[FoV setup]")
     print(f"  cell_size={CELL_SIZE_M}m grid={GRID_ROWS}x{GRID_COLS} "
@@ -152,6 +203,10 @@ if __name__ == "__main__":
             step_count += 1
             observation = devices.read()
             dt = observation["dt"]
+            if AUTO_START_AUTONOMY and (not autonomous_mode):
+                if float(observation["time"]) >= AUTONOMY_START_DELAY_S:
+                    autonomous_mode = True
+                    print(f"Autonomous mode: ON (auto at t={observation['time']:.1f}s)")
 
             forward_desired = 0.0
             sideways_desired = 0.0
@@ -188,12 +243,6 @@ if __name__ == "__main__":
 
             height_desired = max(0.1, height_desired + height_diff_desired * dt)
 
-            detector_output = detector.process(
-                observation["camera"]["image"],
-                width=observation["camera"]["width"],
-                height=observation["camera"]["height"],
-                timestamp=observation["camera"]["time"],
-            )
 
             if ENABLE_CAPTURES and (step_count % CAPTURE_EVERY_N_STEPS == 0):
                 save_capture(
@@ -203,45 +252,69 @@ if __name__ == "__main__":
                     timestamp=observation["camera"]["time"],
                     output_dir=os.path.join(run_dir, "captures"),
                 )
-
+            
             x_pos = observation["gps"]["x"]
             y_pos = observation["gps"]["y"]
             yaw = observation["imu"]["yaw"]
 
-            # ---- Detection -> grid confidence map (row,col internally) ----
-            det_conf_rc = {}
-            img_w = observation["camera"]["width"]
-            img_h = observation["camera"]["height"]
-
-            for det in detector_output.detections:
-                bbox = det.get("bbox_xyxy")
-                conf = float(det.get("confidence", 0.0))
-                cell_rc = env_mgr.detection_cell_from_bbox(
-                    bbox_xyxy=bbox,
-                    img_w=img_w,
-                    img_h=img_h,
-                    drone_x=x_pos,
-                    drone_y=y_pos,
-                    drone_yaw=yaw,
-                )
-                if cell_rc is None:
-                    continue
-                prev = det_conf_rc.get(cell_rc, 0.0)
-                if conf > prev:
-                    det_conf_rc[cell_rc] = conf
-
-            det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
-
-            coverages = env_mgr.compute_cell_coverages(x_pos, y_pos, yaw)
+            # ---- FoV visibility first (this mask gates BOTH belief updates and detections) ----
+            coverages = env_mgr.compute_cell_coverages(x_pos, y_pos, yaw)  # (row,col)->frac
             visible_mask = env_mgr.coverage_to_visible_mask(
                 coverages, threshold=COVERAGE_UPDATE_THRESHOLD
-            )
+            )  # (row,col)->bool
 
             current_cell_rc = grid_spec.rowcol_from_xy(x_pos, y_pos)
             current_cell_cxcy = rc_to_cxcy(current_cell_rc)
 
             coverages_cxcy = dict_rc_to_cxcy(coverages)
             visible_mask_cxcy = dict_rc_to_cxcy(visible_mask)
+
+            # ---- Detections (must lie on the SAME visible mask) ----
+            det_conf_rc = {}
+
+            if USE_GROUND_TRUTH_DETECTIONS:
+                assert gt_detector is not None
+                det_conf_rc_raw = gt_detector.process(
+                    drone_x=x_pos,
+                    drone_y=y_pos,
+                    drone_yaw=yaw,
+                )
+                # Keep GT detections only if the cell is visible by visible_mask
+                det_conf_rc = {cell: conf for cell, conf in det_conf_rc_raw.items() if visible_mask.get(cell, False)}
+
+            else:
+                assert detector is not None
+                detector_output = detector.process(
+                    observation["camera"]["image"],
+                    width=observation["camera"]["width"],
+                    height=observation["camera"]["height"],
+                    timestamp=observation["camera"]["time"],
+                )
+
+                img_w = observation["camera"]["width"]
+                img_h = observation["camera"]["height"]
+
+                for det in detector_output.detections:
+                    bbox = det.get("bbox_xyxy")
+                    conf = float(det.get("confidence", 0.0))
+                    cell_rc = env_mgr.detection_cell_from_bbox(
+                        bbox_xyxy=bbox,
+                        img_w=img_w,
+                        img_h=img_h,
+                        drone_x=x_pos,
+                        drone_y=y_pos,
+                        drone_yaw=yaw,
+                    )
+                    if cell_rc is None:
+                        continue
+                    # Drop detections that are not in the visible mask
+                    if not visible_mask.get(cell_rc, False):
+                        continue
+                    prev = det_conf_rc.get(cell_rc, 0.0)
+                    if conf > prev:
+                        det_conf_rc[cell_rc] = conf
+
+            det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
 
             # ---- Controller debug: only FoV geometry sanity ----
             if DEBUG.get("fov", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
@@ -279,13 +352,19 @@ if __name__ == "__main__":
                     "rows": grid_spec.rows,
                     "cols": grid_spec.cols,
                 },
-                "detections": detector_output.detections,
+                **({} if USE_GROUND_TRUTH_DETECTIONS else {"detections": detector_output.detections}),
                 "grid": {
                     "current_cell": current_cell_cxcy,
                     "coverages": coverages_cxcy,
                     "visible_mask": visible_mask_cxcy,
                     "coverage_threshold": COVERAGE_UPDATE_THRESHOLD,
                     "det_confidence": det_conf_cxcy,
+                },
+                "fov_spec": {
+                    "half_left": fov_spec.half_left,
+                    "half_right": fov_spec.half_right,
+                    "forward": fov_spec.forward,
+                    "backward": fov_spec.backward,
                 },
             }
 
@@ -318,13 +397,19 @@ if __name__ == "__main__":
             devices.set_motor_speeds(motor_power)
 
             if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
+                det_count = 0
+                if USE_GROUND_TRUTH_DETECTIONS:
+                    det_count = len(det_conf_rc)
+                else:
+                    det_count = len(detector_output.detections)
+
                 logger.log_step(
                     time=observation["time"],
                     forward=forward_desired,
                     sideways=sideways_desired,
                     yaw_rate=yaw_desired,
                     altitude=observation["gps"]["z"],
-                    detections=len(detector_output.detections),
+                    detections=det_count,
                 )
 
     finally:

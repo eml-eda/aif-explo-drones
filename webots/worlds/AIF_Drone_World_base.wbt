@@ -35,6 +35,7 @@ DEF SPAWN_ROOT Group {
 }
 
 CrazyFlieDownCam {
+  translation 0 0 0.015
   rotation 0 0 1 1.5707996938995747
   controller "crazyflie_AIF"
   # optional comms hook for later:
@@ -48,7 +49,7 @@ CrazyFlieDownCam {
 Robot {
   name "supervisor"
   supervisor TRUE
-  controller "worldgen_cross_pattern"
+  controller "worldgen_supervisor"
   children [
     # optional comms hook for later:
     # Receiver { name "rx" channel 2 }

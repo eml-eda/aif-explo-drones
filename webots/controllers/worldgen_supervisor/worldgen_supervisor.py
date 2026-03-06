@@ -1,16 +1,21 @@
+# controllers/worldgen_supervisor/worldgen_supervisor.py
+
 from __future__ import annotations
 
 import random
 import math
 from controller import Supervisor
-
+import os
+import json
 
 # ---- Experiment settings ----
-SEED = 26
+SEED = 21
 
-EPISODE_SECONDS = 180.0  # 3 minutes
+WARMUP_SECONDS = 15.0
+EPISODE_SECONDS = 180.0
+TOTAL_SECONDS = WARMUP_SECONDS + EPISODE_SECONDS
 
-N_BOTTLES = 4
+N_BOTTLES = 6
 
 # Arena in your world: floorSize 6.5 5.5
 ARENA_X = 5.5
@@ -27,10 +32,29 @@ MIN_SEPARATION = 0.30
 # We'll set translation explicitly.
 BOTTLE_PROTO_NODE = "BeerBottle"
 
+# ---- GT export ----
+EXPORT_GT_JSON = True
+GT_JSON_FILENAME = "spawned_objects.json"
 
 def dist2(a, b) -> float:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
+def _shared_gt_json_path() -> str:
+    # worldgen_supervisor.py is in: webots/controllers/worldgen_supervisor/
+    # shared dir is:            webots/controllers/shared/
+    here = os.path.dirname(__file__)
+    shared_dir = os.path.abspath(os.path.join(here, "..", "shared"))
+    os.makedirs(shared_dir, exist_ok=True)
+    return os.path.join(shared_dir, GT_JSON_FILENAME)
+
+
+def _write_gt_json(path: str, *, seed: int, positions_xy):
+    payload = {
+        "seed": int(seed),
+        "objects": [{"x": float(x), "y": float(y)} for (x, y) in positions_xy],
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
 
 def main():
     random.seed(SEED)
@@ -105,11 +129,16 @@ def main():
 
     print(f"Spawned {len(spawned_nodes)} bottles. Seed={SEED}")
 
+    if EXPORT_GT_JSON:
+        gt_path = _shared_gt_json_path()
+        _write_gt_json(gt_path, seed=SEED, positions_xy=spawned_positions)
+        print(f"GT JSON exported: {gt_path}")
+
     # Run for EPISODE_SECONDS, then cleanup
     start_time = supervisor.getTime()
     while supervisor.step(timestep) != -1:
         t = supervisor.getTime()
-        if (t - start_time) >= EPISODE_SECONDS:
+        if (t - start_time) >= TOTAL_SECONDS:
             break
 
     # Cleanup: remove all children under SPAWN_ROOT

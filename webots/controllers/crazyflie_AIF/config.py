@@ -1,0 +1,1 @@
+AIF_POLICY = "aif_saccade"   # or "wall_following"
