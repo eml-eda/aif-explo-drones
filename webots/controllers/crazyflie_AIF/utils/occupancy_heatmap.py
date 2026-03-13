@@ -12,7 +12,7 @@ import numpy as np
 
 
 # ---- EDIT THIS ----
-SUMMARY_CSV_PATH = "webots/controllers/crazyflie_AIF/logs/log_run_wall_following_20260219_150648/occupancy_summary_20260219_150648.csv"
+SUMMARY_CSV_PATH = "webots/controllers/crazyflie_AIF/logs/log_run_aif_saccade_20260313_151540/occupancy_summary_20260313_151540.csv"
 # -------------------
 
 

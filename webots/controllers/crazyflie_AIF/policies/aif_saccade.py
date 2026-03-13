@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, Tuple, Optional, List
+import os
+import json
+from datetime import datetime
+from typing import Dict, Tuple, Optional, List, Set, Any
 
 import numpy as np
 
@@ -44,7 +47,7 @@ class AIFSaccadePolicy:
     ):
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
-        
+
         # prior on "object present" per cell
         self.prior_present = float(prior_present)
 
@@ -75,12 +78,34 @@ class AIFSaccadePolicy:
             yaw_options = [k * (math.pi / 4.0) for k in range(8)]
         self.yaw_options = [float(y) for y in yaw_options]
 
+        # snapshot / stuck tracking
+        self._snap_dir: Optional[str] = None
+        self._stay_replan_streak: int = 0
+
+    # ---------------- public policy API ----------------
+
     def compute_action(self, observation: dict) -> Dict[str, float]:
         self._ensure_initialized(observation)
 
         step = observation.get("step", None)
         pose = observation["pose"]
         grid = observation["grid"]
+
+        task = observation.get("task", {}) or {}
+
+        # snapshot config from controller
+        snap_cfg = (task.get("snapshot", {}) or {})
+        snap_enabled = bool(snap_cfg.get("enabled", False))
+        snap_dir = snap_cfg.get("dir", None)
+        snap_every_n = int(snap_cfg.get("every_n", 0) or 0)
+        snap_on_stuck = bool(snap_cfg.get("on_stuck", False))
+        stuck_limit = int(snap_cfg.get("stuck_replan_limit", 0) or 0)
+
+        if snap_enabled and (self._snap_dir is None):
+            self._snap_dir = self._maybe_init_snapshot_dir(snap_dir)
+
+        found_cells_list = task.get("found_cells", []) or []
+        found_cells: Set[Cell] = {(int(cx), int(cy)) for (cx, cy) in found_cells_list}
 
         dbg_policy = bool(self.debug.get("policy_grid", False))
         dbg_every = int(self.debug.get("every_n", 50))
@@ -96,15 +121,86 @@ class AIFSaccadePolicy:
 
         # (2) pick new target only on arrival (or first time)
         assert self.navigator is not None
+
+        scored_actions: Optional[List[dict]] = None
+
         if (not self.navigator.has_target()) or self.navigator.arrived(pose, coverages):
             if current_cell is not None:
-                next_cell, next_yaw = self._pick_next_action(current_cell=current_cell)
+                (next_cell, next_yaw), scored_actions = self._pick_next_action(
+                    current_cell=current_cell,
+                    found_cells=found_cells,
+                    return_scores=True,
+                )
                 self.navigator.set_target(next_cell, next_yaw)
+
+                # stuck tracking: repeatedly choosing to stay at replans
+                if next_cell == current_cell:
+                    self._stay_replan_streak += 1
+                else:
+                    self._stay_replan_streak = 0
+
+                # snapshot on stuck
+                if (
+                    snap_enabled
+                    and snap_on_stuck
+                    and self._snap_dir
+                    and stuck_limit > 0
+                    and self._stay_replan_streak >= stuck_limit
+                    and scored_actions is not None
+                ):
+                    self._save_snapshot_npz(
+                        snap_dir=self._snap_dir,
+                        step=int(step or 0),
+                        pose=pose,
+                        current_cell=current_cell,
+                        found_cells=found_cells,
+                        det_conf=det_conf,
+                        visible_mask=visible_mask,
+                        coverages=coverages,
+                        chosen=(next_cell, next_yaw),
+                        scored_actions=scored_actions,
+                        reason=f"stuck{self._stay_replan_streak}",
+                    )
+                    # prevent spamming a snapshot every step
+                    self._stay_replan_streak = 0
 
                 if dbg_policy and step_ok:
                     print(f"[AIF] picked target cell={next_cell} yaw={next_yaw:.3f}", flush=True)
 
-        # ALWAYS print debug every_n steps, not only on replans
+        # periodic snapshots (independent of replans)
+        if (
+            snap_enabled
+            and self._snap_dir
+            and snap_every_n > 0
+            and (step is not None)
+            and (step % snap_every_n == 0)
+            and (current_cell is not None)
+        ):
+            # compute scored_actions for the current decision context
+            (best_cell, best_yaw), scored = self._pick_next_action(
+                current_cell=current_cell,
+                found_cells=found_cells,
+                return_scores=True,
+            )
+
+            chosen_cell = self.navigator.target_cell if (self.navigator and self.navigator.has_target()) else best_cell
+            chosen_yaw = self.navigator.target_yaw if (self.navigator and self.navigator.has_target()) else best_yaw
+
+            self._save_snapshot_npz(
+                snap_dir=self._snap_dir,
+                step=int(step),
+                pose=pose,
+                current_cell=current_cell,
+                found_cells=found_cells,
+                det_conf=det_conf,
+                visible_mask=visible_mask,
+                coverages=coverages,
+                chosen=(chosen_cell, float(chosen_yaw)),
+                scored_actions=scored,
+                reason="periodic",
+            )
+
+        # ALWAYS print debug every_n steps
         if dbg_policy and step_ok:
             cc = grid.get("current_cell")
             thr = grid.get("coverage_threshold")
@@ -114,7 +210,7 @@ class AIFSaccadePolicy:
             print(
                 f"[POLICY GRID] step={step} cc={cc} thr={thr} "
                 f"cells: cover={len(coverages)} mask={len(visible_mask)} det={num_det} visible={num_vis}",
-                flush=True
+                flush=True,
             )
 
             top_cov = sorted(coverages.items(), key=lambda kv: kv[1], reverse=True)[:9]
@@ -122,11 +218,17 @@ class AIFSaccadePolicy:
                 v = visible_mask.get((cx, cy), None)
                 d = det_conf.get((cx, cy), 0.0)
                 bp = self._belief_present(cx, cy)
-                print(f"  cell=({cx},{cy}) cov={frac*100:5.1f}% vis={v} det={d:.2f} q(present)={bp:.2f}", flush=True)
+                print(
+                    f"  cell=({cx},{cy}) cov={frac*100:5.1f}% vis={v} det={d:.2f} q(present)={bp:.2f}",
+                    flush=True,
+                )
 
             top_bel = self._top_beliefs(k=5)
             if top_bel:
-                print("  top q(present): " + ", ".join([f"({cx},{cy})={p:.2f}" for (cx, cy, p) in top_bel]), flush=True)
+                print(
+                    "  top q(present): " + ", ".join([f"({cx},{cy})={p:.2f}" for (cx, cy, p) in top_bel]),
+                    flush=True,
+                )
 
             if self.navigator is not None and self.navigator.has_target():
                 print(f"  target={self.navigator.target_cell} target_yaw={self.navigator.target_yaw:.3f}", flush=True)
@@ -174,9 +276,9 @@ class AIFSaccadePolicy:
 
         self.navigator = Navigator(
             self.grid_spec,
-            max_forward=0.12,
-            max_sideways=0.12,
-            max_yaw_rate=0.35,
+            max_forward=0.25,
+            max_sideways=0.25,
+            max_yaw_rate=0.60,
             k_pos=1.2,
             k_yaw=1.5,
             dist_eps_m=0.2,
@@ -184,7 +286,7 @@ class AIFSaccadePolicy:
             min_cell_coverage=0.60,
         )
 
-        # biased prior toward "absent" to enable saccade-like tracking once evidence appears
+        # biased prior toward "absent"
         p1 = float(np.clip(self.prior_present, 1e-6, 1.0 - 1e-6))
         p0 = 1.0 - p1
         self.q_s = np.zeros((self.grid_spec.rows, self.grid_spec.cols, 2), dtype=np.float64)
@@ -194,16 +296,6 @@ class AIFSaccadePolicy:
     # ---------------- belief update ----------------
 
     def _update_beliefs(self, *, visible_mask: Dict[Cell, bool], det_conf: Dict[Cell, float]) -> None:
-        """
-        Bayesian update for each visible cell (cx,cy).
-
-        Observed outcome:
-          o=1 (detect) iff det_conf(cell) > 0, else o=0 (no_detect)
-
-        A[o,s] with:
-          p_hit = max(conf, conf_floor)
-          p_fa  = p_fa
-        """
         assert self.q_s is not None
         rows, cols = self.q_s.shape[0], self.q_s.shape[1]
 
@@ -219,11 +311,10 @@ class AIFSaccadePolicy:
             p_hit = clamp(max(conf, self.conf_floor), 0.0, 1.0)
             p_fa = self.p_fa
 
-            # o ∈ {0=no_detect, 1=detect}, s ∈ {0=absent, 1=present}
-            # A[o,s]
+            # A[o,s] (o=0 no_detect, o=1 detect)
             A0 = np.array([1.0 - p_fa, 1.0 - p_hit], dtype=np.float64)  # o=0
-            A1 = np.array([p_fa,       p_hit],       dtype=np.float64)  # o=1
-            A = (A1 if conf > 0.0 else A0)
+            A1 = np.array([p_fa, p_hit], dtype=np.float64)             # o=1
+            A = A1 if conf > 0.0 else A0
 
             prior = self.q_s[cy, cx, :].copy()
             post_unnorm = A * prior
@@ -231,7 +322,8 @@ class AIFSaccadePolicy:
             if z <= 1e-12:
                 continue
             self.q_s[cy, cx, :] = post_unnorm / z
-    
+
+    # ---------------- debug helpers ----------------
 
     def _belief_present(self, cx: int, cy: int) -> float:
         if self.q_s is None:
@@ -262,21 +354,16 @@ class AIFSaccadePolicy:
     # ---------------- action selection ----------------
 
     def _adjacent_cells(self, current_cell: Cell) -> List[Cell]:
-        """
-        Candidate next cells. Includes the current cell to allow "stay + change yaw"
-        as an action.
-        """
+        """Includes current cell => 'stay + change yaw' possible."""
         assert self.grid_spec is not None
         cx, cy = current_cell
         nbrs: List[Cell] = []
-
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
                 nx = cx + dx
                 ny = cy + dy
                 if 0 <= nx < self.grid_spec.cols and 0 <= ny < self.grid_spec.rows:
                     nbrs.append((nx, ny))
-
         return nbrs
 
     def _cell_center_xy(self, cx: int, cy: int) -> Tuple[float, float]:
@@ -286,13 +373,26 @@ class AIFSaccadePolicy:
         cs = self.grid_spec.cell_size
         return (x0 + 0.5 * cs, y0 + 0.5 * cs)
 
-    def _pick_next_action(self, *, current_cell: Cell) -> Tuple[Cell, float]:
+    def _pick_next_action(
+        self,
+        *,
+        current_cell: Cell,
+        found_cells: Optional[Set[Cell]] = None,
+        return_scores: bool = False,
+    ):
         assert self.grid_spec is not None
         assert self.q_s is not None
 
         candidates = self._adjacent_cells(current_cell)
-        if not candidates:
-            return current_cell, 0.0
+
+        found_cells = found_cells or set()
+        filtered = [c for c in candidates if c not in found_cells]
+
+        # if everything filtered, fall back (prevents hard deadlock)
+        if filtered:
+            candidates = filtered
+
+        scores: Optional[List[dict]] = [] if return_scores else None
 
         best_G = float("inf")
         best = (candidates[0], self.yaw_options[0])
@@ -306,48 +406,61 @@ class AIFSaccadePolicy:
             base_cost = self.move_cost * dist
 
             for yaw in self.yaw_options:
-                G = self._expected_free_energy(target_cell=cell, target_xy=(tx, ty), target_yaw=yaw)
-                G = G + base_cost
+                risk, IG = self._efe_components(target_cell=cell, target_xy=(tx, ty), target_yaw=yaw)
+                G = float(risk - self.beta_info * IG + base_cost)
+
+                if return_scores and scores is not None:
+                    scores.append(
+                        {
+                            "cell": [int(cell[0]), int(cell[1])],
+                            "yaw": float(yaw),
+                            "risk": float(risk),
+                            "IG": float(IG),
+                            "base_cost": float(base_cost),
+                            "G": float(G),
+                        }
+                    )
+
                 if G < best_G:
                     best_G = G
                     best = (cell, yaw)
 
-        return best
+        return (best, scores) if return_scores else best
 
-    def _expected_free_energy(self, *, target_cell: Cell, target_xy: Tuple[float, float], target_yaw: float) -> float:
+    # ---------------- EFE components ----------------
+
+    def _efe_components(
+        self,
+        *,
+        target_cell: Cell,
+        target_xy: Tuple[float, float],
+        target_yaw: float,
+    ) -> Tuple[float, float]:
         """
-        1-step EFE:
-          - predict visible cells from hypothetical pose at (target_xy, target_yaw)
-            using the SAME geometry as runtime (GridEnvManager)
-          - epistemic value: expected information gain over predicted visible cells
-          - risk term: KL(predicted outcomes at target_cell || preference C)
+        Returns (risk, IG) for a hypothetical target pose.
+        risk: KL(p(o|target) || C) at target_cell
+        IG: expected info gain over predicted visible cells
         """
         assert self.env_mgr is not None
         assert self.q_s is not None
 
         x, y = target_xy
-
-        # predict coverages using your shared env manager (returns (row,col))
         cov_rc = self.env_mgr.compute_cell_coverages(x, y, target_yaw)
 
-        # Epistemic term (expected IG)
         IG = 0.0
         p_hit = self.planning_p_hit
         p_fa = self.p_fa
 
-        # fixed planning likelihood A[o,s]
-        # A[o,s] with o in {0,1}, s in {0,1}
         A = np.array(
             [
                 [1.0 - p_fa, 1.0 - p_hit],
-                [p_fa,       p_hit],
+                [p_fa, p_hit],
             ],
             dtype=np.float64,
         )
 
         for (r, c), frac in cov_rc.items():
             frac = float(frac)
-            # consistently with mask visibility
             if frac <= 0.05:
                 continue
 
@@ -355,9 +468,7 @@ class AIFSaccadePolicy:
             cx = int(c)
             prior = self.q_s[cy, cx, :]
 
-            # p(o) = A @ q(s)
-            p_o = A @ prior  # (2,)
-
+            p_o = A @ prior
             ig_cell = 0.0
             for o in (0, 1):
                 po = float(p_o[o])
@@ -373,11 +484,70 @@ class AIFSaccadePolicy:
 
             IG += frac * ig_cell
 
-        # Risk term at the target cell only
         cx_t, cy_t = target_cell
         prior_t = self.q_s[cy_t, cx_t, :]
         p_o_t = A @ prior_t
 
         risk = float(np.sum(p_o_t * (np.log(p_o_t + 1e-12) - np.log(self.C + 1e-12))))
+        return risk, float(IG)
 
+    def _expected_free_energy(
+        self,
+        *,
+        target_cell: Cell,
+        target_xy: Tuple[float, float],
+        target_yaw: float,
+    ) -> float:
+        """Convenience: EFE = risk - beta_info * IG"""
+        risk, IG = self._efe_components(target_cell=target_cell, target_xy=target_xy, target_yaw=target_yaw)
         return float(risk - self.beta_info * IG)
+
+    # ---------------- snapshot utilities ----------------
+
+    def _maybe_init_snapshot_dir(self, snap_dir: Optional[str]) -> Optional[str]:
+        if not snap_dir:
+            return None
+        os.makedirs(snap_dir, exist_ok=True)
+        return snap_dir
+
+    def _save_snapshot_npz(
+        self,
+        *,
+        snap_dir: str,
+        step: int,
+        pose: dict,
+        current_cell: Optional[Cell],
+        found_cells: Set[Cell],
+        det_conf: Dict[Cell, float],
+        visible_mask: Dict[Cell, bool],
+        coverages: Dict[Cell, float],
+        chosen: Tuple[Cell, float],
+        scored_actions: List[dict],
+        reason: str,
+    ) -> None:
+        if self.q_s is None:
+            return
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"snapshot_step{int(step):06d}_{reason}_{ts}.npz"
+        path = os.path.join(snap_dir, fname)
+
+        meta: Dict[str, Any] = {
+            "step": int(step),
+            "reason": str(reason),
+            "pose": {"x": float(pose["x"]), "y": float(pose["y"]), "yaw": float(pose["yaw"])},
+            "current_cell": [int(current_cell[0]), int(current_cell[1])] if current_cell is not None else None,
+            "chosen_cell": [int(chosen[0][0]), int(chosen[0][1])],
+            "chosen_yaw": float(chosen[1]),
+            "found_cells": sorted([[int(c[0]), int(c[1])] for c in found_cells]),
+            "det_conf": {f"{k[0]},{k[1]}": float(v) for k, v in det_conf.items()},
+            "visible_mask": {f"{k[0]},{k[1]}": bool(v) for k, v in visible_mask.items()},
+            "coverages": {f"{k[0]},{k[1]}": float(v) for k, v in coverages.items()},
+            "scored_actions": scored_actions,
+        }
+
+        np.savez_compressed(
+            path,
+            q_s=self.q_s.astype(np.float32),
+            meta_json=np.array(json.dumps(meta), dtype=object),
+        )

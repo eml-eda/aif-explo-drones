@@ -10,6 +10,9 @@ from controller import Robot
 from devices import CrazyflieDevices
 from pid.pid_controller import pid_velocity_fixed_height_controller
 from policies.wall_following import WallFollowingPolicy
+from policies.pseudo_random import PseudoRandomPolicy
+from policies.spiral import SpiralPolicy
+from policies.rotate_and_measure import RotateAndMeasurePolicy
 from policies.aif_saccade import AIFSaccadePolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
@@ -21,7 +24,7 @@ from env.env_manager import GridSpec, FoVSpec, GridEnvManager
 from config import AIF_POLICY as DEFAULT_POLICY
 
 # ---- Run toggles ----
-ENABLE_LOGGING = False
+ENABLE_LOGGING = True
 ENABLE_CAPTURES = False
 LOG_EVERY_N_STEPS = 20
 CAPTURE_EVERY_N_STEPS = 20
@@ -50,7 +53,7 @@ COVERAGE_UPDATE_THRESHOLD = 0.05
 
 # ---- Single debug config (controls controller + policy prints) ----
 DEBUG = {
-    "every_n": 50,
+    "every_n": 100,
 
     # Controller
     "fov": True,          # prints [FOV DEBUG]
@@ -61,10 +64,22 @@ DEBUG = {
     "policy_detections": True # print top-1 detection only when non-empty
 }
 
+# ---- Snapshot / debugging ----
+ENABLE_SNAPSHOTS = True
+SNAPSHOT_EVERY_N_STEPS = 200          # 0 disables periodic snapshots
+SNAPSHOT_ON_STUCK = True              # snapshot if policy repeats "stay" too long
+STUCK_REPLAN_LIMIT = 40               # number of replans picking the same cell
+
 # ---- Detection mode ----
 USE_GROUND_TRUTH_DETECTIONS = True
 GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
+
+# ---- Task manager: "found" definition ----
+# A cell is considered "found" if the same cell has detection confidence >= threshold
+# for K consecutive controller steps.
+FOUND_DET_THRESHOLD = 0.8
+FOUND_STREAK_STEPS = 50  # increase if you want stricter confirmation (e.g., 30-60)
 
 # ---- Takeoff warm-up ----
 AUTO_START_AUTONOMY = True
@@ -112,6 +127,9 @@ def load_policy(name, debug=None):
     registry = {
         "wall_following": WallFollowingPolicy,
         "aif_saccade": AIFSaccadePolicy,
+        "pseudo_random": PseudoRandomPolicy,
+        "spiral": SpiralPolicy,
+        "rotate_and_measure": RotateAndMeasurePolicy,
     }
     if name not in registry:
         raise ValueError(f"Unknown policy '{name}'. Available: {', '.join(sorted(registry))}")
@@ -160,6 +178,13 @@ if __name__ == "__main__":
         # temp debug
         print("[GT] Example objects:", gt_objects_xy[:3])
 
+        # ---- Task state (cells in cx,cy space) ----
+        TOTAL_OBJECTS = len(gt_objects_xy)
+        remaining_objects = TOTAL_OBJECTS
+        found_cells = set()          # set of (cx,cy)
+        _found_streak_cell = None    # (cx,cy) currently being confirmed
+        _found_streak_count = 0
+
         gt_detector = GroundTruthDetector(
             object_positions_xy=gt_objects_xy,
             grid_spec=grid_spec,
@@ -177,7 +202,7 @@ if __name__ == "__main__":
     base_log_dir = os.path.join(os.path.dirname(__file__), "logs")
 
     run_dir = None
-    if ENABLE_LOGGING or ENABLE_CAPTURES:
+    if ENABLE_LOGGING or ENABLE_CAPTURES or ENABLE_SNAPSHOTS:
         run_dir = make_run_dir(base_log_dir, prefix=f"log_run_{policy_name}")
         print("Run output dir:", run_dir)
 
@@ -316,6 +341,40 @@ if __name__ == "__main__":
 
             det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
 
+            # ---- Task manager update: confirm & ban found cells ----
+            best_cell = None
+            best_conf = 0.0
+            if det_conf_cxcy:
+                best_cell, best_conf = max(det_conf_cxcy.items(), key=lambda kv: float(kv[1]))
+
+            # Only count streaks for cells not already found
+            if (best_cell is not None) and (float(best_conf) >= FOUND_DET_THRESHOLD) and (best_cell not in found_cells):
+                if _found_streak_cell == best_cell:
+                    _found_streak_count += 1
+                else:
+                    _found_streak_cell = best_cell
+                    _found_streak_count = 1
+
+                # If confirmed, mark found and ban it
+                if _found_streak_count >= FOUND_STREAK_STEPS:
+                    found_cells.add(best_cell)
+                    if remaining_objects is not None:
+                        remaining_objects = max(0, int(remaining_objects) - 1)
+
+                    print(
+                        f"[FOUND] cell={best_cell} conf={best_conf:.2f} "
+                        f"streak={_found_streak_count} remaining={remaining_objects}",
+                        flush=True
+                    )
+
+                    # reset streak so we don’t instantly re-trigger
+                    _found_streak_cell = None
+                    _found_streak_count = 0
+            else:
+                # reset streak if we lose the signal or if it’s already found
+                _found_streak_cell = None
+                _found_streak_count = 0
+
             # ---- Controller debug: only FoV geometry sanity ----
             if DEBUG.get("fov", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
                 top_rc = sorted(coverages.items(), key=lambda kv: kv[1], reverse=True)[:12]
@@ -359,6 +418,20 @@ if __name__ == "__main__":
                     "visible_mask": visible_mask_cxcy,
                     "coverage_threshold": COVERAGE_UPDATE_THRESHOLD,
                     "det_confidence": det_conf_cxcy,
+                },
+                "task": {
+                    "found_cells": sorted(list(found_cells)),
+                    "remaining_objects": remaining_objects,
+                    "total_objects": TOTAL_OBJECTS,
+                    "found_det_threshold": FOUND_DET_THRESHOLD,
+                    "found_streak_steps": FOUND_STREAK_STEPS,
+                    "snapshot": {
+                        "enabled": ENABLE_SNAPSHOTS,
+                        "dir": os.path.join(run_dir, "snapshots") if run_dir else None,
+                        "every_n": SNAPSHOT_EVERY_N_STEPS,
+                        "on_stuck": SNAPSHOT_ON_STUCK,
+                        "stuck_replan_limit": STUCK_REPLAN_LIMIT,
+                    },
                 },
                 "fov_spec": {
                     "half_left": fov_spec.half_left,

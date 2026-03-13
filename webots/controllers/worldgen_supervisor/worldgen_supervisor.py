@@ -9,7 +9,7 @@ import os
 import json
 
 # ---- Experiment settings ----
-SEED = 21
+SEED = 28
 
 WARMUP_SECONDS = 15.0
 EPISODE_SECONDS = 180.0
@@ -26,7 +26,7 @@ WALL_MARGIN = 0.35
 DRONE_EXCLUSION_RADIUS = 0.75
 
 # Avoid overlap between spawned objects
-MIN_SEPARATION = 0.30
+MIN_SEPARATION = 0.70
 
 # Bottle object we spawn (from IMPORTABLE EXTERNPROTO)
 # We'll set translation explicitly.
@@ -149,7 +149,6 @@ def main():
 
     print("Cleanup complete. Quitting simulation.")
     supervisor.simulationQuit(0)  # available in Supervisor API
-    # simulationQuit is part of the Supervisor API set. :contentReference[oaicite:3]{index=3}
 
 
 if __name__ == "__main__":
