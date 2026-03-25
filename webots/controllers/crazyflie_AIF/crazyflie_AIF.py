@@ -1,4 +1,4 @@
-# crazyflie_AIF.py
+# controllers/crazyflie_AIF/crazyflie_AIF.py
 
 import os
 from datetime import datetime
@@ -56,35 +56,36 @@ DEBUG = {
     "every_n": 100,
 
     # Controller
-    "fov": True,          # prints [FOV DEBUG]
-    "cmd": True,          # prints [cmd]
+    "fov": True,
+    "cmd": True,
 
     # Policy
-    "policy_grid": True,       # prints [POLICY GRID]
-    "policy_detections": True # print top-1 detection only when non-empty
+    "policy_grid": True,
+    "policy_detections": True,
 }
 
 # ---- Snapshot / debugging ----
 ENABLE_SNAPSHOTS = True
-SNAPSHOT_EVERY_N_STEPS = 200          # 0 disables periodic snapshots
-SNAPSHOT_ON_STUCK = True              # snapshot if policy repeats "stay" too long
-STUCK_REPLAN_LIMIT = 40               # number of replans picking the same cell
+SNAPSHOT_EVERY_N_STEPS = 200
+SNAPSHOT_ON_STUCK = True
+STUCK_REPLAN_LIMIT = 40
 
 # ---- Detection mode ----
 USE_GROUND_TRUTH_DETECTIONS = True
 GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
+# ---- Shared task/progress files ----
+TASK_STATE_FILENAME = "task_state.json"                  # supervisor-owned
+CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
+
 # ---- Task manager: "found" definition ----
-# A cell is considered "found" if the same cell has detection confidence >= threshold
-# for K consecutive controller steps.
 FOUND_DET_THRESHOLD = 0.8
-FOUND_STREAK_STEPS = 50  # increase if you want stricter confirmation (e.g., 30-60)
+FOUND_STREAK_STEPS = 50
 
 # ---- Takeoff warm-up ----
 AUTO_START_AUTONOMY = True
 AUTONOMY_START_DELAY_S = 15.0
-
 
 
 def rc_to_cxcy(rc):
@@ -97,12 +98,32 @@ def rc_to_cxcy(rc):
 def dict_rc_to_cxcy(d):
     return {(c, r): v for (r, c), v in d.items()}
 
-def _shared_gt_json_path(filename: str) -> str:
-    # crazyflie_AIF.py is in: webots/controllers/crazyflie_AIF/
-    # shared dir is:          webots/controllers/shared/
+
+def _shared_dir() -> str:
     here = os.path.dirname(__file__)
     shared_dir = os.path.abspath(os.path.join(here, "..", "shared"))
-    return os.path.join(shared_dir, filename)
+    os.makedirs(shared_dir, exist_ok=True)
+    return shared_dir
+
+
+def _shared_path(filename: str) -> str:
+    return os.path.join(_shared_dir(), filename)
+
+
+def _read_json(path: str, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def _atomic_write_json(path: str, payload) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    os.replace(tmp_path, path)
 
 
 def load_gt_objects_xy(json_path: str):
@@ -115,6 +136,16 @@ def load_gt_objects_xy(json_path: str):
         if "x" in o and "y" in o:
             out.append((float(o["x"]), float(o["y"])))
     return out
+
+
+def load_gt_seed(json_path: str) -> int:
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return int(data.get("seed", -1))
+    except Exception:
+        return -1
+
 
 def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -135,6 +166,7 @@ def load_policy(name, debug=None):
         raise ValueError(f"Unknown policy '{name}'. Available: {', '.join(sorted(registry))}")
     return registry[name](debug=debug)
 
+
 if __name__ == "__main__":
     robot = Robot()
     timestep = int(robot.getBasicTimeStep())
@@ -145,6 +177,10 @@ if __name__ == "__main__":
 
     policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
     policy = load_policy(policy_name, debug=DEBUG)
+
+    gt_path = _shared_path(GT_JSON_FILENAME)
+    task_state_path = _shared_path(TASK_STATE_FILENAME)
+    controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
 
     # ---- Grid spec ----
     grid_spec = GridSpec(
@@ -171,19 +207,27 @@ if __name__ == "__main__":
     gt_detector = None
     gt_objects_xy = None
 
+    claimed_found_cells = set()   # controller-local claims only
+    _found_streak_cell = None
+    _found_streak_count = 0
+
+    validated_found_cells = set()  # supervisor-authoritative
+    TOTAL_OBJECTS = 0
+    remaining_objects = 0
+    supervisor_status = "running"
+    supervisor_reason = None
+
+    visited_cells = set()
+
+    autonomy_start_time = None
+    gt_seed = -1
+    final_snapshot_written = False
+
     if USE_GROUND_TRUTH_DETECTIONS:
-        gt_path = _shared_gt_json_path(GT_JSON_FILENAME)
+        gt_seed = load_gt_seed(gt_path)
         gt_objects_xy = load_gt_objects_xy(gt_path)
         print(f"[GT] Loaded {len(gt_objects_xy)} objects from {gt_path}")
-        # temp debug
         print("[GT] Example objects:", gt_objects_xy[:3])
-
-        # ---- Task state (cells in cx,cy space) ----
-        TOTAL_OBJECTS = len(gt_objects_xy)
-        remaining_objects = TOTAL_OBJECTS
-        found_cells = set()          # set of (cx,cy)
-        _found_streak_cell = None    # (cx,cy) currently being confirmed
-        _found_streak_count = 0
 
         gt_detector = GroundTruthDetector(
             object_positions_xy=gt_objects_xy,
@@ -195,9 +239,14 @@ if __name__ == "__main__":
         detector = Detector()
 
     print("\n[FoV setup]")
-    print(f"  cell_size={CELL_SIZE_M}m grid={GRID_ROWS}x{GRID_COLS} "
-          f"x∈[{MIN_X:.2f},{MAX_X:.2f}] y∈[{MIN_Y:.2f},{MAX_Y:.2f}]")
-    print(f"  footprint width={FOV_WIDTH_M:.2f}m forward={FOV_FORWARD_M:.2f}m backward={FOV_BACKWARD_M:.2f}m")
+    print(
+        f"  cell_size={CELL_SIZE_M}m grid={GRID_ROWS}x{GRID_COLS} "
+        f"x∈[{MIN_X:.2f},{MAX_X:.2f}] y∈[{MIN_Y:.2f},{MAX_Y:.2f}]"
+    )
+    print(
+        f"  footprint width={FOV_WIDTH_M:.2f}m "
+        f"forward={FOV_FORWARD_M:.2f}m backward={FOV_BACKWARD_M:.2f}m"
+    )
 
     base_log_dir = os.path.join(os.path.dirname(__file__), "logs")
 
@@ -210,6 +259,7 @@ if __name__ == "__main__":
         enabled=ENABLE_LOGGING,
         log_dir=run_dir,
         grid_spec=grid_spec,
+        min_time_s=AUTONOMY_START_DELAY_S,
     )
 
     pid_controller = pid_velocity_fixed_height_controller()
@@ -223,15 +273,51 @@ if __name__ == "__main__":
     print("Controls: Arrow keys for planar motion, Q/E yaw, W/S altitude")
     print("Press A to enable autonomous mode, D to disable\n")
 
+    # Initialize controller progress file
+    _atomic_write_json(
+        controller_progress_path,
+        {
+            "policy_name": policy_name,
+            "run_dir": run_dir,
+            "autonomy_start_time_s": None,
+            "last_controller_time_s": 0.0,
+            "visited_cells": [],
+            "claimed_found_cells": [],
+        },
+    )
+
     try:
         while robot.step(timestep) != -1:
             step_count += 1
             observation = devices.read()
             dt = observation["dt"]
+            time_now = float(observation["time"])
+
+            # ---- Read supervisor task state ----
+            task_state = _read_json(
+                task_state_path,
+                {
+                    "status": "running",
+                    "reason": None,
+                    "total_objects": 0,
+                    "remaining_objects": 0,
+                    "validated_found_cells": [],
+                },
+            )
+            supervisor_status = str(task_state.get("status", "running"))
+            supervisor_reason = task_state.get("reason", None)
+            TOTAL_OBJECTS = int(task_state.get("total_objects", 0))
+            remaining_objects = int(task_state.get("remaining_objects", 0))
+            validated_found_cells = {
+                (int(cx), int(cy))
+                for (cx, cy) in task_state.get("validated_found_cells", [])
+            }
+
             if AUTO_START_AUTONOMY and (not autonomous_mode):
-                if float(observation["time"]) >= AUTONOMY_START_DELAY_S:
+                if time_now >= AUTONOMY_START_DELAY_S and supervisor_status == "running":
                     autonomous_mode = True
-                    print(f"Autonomous mode: ON (auto at t={observation['time']:.1f}s)")
+                    autonomy_start_time = float(time_now)
+                    print(f"Autonomous mode: ON (auto at t={time_now:.1f}s)", flush=True)
 
             forward_desired = 0.0
             sideways_desired = 0.0
@@ -257,17 +343,17 @@ if __name__ == "__main__":
                 elif key == ord("S"):
                     height_diff_desired = -0.1
                 elif key == ord("A"):
-                    if not autonomous_mode:
+                    if not autonomous_mode and supervisor_status == "running":
                         autonomous_mode = True
-                        print("Autonomous mode: ON")
+                        autonomy_start_time = float(time_now)
+                        print("Autonomous mode: ON", flush=True)
                 elif key == ord("D"):
                     if autonomous_mode:
                         autonomous_mode = False
-                        print("Autonomous mode: OFF")
+                        print("Autonomous mode: OFF", flush=True)
                 key = keyboard.getKey()
 
             height_desired = max(0.1, height_desired + height_diff_desired * dt)
-
 
             if ENABLE_CAPTURES and (step_count % CAPTURE_EVERY_N_STEPS == 0):
                 save_capture(
@@ -277,24 +363,28 @@ if __name__ == "__main__":
                     timestamp=observation["camera"]["time"],
                     output_dir=os.path.join(run_dir, "captures"),
                 )
-            
+
             x_pos = observation["gps"]["x"]
             y_pos = observation["gps"]["y"]
             yaw = observation["imu"]["yaw"]
 
-            # ---- FoV visibility first (this mask gates BOTH belief updates and detections) ----
-            coverages = env_mgr.compute_cell_coverages(x_pos, y_pos, yaw)  # (row,col)->frac
+            # ---- FoV visibility first ----
+            coverages = env_mgr.compute_cell_coverages(x_pos, y_pos, yaw)
             visible_mask = env_mgr.coverage_to_visible_mask(
-                coverages, threshold=COVERAGE_UPDATE_THRESHOLD
-            )  # (row,col)->bool
+                coverages,
+                threshold=COVERAGE_UPDATE_THRESHOLD,
+            )
 
             current_cell_rc = grid_spec.rowcol_from_xy(x_pos, y_pos)
             current_cell_cxcy = rc_to_cxcy(current_cell_rc)
 
+            if current_cell_cxcy is not None:
+                visited_cells.add(current_cell_cxcy)
+
             coverages_cxcy = dict_rc_to_cxcy(coverages)
             visible_mask_cxcy = dict_rc_to_cxcy(visible_mask)
 
-            # ---- Detections (must lie on the SAME visible mask) ----
+            # ---- Detections ----
             det_conf_rc = {}
 
             if USE_GROUND_TRUTH_DETECTIONS:
@@ -304,9 +394,11 @@ if __name__ == "__main__":
                     drone_y=y_pos,
                     drone_yaw=yaw,
                 )
-                # Keep GT detections only if the cell is visible by visible_mask
-                det_conf_rc = {cell: conf for cell, conf in det_conf_rc_raw.items() if visible_mask.get(cell, False)}
-
+                det_conf_rc = {
+                    cell: conf
+                    for cell, conf in det_conf_rc_raw.items()
+                    if visible_mask.get(cell, False)
+                }
             else:
                 assert detector is not None
                 detector_output = detector.process(
@@ -332,7 +424,6 @@ if __name__ == "__main__":
                     )
                     if cell_rc is None:
                         continue
-                    # Drop detections that are not in the visible mask
                     if not visible_mask.get(cell_rc, False):
                         continue
                     prev = det_conf_rc.get(cell_rc, 0.0)
@@ -341,50 +432,48 @@ if __name__ == "__main__":
 
             det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
 
-            # ---- Task manager update: confirm & ban found cells ----
+            # ---- Controller claim trigger only ----
             best_cell = None
             best_conf = 0.0
             if det_conf_cxcy:
                 best_cell, best_conf = max(det_conf_cxcy.items(), key=lambda kv: float(kv[1]))
 
-            # Only count streaks for cells not already found
-            if (best_cell is not None) and (float(best_conf) >= FOUND_DET_THRESHOLD) and (best_cell not in found_cells):
+            if (
+                (best_cell is not None)
+                and (float(best_conf) >= FOUND_DET_THRESHOLD)
+                and (best_cell not in claimed_found_cells)
+            ):
                 if _found_streak_cell == best_cell:
                     _found_streak_count += 1
                 else:
                     _found_streak_cell = best_cell
                     _found_streak_count = 1
 
-                # If confirmed, mark found and ban it
                 if _found_streak_count >= FOUND_STREAK_STEPS:
-                    found_cells.add(best_cell)
-                    if remaining_objects is not None:
-                        remaining_objects = max(0, int(remaining_objects) - 1)
-
+                    claimed_found_cells.add(best_cell)
                     print(
-                        f"[FOUND] cell={best_cell} conf={best_conf:.2f} "
-                        f"streak={_found_streak_count} remaining={remaining_objects}",
-                        flush=True
+                        f"[FOUND CLAIM] cell={best_cell} conf={best_conf:.2f} "
+                        f"streak={_found_streak_count}",
+                        flush=True,
                     )
-
-                    # reset streak so we don’t instantly re-trigger
                     _found_streak_cell = None
                     _found_streak_count = 0
             else:
-                # reset streak if we lose the signal or if it’s already found
                 _found_streak_cell = None
                 _found_streak_count = 0
 
-            # ---- Controller debug: only FoV geometry sanity ----
+            # ---- Controller debug ----
             if DEBUG.get("fov", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
                 top_rc = sorted(coverages.items(), key=lambda kv: kv[1], reverse=True)[:12]
                 num_vis = sum(1 for v in visible_mask.values() if v)
 
                 print("\n[FOV DEBUG]")
-                print(f"  step={step_count}  pos=({x_pos:.2f},{y_pos:.2f}) yaw={yaw:.3f} rad ({yaw * 180.0 / 3.14159:.1f} deg)")
+                print(
+                    f"  step={step_count}  pos=({x_pos:.2f},{y_pos:.2f}) "
+                    f"yaw={yaw:.3f} rad ({yaw * 180.0 / 3.14159:.1f} deg)"
+                )
                 print(f"  current_cell(cx,cy)={current_cell_cxcy}")
                 print(f"  coverages: {len(coverages)} cells intersect FoV; {num_vis} >= {COVERAGE_UPDATE_THRESHOLD:.2f}")
-
                 for (r, c), frac in top_rc:
                     print(f"    cell=(cx={c},cy={r}) coverage={frac*100:5.1f}% visible={visible_mask[(r,c)]}")
 
@@ -396,6 +485,18 @@ if __name__ == "__main__":
                     y_m=y_pos,
                     dt_s=dt,
                 )
+
+            # ---- Write controller progress for supervisor ----
+            if (step_count % LOG_EVERY_N_STEPS == 0) or (best_cell in claimed_found_cells):
+                progress_payload = {
+                    "policy_name": policy_name,
+                    "run_dir": run_dir,
+                    "autonomy_start_time_s": autonomy_start_time,
+                    "last_controller_time_s": float(time_now),
+                    "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
+                    "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
+                }
+                _atomic_write_json(controller_progress_path, progress_payload)
 
             # ---- Build coherent policy observation ----
             obs_for_policy = {
@@ -420,7 +521,7 @@ if __name__ == "__main__":
                     "det_confidence": det_conf_cxcy,
                 },
                 "task": {
-                    "found_cells": sorted(list(found_cells)),
+                    "found_cells": sorted(list(validated_found_cells)),
                     "remaining_objects": remaining_objects,
                     "total_objects": TOTAL_OBJECTS,
                     "found_det_threshold": FOUND_DET_THRESHOLD,
@@ -441,17 +542,35 @@ if __name__ == "__main__":
                 },
             }
 
-            if autonomous_mode:
+            # ---- Supervisor-controlled end-of-run handling ----
+            if supervisor_status != "running":
+                if autonomous_mode:
+                    autonomous_mode = False
+                    print(f"Autonomous mode: OFF ({supervisor_status})", flush=True)
+
+                if (not final_snapshot_written) and hasattr(policy, "save_snapshot_from_controller"):
+                    try:
+                        policy.save_snapshot_from_controller(
+                            obs_for_policy,
+                            reason=str(supervisor_reason or supervisor_status),
+                        )
+                        final_snapshot_written = True
+                    except Exception as e:
+                        print(f"[SNAPSHOT] final snapshot failed: {e}", flush=True)
+
+            if autonomous_mode and supervisor_status == "running":
                 policy_action = policy.compute_action(obs_for_policy)
                 forward_desired = policy_action.get("forward", 0.0)
                 sideways_desired = policy_action.get("sideways", 0.0)
                 yaw_desired = policy_action.get("yaw_rate", 0.0)
 
-            # ---- Controller debug: only actuation sanity ----
+            # ---- Controller debug: actuation sanity ----
             if DEBUG.get("cmd", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
-                print(f"[cmd] step={step_count} auto={autonomous_mode} "
-                      f"fwd={forward_desired:.2f} side={sideways_desired:.2f} yaw={yaw_desired:.2f} "
-                      f"h_des={height_desired:.2f} z={observation['gps']['z']:.2f}")
+                print(
+                    f"[cmd] step={step_count} auto={autonomous_mode} "
+                    f"fwd={forward_desired:.2f} side={sideways_desired:.2f} yaw={yaw_desired:.2f} "
+                    f"h_des={height_desired:.2f} z={observation['gps']['z']:.2f}"
+                )
 
             motor_power = pid_controller.pid(
                 dt,
@@ -470,7 +589,6 @@ if __name__ == "__main__":
             devices.set_motor_speeds(motor_power)
 
             if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
-                det_count = 0
                 if USE_GROUND_TRUTH_DETECTIONS:
                     det_count = len(det_conf_rc)
                 else:
@@ -486,4 +604,18 @@ if __name__ == "__main__":
                 )
 
     finally:
+        # final controller progress flush
+        try:
+            progress_payload = {
+                "policy_name": policy_name,
+                "run_dir": run_dir,
+                "autonomy_start_time_s": autonomy_start_time,
+                "last_controller_time_s": float(time_now) if "time_now" in locals() else 0.0,
+                "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
+                "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
+            }
+            _atomic_write_json(controller_progress_path, progress_payload)
+        except Exception:
+            pass
+
         logger.close()

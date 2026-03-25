@@ -1,11 +1,15 @@
 # utils/snapshot_analyzer.py
+
 from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -15,7 +19,7 @@ Cell = Tuple[int, int]
 @dataclass
 class SnapshotData:
     path: str
-    q_s: np.ndarray  # (rows, cols, 2) float32
+    q_s: np.ndarray
     meta: Dict[str, Any]
 
 
@@ -29,63 +33,7 @@ class ActionRankRow:
     base_cost: float
 
 
-@dataclass
-class AnalysisSummary:
-    # high-level
-    step: int
-    reason: str
-    pose: Dict[str, float]
-    current_cell: Optional[Cell]
-    chosen_cell: Cell
-    chosen_yaw: float
-    found_cells: List[Cell]
-
-    # belief stats
-    rows: int
-    cols: int
-    prior_present_mean: float
-    q_present_mean: float
-    q_present_max: float
-    q_present_argmax: Cell
-    q_present_topk: List[Tuple[Cell, float]]
-
-    # action stats
-    n_actions: int
-    top_actions: List[ActionRankRow]
-    chosen_rank: int  # 1 = best
-    chosen_is_stay: bool
-
-    # decomposition insights
-    G_min: float
-    G_max: float
-    IG_min: float
-    IG_max: float
-    risk_min: float
-    risk_max: float
-    base_min: float
-    base_max: float
-
-    # “stuck” hypothesis indicators
-    ig_is_exhausted: bool
-    risk_is_flat: bool
-    base_cost_dominates: bool
-
-    # environment signals recorded in meta (if present)
-    det_conf_cells: List[Tuple[Cell, float]]
-    visible_cells: List[Cell]
-
-
 class SnapshotAnalyzer:
-    """
-    Loads and analyzes an AIF snapshot saved by AIFSaccadePolicy.
-
-    Snapshot format expected (np.savez_compressed):
-      - q_s: (rows, cols, 2) float32
-      - meta_json: JSON string with keys like:
-            step, reason, pose, current_cell, chosen_cell, chosen_yaw,
-            found_cells, det_conf, visible_mask, coverages, scored_actions
-    """
-
     def __init__(self, *, eps: float = 1e-12):
         self.eps = float(eps)
 
@@ -107,246 +55,7 @@ class SnapshotAnalyzer:
         return SnapshotData(path=path, q_s=q_s, meta=meta)
 
     # ---------------------------
-    # Main analysis
-    # ---------------------------
-
-    def analyze(
-        self,
-        snap: SnapshotData,
-        *,
-        top_k_actions: int = 12,
-        top_k_cells: int = 10,
-        ig_exhausted_thresh: float = 1e-3,
-        risk_flat_thresh: float = 1e-3,
-        base_dom_ratio: float = 2.0,
-    ) -> AnalysisSummary:
-        q_s = snap.q_s
-        meta = snap.meta
-
-        rows, cols = int(q_s.shape[0]), int(q_s.shape[1])
-        if q_s.ndim != 3 or q_s.shape[2] != 2:
-            raise ValueError(f"q_s has wrong shape: {q_s.shape}, expected (rows, cols, 2)")
-
-        q_present = q_s[:, :, 1].astype(np.float64)  # present prob map
-        q_absent = q_s[:, :, 0].astype(np.float64)
-
-        # Some sanity: probabilities should sum to 1-ish
-        # (Don’t fail hard; just compute a quick metric.)
-        sum_err = np.abs((q_present + q_absent) - 1.0)
-        # Not returned directly, but you can add if you want.
-        _sum_err_mean = float(sum_err.mean())
-
-        # Belief stats
-        q_present_mean = float(q_present.mean())
-        q_present_max = float(q_present.max())
-        argmax_flat = int(np.argmax(q_present))
-        q_present_argmax = (argmax_flat % cols, argmax_flat // cols)  # (cx, cy)
-
-        top_cells = self._topk_cells(q_present, k=top_k_cells)
-
-        # Extract meta fields safely
-        step = int(meta.get("step", -1))
-        reason = str(meta.get("reason", ""))
-        pose = meta.get("pose", {}) or {}
-        pose_out = {
-            "x": float(pose.get("x", 0.0)),
-            "y": float(pose.get("y", 0.0)),
-            "yaw": float(pose.get("yaw", 0.0)),
-        }
-
-        current_cell = self._as_cell(meta.get("current_cell", None))
-        chosen_cell = self._as_cell(meta.get("chosen_cell", None), required=True)
-        chosen_yaw = float(meta.get("chosen_yaw", 0.0))
-
-        found_cells = [self._as_cell(c, required=True) for c in (meta.get("found_cells", []) or [])]
-
-        # Parse signals
-        det_conf_cells = self._parse_cell_float_map(meta.get("det_conf", {}) or {})
-        visible_cells = self._parse_cell_bool_map(meta.get("visible_mask", {}) or {})
-
-        # Action scoring table
-        scored = meta.get("scored_actions", None)
-        if not isinstance(scored, list):
-            scored = []
-
-        action_rows = self._parse_actions(scored)
-        action_rows_sorted = sorted(action_rows, key=lambda r: r.G)
-
-        n_actions = len(action_rows_sorted)
-        top_actions = action_rows_sorted[: max(1, int(top_k_actions))]
-
-        chosen_rank = self._find_chosen_rank(action_rows_sorted, chosen_cell, chosen_yaw)
-        chosen_is_stay = (current_cell is not None) and (chosen_cell == current_cell)
-
-        # Decomposition ranges
-        G_min, G_max = self._minmax([r.G for r in action_rows_sorted])
-        IG_min, IG_max = self._minmax([r.IG for r in action_rows_sorted])
-        risk_min, risk_max = self._minmax([r.risk for r in action_rows_sorted])
-        base_min, base_max = self._minmax([r.base_cost for r in action_rows_sorted])
-
-        # Heuristic “why stuck” flags
-        ig_is_exhausted = (IG_max <= float(ig_exhausted_thresh))
-        risk_is_flat = ((risk_max - risk_min) <= float(risk_flat_thresh))
-
-        # base_cost dominance: if variation in base_cost dwarfs variation in (risk - beta*IG)
-        # We don’t have beta here, but we can approximate dominance by comparing spreads:
-        # base_spread vs (risk_spread + IG_spread) scaled.
-        base_spread = base_max - base_min
-        signal_spread = (risk_max - risk_min) + (IG_max - IG_min)
-        base_cost_dominates = (signal_spread > 0.0) and (base_spread / (signal_spread + self.eps) >= float(base_dom_ratio))
-
-        # Prior present mean is not stored explicitly; we can approximate it from low-confidence regions.
-        # A simple proxy: median present probability.
-        prior_present_mean = float(np.median(q_present))
-
-        return AnalysisSummary(
-            step=step,
-            reason=reason,
-            pose=pose_out,
-            current_cell=current_cell,
-            chosen_cell=chosen_cell,
-            chosen_yaw=chosen_yaw,
-            found_cells=found_cells,
-            rows=rows,
-            cols=cols,
-            prior_present_mean=prior_present_mean,
-            q_present_mean=q_present_mean,
-            q_present_max=q_present_max,
-            q_present_argmax=q_present_argmax,
-            q_present_topk=top_cells,
-            n_actions=n_actions,
-            top_actions=top_actions,
-            chosen_rank=chosen_rank,
-            chosen_is_stay=chosen_is_stay,
-            G_min=G_min,
-            G_max=G_max,
-            IG_min=IG_min,
-            IG_max=IG_max,
-            risk_min=risk_min,
-            risk_max=risk_max,
-            base_min=base_min,
-            base_max=base_max,
-            ig_is_exhausted=ig_is_exhausted,
-            risk_is_flat=risk_is_flat,
-            base_cost_dominates=base_cost_dominates,
-            det_conf_cells=det_conf_cells,
-            visible_cells=visible_cells,
-        )
-
-    # ---------------------------
-    # Reporting / exporting
-    # ---------------------------
-
-    def format_report(self, summary: AnalysisSummary, *, max_actions: int = 12) -> str:
-        lines: List[str] = []
-        lines.append(f"Snapshot analysis")
-        lines.append(f"- step={summary.step} reason='{summary.reason}'")
-        lines.append(f"- pose: x={summary.pose['x']:.2f} y={summary.pose['y']:.2f} yaw={summary.pose['yaw']:.3f} rad")
-
-        lines.append(f"- current_cell={summary.current_cell} chosen_cell={summary.chosen_cell} chosen_yaw={summary.chosen_yaw:.3f}")
-        lines.append(f"- chosen_rank={summary.chosen_rank}/{max(1, summary.n_actions)} chosen_is_stay={summary.chosen_is_stay}")
-
-        lines.append("")
-        lines.append("Belief map (q(present))")
-        lines.append(f"- mean={summary.q_present_mean:.4f} max={summary.q_present_max:.4f} argmax={summary.q_present_argmax}")
-        lines.append(f"- prior_proxy(median)={summary.prior_present_mean:.4f}")
-        lines.append(f"- top cells:")
-        for (cell, p) in summary.q_present_topk:
-            lines.append(f"  - cell={cell} q={p:.4f}")
-
-        lines.append("")
-        lines.append("Action scoring ranges")
-        lines.append(f"- G   min={summary.G_min:.6f} max={summary.G_max:.6f}")
-        lines.append(f"- IG  min={summary.IG_min:.6f} max={summary.IG_max:.6f}")
-        lines.append(f"- risk min={summary.risk_min:.6f} max={summary.risk_max:.6f}")
-        lines.append(f"- base min={summary.base_min:.6f} max={summary.base_max:.6f}")
-
-        lines.append("")
-        lines.append("Stuck-hypothesis indicators")
-        lines.append(f"- IG exhausted? {summary.ig_is_exhausted} (IG_max={summary.IG_max:.6f})")
-        lines.append(f"- risk flat?    {summary.risk_is_flat} (risk_spread={summary.risk_max - summary.risk_min:.6f})")
-        lines.append(f"- base dominates? {summary.base_cost_dominates}")
-
-        lines.append("")
-        lines.append(f"Top {min(max_actions, len(summary.top_actions))} actions by G (best first):")
-        for i, r in enumerate(summary.top_actions[:max_actions], start=1):
-            stay_flag = ""
-            if summary.current_cell is not None and r.cell == summary.current_cell:
-                stay_flag = " [STAY]"
-            chosen_flag = ""
-            if r.cell == summary.chosen_cell and abs(r.yaw - summary.chosen_yaw) < 1e-6:
-                chosen_flag = " [CHOSEN]"
-            lines.append(
-                f"{i:02d}) cell={r.cell} yaw={r.yaw:.3f} "
-                f"G={r.G:.6f} risk={r.risk:.6f} IG={r.IG:.6f} base={r.base_cost:.6f}"
-                f"{stay_flag}{chosen_flag}"
-            )
-
-        lines.append("")
-        lines.append(f"Found cells: {len(summary.found_cells)}")
-        if summary.found_cells:
-            lines.append("  " + ", ".join([str(c) for c in summary.found_cells[:30]]) + (" ..." if len(summary.found_cells) > 30 else ""))
-
-        lines.append(f"Detections in meta: {len(summary.det_conf_cells)}")
-        if summary.det_conf_cells:
-            top_det = sorted(summary.det_conf_cells, key=lambda x: x[1], reverse=True)[:10]
-            lines.append("  top det_conf: " + ", ".join([f"{c}:{v:.2f}" for c, v in top_det]))
-
-        lines.append(f"Visible cells in meta: {len(summary.visible_cells)}")
-
-        return "\n".join(lines)
-
-    def export_summary_json(self, summary: AnalysisSummary, out_path: str) -> None:
-        payload = {
-            "step": summary.step,
-            "reason": summary.reason,
-            "pose": summary.pose,
-            "current_cell": list(summary.current_cell) if summary.current_cell is not None else None,
-            "chosen_cell": list(summary.chosen_cell),
-            "chosen_yaw": summary.chosen_yaw,
-            "chosen_rank": summary.chosen_rank,
-            "chosen_is_stay": summary.chosen_is_stay,
-            "grid": {"rows": summary.rows, "cols": summary.cols},
-            "belief": {
-                "prior_proxy_median": summary.prior_present_mean,
-                "q_present_mean": summary.q_present_mean,
-                "q_present_max": summary.q_present_max,
-                "q_present_argmax": list(summary.q_present_argmax),
-                "q_present_topk": [{"cell": list(c), "q": p} for (c, p) in summary.q_present_topk],
-            },
-            "ranges": {
-                "G": {"min": summary.G_min, "max": summary.G_max},
-                "IG": {"min": summary.IG_min, "max": summary.IG_max},
-                "risk": {"min": summary.risk_min, "max": summary.risk_max},
-                "base_cost": {"min": summary.base_min, "max": summary.base_max},
-            },
-            "stuck_indicators": {
-                "ig_is_exhausted": summary.ig_is_exhausted,
-                "risk_is_flat": summary.risk_is_flat,
-                "base_cost_dominates": summary.base_cost_dominates,
-            },
-            "found_cells": [list(c) for c in summary.found_cells],
-            "det_conf_cells": [{"cell": list(c), "conf": v} for (c, v) in summary.det_conf_cells],
-            "visible_cells": [list(c) for c in summary.visible_cells],
-            "top_actions": [
-                {
-                    "cell": list(r.cell),
-                    "yaw": r.yaw,
-                    "G": r.G,
-                    "risk": r.risk,
-                    "IG": r.IG,
-                    "base_cost": r.base_cost,
-                }
-                for r in summary.top_actions
-            ],
-        }
-
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-
-    # ---------------------------
-    # Internals
+    # Analysis helpers
     # ---------------------------
 
     @staticmethod
@@ -358,31 +67,6 @@ class SnapshotAnalyzer:
         if isinstance(x, (list, tuple)) and len(x) == 2:
             return (int(x[0]), int(x[1]))
         raise ValueError(f"Invalid cell encoding: {x}")
-
-    @staticmethod
-    def _parse_cell_float_map(d: Dict[str, Any]) -> List[Tuple[Cell, float]]:
-        out: List[Tuple[Cell, float]] = []
-        for k, v in d.items():
-            try:
-                parts = str(k).split(",")
-                cx, cy = int(parts[0]), int(parts[1])
-                out.append(((cx, cy), float(v)))
-            except Exception:
-                continue
-        return out
-
-    @staticmethod
-    def _parse_cell_bool_map(d: Dict[str, Any]) -> List[Cell]:
-        out: List[Cell] = []
-        for k, v in d.items():
-            try:
-                if bool(v):
-                    parts = str(k).split(",")
-                    cx, cy = int(parts[0]), int(parts[1])
-                    out.append((cx, cy))
-            except Exception:
-                continue
-        return out
 
     @staticmethod
     def _parse_actions(scored_actions: List[dict]) -> List[ActionRankRow]:
@@ -408,22 +92,6 @@ class SnapshotAnalyzer:
         return out
 
     @staticmethod
-    def _minmax(xs: List[float]) -> Tuple[float, float]:
-        if not xs:
-            return 0.0, 0.0
-        return float(min(xs)), float(max(xs))
-
-    @staticmethod
-    def _find_chosen_rank(rows: List[ActionRankRow], chosen_cell: Cell, chosen_yaw: float) -> int:
-        # Exact yaw match is fragile due to float repr; use a small tolerance.
-        tol = 1e-6
-        for i, r in enumerate(rows, start=1):
-            if r.cell == chosen_cell and abs(r.yaw - chosen_yaw) <= tol:
-                return i
-        # If not found, rank unknown; return -1
-        return -1
-
-    @staticmethod
     def _topk_cells(q_present: np.ndarray, *, k: int) -> List[Tuple[Cell, float]]:
         rows, cols = q_present.shape
         flat = q_present.reshape(-1)
@@ -439,32 +107,223 @@ class SnapshotAnalyzer:
             out.append(((cx, cy), float(q_present[cy, cx])))
         return out
 
+    @staticmethod
+    def _extract_policy_name_from_snapshot_path(snapshot_path: str) -> str:
+        """
+        Example snapshot path:
+          .../logs/log_run_aif_saccade_20260324_212017/snapshots/snapshot_step....
+
+        Returns:
+          aif_saccade
+        """
+        p = Path(snapshot_path)
+        parts = p.parts
+
+        run_dir_name = None
+        for part in parts:
+            if part.startswith("log_run_"):
+                run_dir_name = part
+                break
+
+        if run_dir_name is None:
+            return "unknown_policy"
+
+        match = re.match(r"log_run_(.+)_\d{8}_\d{6}$", run_dir_name)
+        if not match:
+            return "unknown_policy"
+
+        return match.group(1)
+
+    @staticmethod
+    def _default_belief_heatmap_output_path(snapshot_path: str) -> str:
+        policy_name = SnapshotAnalyzer._extract_policy_name_from_snapshot_path(snapshot_path)
+        out_dir = Path("webots/visuals/belief_heatmaps")
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        snap_name = Path(snapshot_path).stem
+        out_name = f"{policy_name}__{snap_name}.png"
+        return str(out_dir / out_name)
+
+    # ---------------------------
+    # Text report
+    # ---------------------------
+
+    def report(self, snap: SnapshotData, *, top_k_actions: int = 12, top_k_cells: int = 10) -> str:
+        q_s = snap.q_s
+        meta = snap.meta
+
+        if q_s.ndim != 3 or q_s.shape[2] != 2:
+            raise ValueError(f"q_s has wrong shape: {q_s.shape}, expected (rows, cols, 2)")
+
+        rows, cols = int(q_s.shape[0]), int(q_s.shape[1])
+        q_present = q_s[:, :, 1].astype(np.float64)
+
+        step = int(meta.get("step", -1))
+        reason = str(meta.get("reason", ""))
+        pose = meta.get("pose", {}) or {}
+        current_cell = self._as_cell(meta.get("current_cell", None))
+        chosen_cell = self._as_cell(meta.get("chosen_cell", None), required=True)
+        chosen_yaw = float(meta.get("chosen_yaw", 0.0))
+
+        q_mean = float(q_present.mean())
+        q_max = float(q_present.max())
+        argmax_flat = int(np.argmax(q_present))
+        argmax = (argmax_flat % cols, argmax_flat // cols)
+
+        scored_actions = meta.get("scored_actions", []) or []
+        rows_actions = sorted(self._parse_actions(scored_actions), key=lambda r: r.G)
+
+        chosen_rank = -1
+        for i, r in enumerate(rows_actions, start=1):
+            if r.cell == chosen_cell and abs(r.yaw - chosen_yaw) <= 1e-6:
+                chosen_rank = i
+                break
+
+        top_cells = self._topk_cells(q_present, k=top_k_cells)
+
+        lines: List[str] = []
+        lines.append("Snapshot analysis")
+        lines.append(f"- file: {snap.path}")
+        lines.append(f"- step={step} reason='{reason}'")
+        lines.append(
+            f"- pose: x={float(pose.get('x', 0.0)):.2f} "
+            f"y={float(pose.get('y', 0.0)):.2f} "
+            f"yaw={float(pose.get('yaw', 0.0)):.3f}"
+        )
+        lines.append(
+            f"- current_cell={current_cell} chosen_cell={chosen_cell} "
+            f"chosen_yaw={chosen_yaw:.3f} rank={chosen_rank}"
+        )
+
+        lines.append("")
+        lines.append("Belief q(present)")
+        lines.append(f"- grid: rows={rows} cols={cols}")
+        lines.append(f"- mean={q_mean:.6f} max={q_max:.6f} argmax={argmax}")
+        lines.append("- top cells:")
+        for cell, p in top_cells:
+            lines.append(f"  - {cell}: {p:.6f}")
+
+        if rows_actions:
+            lines.append("")
+            lines.append(f"Top {min(top_k_actions, len(rows_actions))} actions by G:")
+            for i, r in enumerate(rows_actions[:top_k_actions], start=1):
+                flags = []
+                if current_cell is not None and r.cell == current_cell:
+                    flags.append("STAY")
+                if r.cell == chosen_cell and abs(r.yaw - chosen_yaw) <= 1e-6:
+                    flags.append("CHOSEN")
+                flag_txt = f" [{' '.join(flags)}]" if flags else ""
+                lines.append(
+                    f"{i:02d}) cell={r.cell} yaw={r.yaw:.3f} "
+                    f"G={r.G:.6f} risk={r.risk:.6f} IG={r.IG:.6f} base={r.base_cost:.6f}{flag_txt}"
+                )
+
+        return "\n".join(lines)
+
+    # ---------------------------
+    # Belief heatmap rendering
+    # ---------------------------
+
+    def render_belief_heatmap(
+        self,
+        snap: SnapshotData,
+        *,
+        out_path: Optional[str] = None,
+        annotate: bool = True,
+        annotate_decimals: int = 2,
+        figsize_scale: float = 0.55,
+        show: bool = True,
+    ) -> str:
+        """
+        Saves a heatmap PNG for q(present). Annotates each cell with its value.
+
+        Alignment:
+        - integer ticks are cell centers
+        - half-integers are cell boundaries
+        """
+        q_s = snap.q_s
+        if q_s.ndim != 3 or q_s.shape[2] != 2:
+            raise ValueError(f"q_s has wrong shape: {q_s.shape}, expected (rows, cols, 2)")
+
+        q_present = q_s[:, :, 1].astype(np.float64)
+        rows, cols = q_present.shape
+
+        if out_path is None:
+            out_path = self._default_belief_heatmap_output_path(snap.path)
+
+        out_path_obj = Path(out_path)
+        out_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        fig_w = max(6.0, cols * float(figsize_scale))
+        fig_h = max(5.0, rows * float(figsize_scale))
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+        im = ax.imshow(
+            q_present,
+            origin="lower",
+            aspect="equal",
+            vmin=0.0,
+            vmax=1.0,
+            extent=(-0.5, cols - 0.5, -0.5, rows - 0.5),
+            interpolation="nearest",
+            cmap="viridis",
+        )
+
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("q(present)")
+
+        policy_name = self._extract_policy_name_from_snapshot_path(snap.path)
+        ax.set_title(f"Belief heatmap: q(present) per cell — {policy_name}")
+        ax.set_xlabel("cx (col)")
+        ax.set_ylabel("cy (row)")
+
+        ax.set_xticks(range(cols))
+        ax.set_yticks(range(rows))
+
+        ax.set_xticks([x - 0.5 for x in range(cols + 1)], minor=True)
+        ax.set_yticks([y - 0.5 for y in range(rows + 1)], minor=True)
+        ax.grid(which="minor", color="white", linewidth=0.6, alpha=0.35)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        if annotate:
+            fmt = f"{{:.{int(annotate_decimals)}f}}"
+            for cy in range(rows):
+                for cx in range(cols):
+                    val = float(q_present[cy, cx])
+                    text_color = "white" if val < 0.55 else "black"
+                    ax.text(
+                        cx,
+                        cy,
+                        fmt.format(val),
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color=text_color,
+                    )
+
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=180)
+
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
+
+        return str(out_path_obj)
+
 
 def analyze_snapshot_file(
     snapshot_path: str,
     *,
     top_k_actions: int = 12,
     top_k_cells: int = 10,
-    save_json: bool = False,
-    json_out_path: Optional[str] = None,
-) -> str:
-    """
-    Convenience function: loads a snapshot, analyzes it, returns a human-readable report.
-    Optionally writes a JSON summary next to the snapshot.
-    """
+    render_heatmap: bool = True,
+    show_heatmap: bool = True,
+) -> None:
     analyzer = SnapshotAnalyzer()
     snap = analyzer.load(snapshot_path)
-    summary = analyzer.analyze(
-        snap,
-        top_k_actions=top_k_actions,
-        top_k_cells=top_k_cells,
-    )
-    report = analyzer.format_report(summary, max_actions=top_k_actions)
+    print(analyzer.report(snap, top_k_actions=top_k_actions, top_k_cells=top_k_cells))
 
-    if save_json:
-        if json_out_path is None:
-            base, _ = os.path.splitext(snapshot_path)
-            json_out_path = base + ".summary.json"
-        analyzer.export_summary_json(summary, json_out_path)
-
-    return report
+    if render_heatmap:
+        out_png = analyzer.render_belief_heatmap(snap, show=show_heatmap)
+        print(f"[HEATMAP] wrote {out_png}")
