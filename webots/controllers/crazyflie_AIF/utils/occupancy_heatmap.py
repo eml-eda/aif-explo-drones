@@ -12,7 +12,7 @@ import numpy as np
 
 
 # ---- EDIT THIS ----
-SUMMARY_CSV_PATH = "webots/controllers/crazyflie_AIF/logs/log_run_rotate_and_measure_20260324_212017/occupancy_summary_20260324_212017.csv"
+SUMMARY_CSV_PATH = "webots/controllers/crazyflie_AIF/logs/eval_spiral_20260326_201330/runs/log_run_spiral_run00_seed28_20260326_201331/occupancy_summary_20260326_201331.csv"
 # -------------------
 
 
@@ -89,16 +89,46 @@ def main():
 
     fig, ax = plt.subplots(figsize=(8, 9))
 
-    # Better occupancy colormap:
-    # "magma" avoids near-zero pure black looking too dominant and gives a much clearer progression.
     im = ax.imshow(
         grid,
         origin="lower",
-        extent=extent,
+        extent=[min_x, max_x, min_y, max_y],
         cmap="turbo",
         aspect="equal",
         interpolation="nearest",
     )
+
+    ax.set_xlim(min_x, max_x)
+    ax.set_ylim(min_y, max_y)
+
+    x_tick_labels = np.arange(0.0, arena_width + 1e-9, 1.0)
+    y_tick_labels = np.arange(0.0, arena_height + 1e-9, 1.0)
+
+    x_tick_positions = min_x + x_tick_labels
+    y_tick_positions = min_y + y_tick_labels
+
+    if not np.isclose(x_tick_labels[-1], arena_width):
+        x_tick_labels = np.append(x_tick_labels, arena_width)
+        x_tick_positions = np.append(x_tick_positions, max_x)
+
+    if not np.isclose(y_tick_labels[-1], arena_height):
+        y_tick_labels = np.append(y_tick_labels, arena_height)
+        y_tick_positions = np.append(y_tick_positions, max_y)
+
+    ax.set_xticks(x_tick_positions)
+    ax.set_yticks(y_tick_positions)
+    ax.set_xticklabels([f"{x:g}" for x in x_tick_labels])
+    ax.set_yticklabels([f"{y:g}" for y in y_tick_labels])
+
+    # Draw cell grid (0.5 m resolution)
+    x_grid_lines = np.arange(min_x, max_x + 1e-9, cell_size)
+    y_grid_lines = np.arange(min_y, max_y + 1e-9, cell_size)
+
+    for x in x_grid_lines:
+        ax.axvline(x, color="white", linewidth=0.3, alpha=0.3)
+
+    for y in y_grid_lines:
+        ax.axhline(y, color="white", linewidth=0.3, alpha=0.3)
 
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
@@ -108,7 +138,7 @@ def main():
     cbar.set_label("Seconds")
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
+    fig.savefig(out_path, dpi=300)
     print(f"[OCC HEATMAP] wrote {out_path}")
 
     plt.show()

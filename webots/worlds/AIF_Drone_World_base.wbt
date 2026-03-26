@@ -49,7 +49,7 @@ CrazyFlieDownCam {
 Robot {
   name "supervisor"
   supervisor TRUE
-  controller "worldgen_supervisor"
+  controller "worldgen_eval_supervisor"
   children [
     # optional comms hook for later:
     # Receiver { name "rx" channel 2 }

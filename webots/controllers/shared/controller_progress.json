@@ -1,6 +1,6 @@
 {
   "policy_name": "aif_saccade",
-  "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_aif_saccade_20260325_195736",
+  "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_aif_saccade_20260326_210808",
   "autonomy_start_time_s": 15.008000000000001,
   "last_controller_time_s": 196.032,
   "visited_cells": [

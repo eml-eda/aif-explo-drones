@@ -1,0 +1,33 @@
+{
+  "policy_name": "aif_saccade",
+  "seeds": [
+    28,
+    31,
+    34,
+    37,
+    40,
+    43,
+    46,
+    49,
+    52,
+    55
+  ],
+  "total_runs": 10,
+  "current_run_index": 1,
+  "current_seed": 31,
+  "eval_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260326_210632",
+  "aggregate_runs": [
+    {
+      "run_index": 0,
+      "seed": 28,
+      "policy": "aif_saccade",
+      "reason": "timeout",
+      "elapsed_s": 180.0,
+      "found_count": 5,
+      "remaining_objects": 1,
+      "coverage_ratio": 0.3706293706293706,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_aif_saccade_20260326_210633"
+    }
+  ],
+  "completed": false
+}

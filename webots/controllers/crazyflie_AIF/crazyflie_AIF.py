@@ -29,6 +29,12 @@ ENABLE_CAPTURES = False
 LOG_EVERY_N_STEPS = 20
 CAPTURE_EVERY_N_STEPS = 20
 
+# ---- Mode toggles ----
+# False -> regular single-run behavior
+# True  -> controller expects the evaluation supervisor to provide eval_state.json
+EVAL_MODE = True
+EVAL_STATE_FILENAME = "eval_state.json"
+
 # ---- Flight preference ----
 FLYING_ATTITUDE = 1.5
 
@@ -53,7 +59,7 @@ COVERAGE_UPDATE_THRESHOLD = 0.05
 
 # ---- Single debug config (controls controller + policy prints) ----
 DEBUG = {
-    "every_n": 100,
+    "every_n": 200,
 
     # Controller
     "fov": True,
@@ -76,7 +82,7 @@ GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
 # ---- Shared task/progress files ----
-TASK_STATE_FILENAME = "task_state.json"                  # supervisor-owned
+TASK_STATE_FILENAME = "task_state.json"                    # supervisor-owned
 CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
 
 # ---- Task manager: "found" definition ----
@@ -146,6 +152,24 @@ def load_gt_seed(json_path: str) -> int:
     except Exception:
         return -1
 
+def wait_for_json_file(path: str, robot: Robot, timestep: int, *, max_wait_s: float = 5.0) -> dict:
+    """
+    Waits up to max_wait_s for a JSON file to appear and become readable.
+    Uses robot.step() so it plays nicely with Webots controller startup.
+    """
+    waited = 0.0
+    while waited < max_wait_s:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+        if robot.step(timestep) == -1:
+            break
+        waited += float(timestep) / 1000.0
+
+    raise FileNotFoundError(f"Timed out waiting for JSON file: {path}")
 
 def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -167,6 +191,33 @@ def load_policy(name, debug=None):
     return registry[name](debug=debug)
 
 
+def _resolve_run_dir(base_log_dir: str, policy_name: str, eval_state_path: str) -> str:
+    """
+    Single-run mode:
+      logs/log_run_<policy>_<ts>
+
+    Evaluation mode:
+      <eval_dir>/runs/log_run_<policy>_runXX_seedYY_<ts>
+
+    Falls back to single-run layout if eval_state is missing or malformed.
+    """
+    if not EVAL_MODE:
+        return make_run_dir(base_log_dir, prefix=f"log_run_{policy_name}")
+
+    eval_state = _read_json(eval_state_path, {})
+    eval_dir = eval_state.get("eval_dir", None)
+    run_index = int(eval_state.get("current_run_index", 0))
+    current_seed = eval_state.get("current_seed", "unknown")
+
+    if not eval_dir:
+        # safe fallback
+        return make_run_dir(base_log_dir, prefix=f"log_run_{policy_name}")
+
+    runs_dir = os.path.join(eval_dir, "runs")
+    prefix = f"log_run_{policy_name}_run{run_index:02d}_seed{current_seed}"
+    return make_run_dir(runs_dir, prefix=prefix)
+
+
 if __name__ == "__main__":
     robot = Robot()
     timestep = int(robot.getBasicTimeStep())
@@ -181,6 +232,7 @@ if __name__ == "__main__":
     gt_path = _shared_path(GT_JSON_FILENAME)
     task_state_path = _shared_path(TASK_STATE_FILENAME)
     controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
+    eval_state_path = _shared_path(EVAL_STATE_FILENAME)
 
     # ---- Grid spec ----
     grid_spec = GridSpec(
@@ -224,8 +276,15 @@ if __name__ == "__main__":
     final_snapshot_written = False
 
     if USE_GROUND_TRUTH_DETECTIONS:
-        gt_seed = load_gt_seed(gt_path)
-        gt_objects_xy = load_gt_objects_xy(gt_path)
+        gt_data = wait_for_json_file(gt_path, robot, timestep, max_wait_s=5.0)
+
+        gt_seed = int(gt_data.get("seed", -1))
+        objs = gt_data.get("objects", [])
+        gt_objects_xy = []
+        for o in objs:
+            if "x" in o and "y" in o:
+                gt_objects_xy.append((float(o["x"]), float(o["y"])))
+
         print(f"[GT] Loaded {len(gt_objects_xy)} objects from {gt_path}")
         print("[GT] Example objects:", gt_objects_xy[:3])
 
@@ -252,7 +311,7 @@ if __name__ == "__main__":
 
     run_dir = None
     if ENABLE_LOGGING or ENABLE_CAPTURES or ENABLE_SNAPSHOTS:
-        run_dir = make_run_dir(base_log_dir, prefix=f"log_run_{policy_name}")
+        run_dir = _resolve_run_dir(base_log_dir, policy_name, eval_state_path)
         print("Run output dir:", run_dir)
 
     logger = ExperimentLogger(

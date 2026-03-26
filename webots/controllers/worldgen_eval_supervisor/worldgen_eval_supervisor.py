@@ -1,0 +1,688 @@
+# webots/controllers/worldgen_eval_supervisor/worldgen_eval_supervisor.py
+
+from __future__ import annotations
+
+import json
+import os
+import random
+from datetime import datetime
+from controller import Supervisor
+
+import os
+import sys
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONTROLLERS_DIR = os.path.dirname(CURRENT_DIR)
+
+if CONTROLLERS_DIR not in sys.path:
+    sys.path.insert(0, CONTROLLERS_DIR)
+
+from crazyflie_AIF.config import AIF_POLICY as DEFAULT_POLICY
+
+
+# ---- Evaluation settings ----
+EVAL_SEEDS = [28, 31, 34, 37, 40, 43, 46, 49, 52, 55]
+
+WARMUP_SECONDS = 15.0
+EPISODE_SECONDS = 180.0
+TOTAL_SECONDS = WARMUP_SECONDS + EPISODE_SECONDS
+FINALIZATION_GRACE_SECONDS = 1.0
+
+N_BOTTLES = 6
+
+# Arena in your world
+ARENA_X = 5.5
+ARENA_Y = 6.5
+CELL_SIZE_M = 0.5
+
+# Keep bottles away from walls and drone start
+WALL_MARGIN = 0.35
+DRONE_EXCLUSION_RADIUS = 0.75
+
+# Avoid overlap between spawned objects
+MIN_SEPARATION = 0.70
+
+# Bottle object we spawn
+BOTTLE_PROTO_NODE = "BeerBottle"
+
+# ---- Shared files ----
+SPAWNED_OBJECTS_FILENAME = "spawned_objects.json"
+TASK_STATE_FILENAME = "task_state.json"                    # supervisor-owned
+CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
+EVAL_STATE_FILENAME = "eval_state.json"                    # supervisor-owned
+
+# ---- Reports ----
+REPORT_SUBDIR = "run_report"
+EVAL_REPORT_SUBDIR = "eval_report"
+
+
+def dist2(a, b) -> float:
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def _shared_dir() -> str:
+    here = os.path.dirname(__file__)
+    shared_dir = os.path.abspath(os.path.join(here, "..", "shared"))
+    os.makedirs(shared_dir, exist_ok=True)
+    return shared_dir
+
+
+def _shared_path(filename: str) -> str:
+    return os.path.join(_shared_dir(), filename)
+
+
+def _controller_logs_dir() -> str:
+    here = os.path.dirname(__file__)
+    logs_dir = os.path.abspath(os.path.join(here, "..", "crazyflie_AIF", "logs"))
+    os.makedirs(logs_dir, exist_ok=True)
+    return logs_dir
+
+
+def _read_json(path: str, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def _atomic_write_json(path: str, payload) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    os.replace(tmp_path, path)
+
+
+def _cxcy_from_xy(x: float, y: float) -> tuple[int, int] | None:
+    min_x = -ARENA_X / 2.0
+    min_y = -ARENA_Y / 2.0
+    max_x = ARENA_X / 2.0
+    max_y = ARENA_Y / 2.0
+
+    if x < min_x or x >= max_x or y < min_y or y >= max_y:
+        return None
+
+    cx = int((x - min_x) / CELL_SIZE_M)
+    cy = int((y - min_y) / CELL_SIZE_M)
+    return (cx, cy)
+
+
+def _write_spawned_objects_json(path: str, *, seed: int, positions_xy):
+    objects = []
+    for (x, y) in positions_xy:
+        cxcy = _cxcy_from_xy(float(x), float(y))
+        obj = {"x": float(x), "y": float(y)}
+        if cxcy is not None:
+            obj["cx"] = int(cxcy[0])
+            obj["cy"] = int(cxcy[1])
+        objects.append(obj)
+
+    payload = {
+        "seed": int(seed),
+        "objects": objects,
+    }
+    _atomic_write_json(path, payload)
+
+
+def _write_task_state(
+    path: str,
+    *,
+    status: str,
+    reason: str | None,
+    seed: int,
+    total_objects: int,
+    remaining_objects: int,
+    validated_found_cells: set,
+    timeout_s: float,
+    warmup_s: float,
+    episode_s: float,
+    now_time_s: float,
+    report_written: bool,
+) -> None:
+    payload = {
+        "status": str(status),
+        "reason": reason,
+        "seed": int(seed),
+        "total_objects": int(total_objects),
+        "remaining_objects": int(remaining_objects),
+        "validated_found_cells": sorted([[int(c[0]), int(c[1])] for c in validated_found_cells]),
+        "timeout_s": float(timeout_s),
+        "warmup_s": float(warmup_s),
+        "episode_s": float(episode_s),
+        "now_time_s": float(now_time_s),
+        "report_written": bool(report_written),
+    }
+    _atomic_write_json(path, payload)
+
+
+def _write_run_report(
+    *,
+    run_dir: str,
+    policy_name: str,
+    gt_seed: int,
+    total_objects: int,
+    validated_found_cells: set,
+    remaining_objects: int,
+    autonomy_start_time_s: float | None,
+    now_time_s: float,
+    timeout_s: float,
+    visited_cells: set,
+    grid_rows: int,
+    grid_cols: int,
+    reason: str,
+) -> dict:
+    os.makedirs(run_dir, exist_ok=True)
+    report_dir = os.path.join(run_dir, REPORT_SUBDIR)
+    os.makedirs(report_dir, exist_ok=True)
+
+    found_count = int(len(validated_found_cells))
+    elapsed = (
+        float(now_time_s - autonomy_start_time_s)
+        if autonomy_start_time_s is not None
+        else float(now_time_s)
+    )
+
+    coverage_cells = int(len(visited_cells))
+    total_cells = int(grid_rows * grid_cols)
+    coverage_ratio = float(coverage_cells) / float(total_cells) if total_cells > 0 else 0.0
+
+    payload = {
+        "policy": str(policy_name),
+        "gt_seed": int(gt_seed),
+        "reason": str(reason),
+        "autonomy_start_time_s": autonomy_start_time_s,
+        "now_time_s": float(now_time_s),
+        "elapsed_s": float(elapsed),
+        "timeout_s": float(timeout_s),
+        "total_objects": int(total_objects),
+        "found_count": int(found_count),
+        "remaining_objects": int(remaining_objects),
+        "found_cells": sorted([[int(c[0]), int(c[1])] for c in validated_found_cells]),
+        "coverage": {
+            "visited_cells": int(coverage_cells),
+            "total_cells": int(total_cells),
+            "coverage_ratio": float(coverage_ratio),
+        },
+    }
+
+    out_path = os.path.join(report_dir, "run_report.json")
+    _atomic_write_json(out_path, payload)
+    print(f"[RUN REPORT] wrote {out_path}", flush=True)
+    return payload
+
+
+def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: list[dict]) -> str:
+    report_dir = os.path.join(eval_dir, EVAL_REPORT_SUBDIR)
+    os.makedirs(report_dir, exist_ok=True)
+
+    n = len(runs)
+
+    if n == 0:
+        payload = {
+            "policy": policy_name,
+            "num_runs": 0,
+            "seeds": seeds,
+            "runs": [],
+        }
+    else:
+        elapsed_vals = [float(r["elapsed_s"]) for r in runs]
+        found_vals = [int(r["found_count"]) for r in runs]
+        coverage_vals = [float(r["coverage_ratio"]) for r in runs]
+        success_vals = [1 if str(r["reason"]) == "done" else 0 for r in runs]
+
+        payload = {
+            "policy": policy_name,
+            "num_runs": n,
+            "seeds": seeds,
+            "summary": {
+                "success_rate": float(sum(success_vals) / n),
+                "average_simulation_time_s": float(sum(elapsed_vals) / n),
+                "average_found_count": float(sum(found_vals) / n),
+                "average_coverage_ratio": float(sum(coverage_vals) / n),
+                "min_simulation_time_s": float(min(elapsed_vals)),
+                "max_simulation_time_s": float(max(elapsed_vals)),
+                "min_found_count": int(min(found_vals)),
+                "max_found_count": int(max(found_vals)),
+                "min_coverage_ratio": float(min(coverage_vals)),
+                "max_coverage_ratio": float(max(coverage_vals)),
+            },
+            "runs": runs,
+        }
+
+    out_path = os.path.join(report_dir, "eval_report.json")
+    _atomic_write_json(out_path, payload)
+    print(f"[EVAL REPORT] wrote {out_path}", flush=True)
+    return out_path
+
+
+def _init_or_resume_eval_state(eval_state_path: str, policy_name: str) -> dict:
+    eval_state = _read_json(eval_state_path, None)
+
+    if isinstance(eval_state, dict) and not bool(eval_state.get("completed", False)):
+        return eval_state
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    eval_dir = os.path.join(_controller_logs_dir(), f"eval_{policy_name}_{ts}")
+
+    eval_state = {
+        "policy_name": policy_name,
+        "seeds": list(EVAL_SEEDS),
+        "total_runs": len(EVAL_SEEDS),
+        "current_run_index": 0,
+        "current_seed": int(EVAL_SEEDS[0]),
+        "eval_dir": eval_dir,
+        "aggregate_runs": [],
+        "completed": False,
+    }
+    _atomic_write_json(eval_state_path, eval_state)
+    return eval_state
+
+
+def _safe_remove(path: str) -> None:
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def main():
+    supervisor = Supervisor()
+    timestep = int(supervisor.getBasicTimeStep())
+
+    policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
+
+    spawned_objects_path = _shared_path(SPAWNED_OBJECTS_FILENAME)
+    task_state_path = _shared_path(TASK_STATE_FILENAME)
+    controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
+    eval_state_path = _shared_path(EVAL_STATE_FILENAME)
+
+    # ---- Clear stale shared files from previous runs ----
+    _safe_remove(spawned_objects_path)
+    _safe_remove(task_state_path)
+    _safe_remove(controller_progress_path)
+
+    print("[EVAL] shared state cleared", flush=True)
+
+    eval_state = _init_or_resume_eval_state(eval_state_path, policy_name)
+
+    seeds = [int(s) for s in eval_state["seeds"]]
+    total_runs = int(eval_state["total_runs"])
+    run_index = int(eval_state["current_run_index"])
+    current_seed = int(eval_state["current_seed"])
+    eval_dir = str(eval_state["eval_dir"])
+    aggregate_runs = list(eval_state.get("aggregate_runs", []))
+
+    random.seed(current_seed)
+
+    _write_task_state(
+        task_state_path,
+        status="running",
+        reason=None,
+        seed=current_seed,
+        total_objects=0,
+        remaining_objects=0,
+        validated_found_cells=set(),
+        timeout_s=TOTAL_SECONDS,
+        warmup_s=WARMUP_SECONDS,
+        episode_s=EPISODE_SECONDS,
+        now_time_s=0.0,
+        report_written=False,
+    )
+
+    _atomic_write_json(
+        controller_progress_path,
+        {
+            "policy_name": policy_name,
+            "run_dir": None,
+            "autonomy_start_time_s": None,
+            "last_controller_time_s": 0.0,
+            "visited_cells": [],
+            "claimed_found_cells": [],
+        },
+    )
+
+    print(
+        f"[EVAL] initialized run {run_index + 1}/{total_runs} "
+        f"policy={policy_name} seed={current_seed}",
+        flush=True,
+    )
+
+    spawn_root = supervisor.getFromDef("SPAWN_ROOT")
+    if spawn_root is None:
+        print("ERROR: DEF SPAWN_ROOT Group not found in the world.")
+        return
+    spawn_children = spawn_root.getField("children")
+
+    spawned_positions = []
+    spawned_nodes = []
+
+    xmin = -ARENA_X / 2.0 + WALL_MARGIN
+    xmax = +ARENA_X / 2.0 - WALL_MARGIN
+    ymin = -ARENA_Y / 2.0 + WALL_MARGIN
+    ymax = +ARENA_Y / 2.0 - WALL_MARGIN
+
+    drone_xy = (0.0, 0.0)
+
+    def sample_position(max_tries=2000):
+        for _ in range(max_tries):
+            x = random.uniform(xmin, xmax)
+            y = random.uniform(ymin, ymax)
+
+            if dist2((x, y), drone_xy) < DRONE_EXCLUSION_RADIUS ** 2:
+                continue
+
+            ok = True
+            for (px, py) in spawned_positions:
+                if dist2((x, y), (px, py)) < MIN_SEPARATION ** 2:
+                    ok = False
+                    break
+            if not ok:
+                continue
+
+            return (x, y)
+
+        return None
+
+    for i in range(N_BOTTLES):
+        pos = sample_position()
+        if pos is None:
+            print(f"WARNING: Could not place bottle {i} under constraints.")
+            break
+
+        x, y = pos
+        spawned_positions.append((x, y))
+
+        node_string = (
+            f'DEF BOTTLE_{i:03d} {BOTTLE_PROTO_NODE} {{ '
+            f'  translation {x:.4f} {y:.4f} 0 '
+            f'}}'
+        )
+
+        spawn_children.importMFNodeFromString(-1, node_string)
+        new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
+        spawned_nodes.append(new_node)
+
+    print(
+        f"[EVAL] run {run_index + 1}/{total_runs} "
+        f"policy={policy_name} seed={current_seed} spawned={len(spawned_nodes)}",
+        flush=True,
+    )
+
+    _write_spawned_objects_json(
+        spawned_objects_path,
+        seed=current_seed,
+        positions_xy=spawned_positions,
+    )
+    print(f"GT JSON exported: {spawned_objects_path}", flush=True)
+
+    true_cells = set()
+    for (x, y) in spawned_positions:
+        cxcy = _cxcy_from_xy(x, y)
+        if cxcy is not None:
+            true_cells.add(cxcy)
+
+    total_objects = len(true_cells)
+    validated_found_cells = set()
+    report_written = False
+    final_reason = None
+    final_time_s = None
+
+    _write_task_state(
+        task_state_path,
+        status="running",
+        reason=None,
+        seed=current_seed,
+        total_objects=total_objects,
+        remaining_objects=total_objects,
+        validated_found_cells=validated_found_cells,
+        timeout_s=TOTAL_SECONDS,
+        warmup_s=WARMUP_SECONDS,
+        episode_s=EPISODE_SECONDS,
+        now_time_s=0.0,
+        report_written=False,
+    )
+
+    _atomic_write_json(
+        controller_progress_path,
+        {
+            "policy_name": None,
+            "run_dir": None,
+            "autonomy_start_time_s": None,
+            "last_controller_time_s": 0.0,
+            "visited_cells": [],
+            "claimed_found_cells": [],
+        },
+    )
+
+    start_time = supervisor.getTime()
+
+    while supervisor.step(timestep) != -1:
+        t = supervisor.getTime()
+        elapsed_total = float(t - start_time)
+
+        controller_progress = _read_json(
+            controller_progress_path,
+            {
+                "policy_name": None,
+                "run_dir": None,
+                "autonomy_start_time_s": None,
+                "last_controller_time_s": 0.0,
+                "visited_cells": [],
+                "claimed_found_cells": [],
+            },
+        )
+
+        claimed_found_cells = {
+            (int(cx), int(cy))
+            for (cx, cy) in controller_progress.get("claimed_found_cells", [])
+        }
+
+        new_validated = claimed_found_cells.intersection(true_cells)
+        if new_validated != validated_found_cells:
+            validated_found_cells = set(new_validated)
+
+        remaining_objects = max(0, int(total_objects) - int(len(validated_found_cells)))
+
+        if len(validated_found_cells) >= total_objects and total_objects > 0:
+            final_reason = "done"
+            final_time_s = float(t)
+        elif elapsed_total >= TOTAL_SECONDS:
+            final_reason = "timeout"
+            final_time_s = float(t)
+
+        if final_reason is None:
+            _write_task_state(
+                task_state_path,
+                status="running",
+                reason=None,
+                seed=current_seed,
+                total_objects=total_objects,
+                remaining_objects=remaining_objects,
+                validated_found_cells=validated_found_cells,
+                timeout_s=TOTAL_SECONDS,
+                warmup_s=WARMUP_SECONDS,
+                episode_s=EPISODE_SECONDS,
+                now_time_s=float(t),
+                report_written=report_written,
+            )
+            continue
+
+        if not report_written:
+            _write_task_state(
+                task_state_path,
+                status=final_reason,
+                reason=final_reason,
+                seed=current_seed,
+                total_objects=total_objects,
+                remaining_objects=remaining_objects,
+                validated_found_cells=validated_found_cells,
+                timeout_s=TOTAL_SECONDS,
+                warmup_s=WARMUP_SECONDS,
+                episode_s=EPISODE_SECONDS,
+                now_time_s=float(final_time_s),
+                report_written=False,
+            )
+
+            run_dir = controller_progress.get("run_dir", None)
+            autonomy_start_time_s = controller_progress.get("autonomy_start_time_s", None)
+            visited_cells = {
+                (int(cx), int(cy))
+                for (cx, cy) in controller_progress.get("visited_cells", [])
+            }
+
+            if run_dir:
+                run_payload = _write_run_report(
+                    run_dir=run_dir,
+                    policy_name=policy_name,
+                    gt_seed=current_seed,
+                    total_objects=total_objects,
+                    validated_found_cells=validated_found_cells,
+                    remaining_objects=remaining_objects,
+                    autonomy_start_time_s=autonomy_start_time_s,
+                    now_time_s=float(final_time_s),
+                    timeout_s=TOTAL_SECONDS,
+                    visited_cells=visited_cells,
+                    grid_rows=int(ARENA_Y / CELL_SIZE_M),
+                    grid_cols=int(ARENA_X / CELL_SIZE_M),
+                    reason=final_reason,
+                )
+            else:
+                print("[RUN REPORT] run_dir not available yet, skipping file write", flush=True)
+                coverage_cells = int(len(visited_cells))
+                total_cells = int(int(ARENA_Y / CELL_SIZE_M) * int(ARENA_X / CELL_SIZE_M))
+                coverage_ratio = float(coverage_cells) / float(total_cells) if total_cells > 0 else 0.0
+                run_payload = {
+                    "policy": policy_name,
+                    "gt_seed": current_seed,
+                    "reason": final_reason,
+                    "autonomy_start_time_s": autonomy_start_time_s,
+                    "now_time_s": float(final_time_s),
+                    "elapsed_s": float(final_time_s - autonomy_start_time_s) if autonomy_start_time_s is not None else float(final_time_s),
+                    "timeout_s": TOTAL_SECONDS,
+                    "total_objects": total_objects,
+                    "found_count": len(validated_found_cells),
+                    "remaining_objects": remaining_objects,
+                    "found_cells": sorted([[int(c[0]), int(c[1])] for c in validated_found_cells]),
+                    "coverage": {
+                        "visited_cells": coverage_cells,
+                        "total_cells": total_cells,
+                        "coverage_ratio": coverage_ratio,
+                    },
+                }
+
+            aggregate_runs.append(
+                {
+                    "run_index": run_index,
+                    "seed": current_seed,
+                    "policy": policy_name,
+                    "reason": str(run_payload["reason"]),
+                    "elapsed_s": float(run_payload["elapsed_s"]),
+                    "found_count": int(run_payload["found_count"]),
+                    "remaining_objects": int(run_payload["remaining_objects"]),
+                    "coverage_ratio": float(run_payload["coverage"]["coverage_ratio"]),
+                    "run_dir": run_dir,
+                }
+            )
+
+            report_written = True
+
+            is_last_run = (run_index + 1) >= total_runs
+
+            if is_last_run:
+                _write_eval_report(
+                    eval_dir=eval_dir,
+                    policy_name=policy_name,
+                    seeds=seeds,
+                    runs=aggregate_runs,
+                )
+
+                eval_state = {
+                    "policy_name": policy_name,
+                    "seeds": seeds,
+                    "total_runs": total_runs,
+                    "current_run_index": run_index,
+                    "current_seed": current_seed,
+                    "eval_dir": eval_dir,
+                    "aggregate_runs": aggregate_runs,
+                    "completed": True,
+                }
+                _atomic_write_json(eval_state_path, eval_state)
+
+                _write_task_state(
+                    task_state_path,
+                    status=final_reason,
+                    reason=final_reason,
+                    seed=current_seed,
+                    total_objects=total_objects,
+                    remaining_objects=remaining_objects,
+                    validated_found_cells=validated_found_cells,
+                    timeout_s=TOTAL_SECONDS,
+                    warmup_s=WARMUP_SECONDS,
+                    episode_s=EPISODE_SECONDS,
+                    now_time_s=float(final_time_s),
+                    report_written=True,
+                )
+
+                print(f"[EVAL] completed all {total_runs} runs", flush=True)
+
+                grace_start = supervisor.getTime()
+                while supervisor.step(timestep) != -1:
+                    if (supervisor.getTime() - grace_start) >= FINALIZATION_GRACE_SECONDS:
+                        break
+
+                print("Cleanup complete. Quitting simulation.", flush=True)
+                supervisor.simulationQuit(0)
+                return
+
+            else:
+                next_run_index = run_index + 1
+                next_seed = int(seeds[next_run_index])
+
+                eval_state = {
+                    "policy_name": policy_name,
+                    "seeds": seeds,
+                    "total_runs": total_runs,
+                    "current_run_index": next_run_index,
+                    "current_seed": next_seed,
+                    "eval_dir": eval_dir,
+                    "aggregate_runs": aggregate_runs,
+                    "completed": False,
+                }
+                _atomic_write_json(eval_state_path, eval_state)
+
+                _write_task_state(
+                    task_state_path,
+                    status=final_reason,
+                    reason=final_reason,
+                    seed=current_seed,
+                    total_objects=total_objects,
+                    remaining_objects=remaining_objects,
+                    validated_found_cells=validated_found_cells,
+                    timeout_s=TOTAL_SECONDS,
+                    warmup_s=WARMUP_SECONDS,
+                    episode_s=EPISODE_SECONDS,
+                    now_time_s=float(final_time_s),
+                    report_written=True,
+                )
+
+                print(
+                    f"[EVAL] finished run {run_index + 1}/{total_runs}; "
+                    f"reloading world for next seed={next_seed}",
+                    flush=True,
+                )
+
+                grace_start = supervisor.getTime()
+                while supervisor.step(timestep) != -1:
+                    if (supervisor.getTime() - grace_start) >= FINALIZATION_GRACE_SECONDS:
+                        break
+
+                # Full world reload gives a clean new run.
+                # The new supervisor instance resumes from eval_state.json.
+                supervisor.worldReload()
+                return
+            
+
+if __name__ == "__main__":
+    main()
