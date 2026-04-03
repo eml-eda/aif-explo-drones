@@ -1,6 +1,7 @@
 # controllers/crazyflie_AIF/crazyflie_AIF.py
 
 import os
+import time
 from datetime import datetime
 import json
 
@@ -59,7 +60,7 @@ COVERAGE_UPDATE_THRESHOLD = 0.05
 
 # ---- Single debug config (controls controller + policy prints) ----
 DEBUG = {
-    "every_n": 200,
+    "every_n": 100,
 
     # Controller
     "fov": True,
@@ -71,7 +72,7 @@ DEBUG = {
 }
 
 # ---- Snapshot / debugging ----
-ENABLE_SNAPSHOTS = False
+ENABLE_SNAPSHOTS = True
 SNAPSHOT_EVERY_N_STEPS = 200
 SNAPSHOT_ON_STUCK = True
 STUCK_REPLAN_LIMIT = 40
@@ -81,7 +82,8 @@ USE_GROUND_TRUTH_DETECTIONS = True
 GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
-# ---- Shared task/progress files ----
+# ---- Shared init / task / progress files ----
+EXPERIMENT_INIT_FILENAME = "experiment_init.json"          # supervisor-owned
 TASK_STATE_FILENAME = "task_state.json"                    # supervisor-owned
 CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
 
@@ -92,6 +94,10 @@ FOUND_STREAK_STEPS = 50
 # ---- Takeoff warm-up ----
 AUTO_START_AUTONOMY = True
 AUTONOMY_START_DELAY_S = 15.0
+
+# ---- Startup file wait ----
+STARTUP_WAIT_TIMEOUT_S = 10.0
+STARTUP_WAIT_POLL_S = 0.05
 
 
 def rc_to_cxcy(rc):
@@ -132,6 +138,22 @@ def _atomic_write_json(path: str, payload) -> None:
     os.replace(tmp_path, path)
 
 
+def _wait_for_json(path: str, validator, timeout_s: float, poll_s: float):
+    t0 = time.time()
+    last_data = None
+    while (time.time() - t0) < timeout_s:
+        data = _read_json(path, None)
+        if isinstance(data, dict):
+            last_data = data
+            try:
+                if validator(data):
+                    return data
+            except Exception:
+                pass
+        time.sleep(poll_s)
+    return last_data
+
+
 def load_gt_objects_xy(json_path: str):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -152,24 +174,6 @@ def load_gt_seed(json_path: str) -> int:
     except Exception:
         return -1
 
-def wait_for_json_file(path: str, robot: Robot, timestep: int, *, max_wait_s: float = 5.0) -> dict:
-    """
-    Waits up to max_wait_s for a JSON file to appear and become readable.
-    Uses robot.step() so it plays nicely with Webots controller startup.
-    """
-    waited = 0.0
-    while waited < max_wait_s:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-
-        if robot.step(timestep) == -1:
-            break
-        waited += float(timestep) / 1000.0
-
-    raise FileNotFoundError(f"Timed out waiting for JSON file: {path}")
 
 def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -210,7 +214,6 @@ def _resolve_run_dir(base_log_dir: str, policy_name: str, eval_state_path: str) 
     current_seed = eval_state.get("current_seed", "unknown")
 
     if not eval_dir:
-        # safe fallback
         return make_run_dir(base_log_dir, prefix=f"log_run_{policy_name}")
 
     runs_dir = os.path.join(eval_dir, "runs")
@@ -229,10 +232,39 @@ if __name__ == "__main__":
     policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
     policy = load_policy(policy_name, debug=DEBUG)
 
+    experiment_init_path = _shared_path(EXPERIMENT_INIT_FILENAME)
     gt_path = _shared_path(GT_JSON_FILENAME)
     task_state_path = _shared_path(TASK_STATE_FILENAME)
     controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
     eval_state_path = _shared_path(EVAL_STATE_FILENAME)
+
+    # ---- Wait for supervisor startup files ----
+    experiment_init = _wait_for_json(
+        experiment_init_path,
+        validator=lambda d: isinstance(d.get("drone_spawn", None), dict) and ("x" in d["drone_spawn"]) and ("y" in d["drone_spawn"]),
+        timeout_s=STARTUP_WAIT_TIMEOUT_S,
+        poll_s=STARTUP_WAIT_POLL_S,
+    )
+
+    if experiment_init is None:
+        print(f"[WARN] experiment init file not available at startup: {experiment_init_path}", flush=True)
+        experiment_init = {
+            "seed": -1,
+            "drone_spawn": {"x": 0.0, "y": 0.0, "yaw": 0.0, "cx": None, "cy": None},
+        }
+
+    drone_spawn = experiment_init.get("drone_spawn", {}) or {}
+    drone_spawn_x = float(drone_spawn.get("x", 0.0))
+    drone_spawn_y = float(drone_spawn.get("y", 0.0))
+    drone_spawn_yaw = float(drone_spawn.get("yaw", 0.0))
+    drone_spawn_cx = drone_spawn.get("cx", None)
+    drone_spawn_cy = drone_spawn.get("cy", None)
+
+    print(
+        f"[INIT] drone spawn x={drone_spawn_x:.3f} y={drone_spawn_y:.3f} "
+        f"yaw={drone_spawn_yaw:.3f} cell={(drone_spawn_cx, drone_spawn_cy)}",
+        flush=True,
+    )
 
     # ---- Grid spec ----
     grid_spec = GridSpec(
@@ -259,11 +291,11 @@ if __name__ == "__main__":
     gt_detector = None
     gt_objects_xy = None
 
-    claimed_found_cells = set()   # controller-local claims only
+    claimed_found_cells = set()
     _found_streak_cell = None
     _found_streak_count = 0
 
-    validated_found_cells = set()  # supervisor-authoritative
+    validated_found_cells = set()
     TOTAL_OBJECTS = 0
     remaining_objects = 0
     supervisor_status = "running"
@@ -272,16 +304,22 @@ if __name__ == "__main__":
     visited_cells = set()
 
     autonomy_start_time = None
-    gt_seed = -1
+    gt_seed = int(experiment_init.get("seed", -1))
     final_snapshot_written = False
 
     if USE_GROUND_TRUTH_DETECTIONS:
-        gt_data = wait_for_json_file(gt_path, robot, timestep, max_wait_s=5.0)
+        gt_json = _wait_for_json(
+            gt_path,
+            validator=lambda d: isinstance(d.get("objects", None), list),
+            timeout_s=STARTUP_WAIT_TIMEOUT_S,
+            poll_s=STARTUP_WAIT_POLL_S,
+        )
+        if gt_json is None:
+            raise FileNotFoundError(f"Required GT file not found or invalid: {gt_path}")
 
-        gt_seed = int(gt_data.get("seed", -1))
-        objs = gt_data.get("objects", [])
+        gt_seed = int(gt_json.get("seed", gt_seed))
         gt_objects_xy = []
-        for o in objs:
+        for o in gt_json.get("objects", []):
             if "x" in o and "y" in o:
                 gt_objects_xy.append((float(o["x"]), float(o["y"])))
 
@@ -332,7 +370,6 @@ if __name__ == "__main__":
     print("Controls: Arrow keys for planar motion, Q/E yaw, W/S altitude")
     print("Press A to enable autonomous mode, D to disable\n")
 
-    # Initialize controller progress file
     _atomic_write_json(
         controller_progress_path,
         {
@@ -342,6 +379,13 @@ if __name__ == "__main__":
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "drone_spawn": {
+                "x": drone_spawn_x,
+                "y": drone_spawn_y,
+                "yaw": drone_spawn_yaw,
+                "cx": drone_spawn_cx,
+                "cy": drone_spawn_cy,
+            },
         },
     )
 
@@ -352,7 +396,6 @@ if __name__ == "__main__":
             dt = observation["dt"]
             time_now = float(observation["time"])
 
-            # ---- Read supervisor task state ----
             task_state = _read_json(
                 task_state_path,
                 {
@@ -427,7 +470,6 @@ if __name__ == "__main__":
             y_pos = observation["gps"]["y"]
             yaw = observation["imu"]["yaw"]
 
-            # ---- FoV visibility first ----
             coverages = env_mgr.compute_cell_coverages(x_pos, y_pos, yaw)
             visible_mask = env_mgr.coverage_to_visible_mask(
                 coverages,
@@ -443,7 +485,6 @@ if __name__ == "__main__":
             coverages_cxcy = dict_rc_to_cxcy(coverages)
             visible_mask_cxcy = dict_rc_to_cxcy(visible_mask)
 
-            # ---- Detections ----
             det_conf_rc = {}
 
             if USE_GROUND_TRUTH_DETECTIONS:
@@ -491,7 +532,6 @@ if __name__ == "__main__":
 
             det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
 
-            # ---- Controller claim trigger only ----
             best_cell = None
             best_conf = 0.0
             if det_conf_cxcy:
@@ -521,7 +561,6 @@ if __name__ == "__main__":
                 _found_streak_cell = None
                 _found_streak_count = 0
 
-            # ---- Controller debug ----
             if DEBUG.get("fov", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
                 top_rc = sorted(coverages.items(), key=lambda kv: kv[1], reverse=True)[:12]
                 num_vis = sum(1 for v in visible_mask.values() if v)
@@ -536,7 +575,6 @@ if __name__ == "__main__":
                 for (r, c), frac in top_rc:
                     print(f"    cell=(cx={c},cy={r}) coverage={frac*100:5.1f}% visible={visible_mask[(r,c)]}")
 
-            # ---- Logging ----
             if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
                 logger.log_occupancy(
                     time_s=observation["time"],
@@ -545,7 +583,6 @@ if __name__ == "__main__":
                     dt_s=dt,
                 )
 
-            # ---- Write controller progress for supervisor ----
             if (step_count % LOG_EVERY_N_STEPS == 0) or (best_cell in claimed_found_cells):
                 progress_payload = {
                     "policy_name": policy_name,
@@ -554,10 +591,16 @@ if __name__ == "__main__":
                     "last_controller_time_s": float(time_now),
                     "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
                     "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
+                    "drone_spawn": {
+                        "x": drone_spawn_x,
+                        "y": drone_spawn_y,
+                        "yaw": drone_spawn_yaw,
+                        "cx": drone_spawn_cx,
+                        "cy": drone_spawn_cy,
+                    },
                 }
                 _atomic_write_json(controller_progress_path, progress_payload)
 
-            # ---- Build coherent policy observation ----
             obs_for_policy = {
                 **observation,
                 "step": step_count,
@@ -601,7 +644,6 @@ if __name__ == "__main__":
                 },
             }
 
-            # ---- Supervisor-controlled end-of-run handling ----
             if supervisor_status != "running":
                 if autonomous_mode:
                     autonomous_mode = False
@@ -623,7 +665,6 @@ if __name__ == "__main__":
                 sideways_desired = policy_action.get("sideways", 0.0)
                 yaw_desired = policy_action.get("yaw_rate", 0.0)
 
-            # ---- Controller debug: actuation sanity ----
             if DEBUG.get("cmd", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
                 print(
                     f"[cmd] step={step_count} auto={autonomous_mode} "
@@ -663,7 +704,6 @@ if __name__ == "__main__":
                 )
 
     finally:
-        # final controller progress flush
         try:
             progress_payload = {
                 "policy_name": policy_name,
@@ -672,6 +712,13 @@ if __name__ == "__main__":
                 "last_controller_time_s": float(time_now) if "time_now" in locals() else 0.0,
                 "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
                 "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
+                "drone_spawn": {
+                    "x": drone_spawn_x,
+                    "y": drone_spawn_y,
+                    "yaw": drone_spawn_yaw,
+                    "cx": drone_spawn_cx,
+                    "cy": drone_spawn_cy,
+                },
             }
             _atomic_write_json(controller_progress_path, progress_payload)
         except Exception:

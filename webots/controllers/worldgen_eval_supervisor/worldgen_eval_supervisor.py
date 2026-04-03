@@ -19,7 +19,6 @@ if CONTROLLERS_DIR not in sys.path:
 
 from crazyflie_AIF.config import AIF_POLICY as DEFAULT_POLICY
 
-
 # ---- Evaluation settings ----
 EVAL_SEEDS = [28, 31, 34, 37, 40, 43, 46, 49, 52, 55]
 
@@ -39,17 +38,29 @@ CELL_SIZE_M = 0.5
 WALL_MARGIN = 0.35
 DRONE_EXCLUSION_RADIUS = 0.75
 
+# Random drone spawn bounds requested by you
+# NOTE: these correspond to a 0.25 m margin from the walls, not 0.5 m.
+DRONE_SPAWN_X_MIN = -2.5
+DRONE_SPAWN_X_MAX = 2.5
+DRONE_SPAWN_Y_MIN = -3.0
+DRONE_SPAWN_Y_MAX = 3.0
+DRONE_SPAWN_YAW = 0.0
+
 # Avoid overlap between spawned objects
 MIN_SEPARATION = 0.70
 
 # Bottle object we spawn
 BOTTLE_PROTO_NODE = "BeerBottle"
 
+# ---- Drone placement ----
+DRONE_DEF = "CRAZYFLIE"
+
 # ---- Shared files ----
 SPAWNED_OBJECTS_FILENAME = "spawned_objects.json"
-TASK_STATE_FILENAME = "task_state.json"                    # supervisor-owned
-CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
-EVAL_STATE_FILENAME = "eval_state.json"                    # supervisor-owned
+EXPERIMENT_INIT_FILENAME = "experiment_init.json"
+TASK_STATE_FILENAME = "task_state.json"
+CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"
+EVAL_STATE_FILENAME = "eval_state.json"
 
 # ---- Reports ----
 REPORT_SUBDIR = "run_report"
@@ -121,6 +132,22 @@ def _write_spawned_objects_json(path: str, *, seed: int, positions_xy):
     payload = {
         "seed": int(seed),
         "objects": objects,
+    }
+    _atomic_write_json(path, payload)
+
+
+def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy, drone_spawn_yaw: float):
+    x, y = drone_spawn_xy
+    cxcy = _cxcy_from_xy(float(x), float(y))
+    payload = {
+        "seed": int(seed),
+        "drone_spawn": {
+            "x": float(x),
+            "y": float(y),
+            "yaw": float(drone_spawn_yaw),
+            "cx": int(cxcy[0]) if cxcy is not None else None,
+            "cy": int(cxcy[1]) if cxcy is not None else None,
+        },
     }
     _atomic_write_json(path, payload)
 
@@ -206,7 +233,7 @@ def _write_run_report(
         },
     }
 
-    out_path = os.path.join(report_dir, "run_report.json")
+    out_path = os.path.join(run_dir, REPORT_SUBDIR, "run_report.json")
     _atomic_write_json(out_path, payload)
     print(f"[RUN REPORT] wrote {out_path}", flush=True)
     return payload
@@ -287,6 +314,31 @@ def _safe_remove(path: str) -> None:
         pass
 
 
+def _sample_drone_spawn_xy():
+    x = random.uniform(DRONE_SPAWN_X_MIN, DRONE_SPAWN_X_MAX)
+    y = random.uniform(DRONE_SPAWN_Y_MIN, DRONE_SPAWN_Y_MAX)
+    return (x, y)
+
+
+def _place_drone(supervisor: Supervisor, drone_node, *, x: float, y: float, yaw: float) -> None:
+    if drone_node is None:
+        raise RuntimeError(
+            f"Drone DEF '{DRONE_DEF}' not found. Set DRONE_DEF to the drone DEF used in your world."
+        )
+
+    translation_field = drone_node.getField("translation")
+    rotation_field = drone_node.getField("rotation")
+
+    current_translation = translation_field.getSFVec3f()
+    z = float(current_translation[2])
+
+    translation_field.setSFVec3f([float(x), float(y), z])
+    rotation_field.setSFRotation([0.0, 0.0, 1.0, float(yaw)])
+
+    drone_node.resetPhysics()
+    supervisor.simulationResetPhysics()
+
+
 def main():
     supervisor = Supervisor()
     timestep = int(supervisor.getBasicTimeStep())
@@ -294,12 +346,13 @@ def main():
     policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
 
     spawned_objects_path = _shared_path(SPAWNED_OBJECTS_FILENAME)
+    experiment_init_path = _shared_path(EXPERIMENT_INIT_FILENAME)
     task_state_path = _shared_path(TASK_STATE_FILENAME)
     controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
     eval_state_path = _shared_path(EVAL_STATE_FILENAME)
 
-    # ---- Clear stale shared files from previous runs ----
     _safe_remove(spawned_objects_path)
+    _safe_remove(experiment_init_path)
     _safe_remove(task_state_path)
     _safe_remove(controller_progress_path)
 
@@ -340,6 +393,7 @@ def main():
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "drone_spawn": None,
         },
     )
 
@@ -355,6 +409,16 @@ def main():
         return
     spawn_children = spawn_root.getField("children")
 
+    drone_node = supervisor.getFromDef(DRONE_DEF)
+    drone_xy = _sample_drone_spawn_xy()
+    _place_drone(
+        supervisor,
+        drone_node,
+        x=drone_xy[0],
+        y=drone_xy[1],
+        yaw=DRONE_SPAWN_YAW,
+    )
+
     spawned_positions = []
     spawned_nodes = []
 
@@ -362,8 +426,6 @@ def main():
     xmax = +ARENA_X / 2.0 - WALL_MARGIN
     ymin = -ARENA_Y / 2.0 + WALL_MARGIN
     ymax = +ARENA_Y / 2.0 - WALL_MARGIN
-
-    drone_xy = (0.0, 0.0)
 
     def sample_position(max_tries=2000):
         for _ in range(max_tries):
@@ -406,9 +468,19 @@ def main():
 
     print(
         f"[EVAL] run {run_index + 1}/{total_runs} "
-        f"policy={policy_name} seed={current_seed} spawned={len(spawned_nodes)}",
+        f"policy={policy_name} seed={current_seed} "
+        f"drone_spawn=({drone_xy[0]:.3f},{drone_xy[1]:.3f}) "
+        f"spawned={len(spawned_nodes)}",
         flush=True,
     )
+
+    _write_experiment_init_json(
+        experiment_init_path,
+        seed=current_seed,
+        drone_spawn_xy=drone_xy,
+        drone_spawn_yaw=DRONE_SPAWN_YAW,
+    )
+    print(f"Experiment init JSON exported: {experiment_init_path}", flush=True)
 
     _write_spawned_objects_json(
         spawned_objects_path,
@@ -444,6 +516,8 @@ def main():
         report_written=False,
     )
 
+    spawn_cxcy = _cxcy_from_xy(drone_xy[0], drone_xy[1])
+
     _atomic_write_json(
         controller_progress_path,
         {
@@ -453,6 +527,13 @@ def main():
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "drone_spawn": {
+                "x": float(drone_xy[0]),
+                "y": float(drone_xy[1]),
+                "yaw": float(DRONE_SPAWN_YAW),
+                "cx": spawn_cxcy[0] if spawn_cxcy is not None else None,
+                "cy": spawn_cxcy[1] if spawn_cxcy is not None else None,
+            },
         },
     )
 
@@ -678,11 +759,9 @@ def main():
                     if (supervisor.getTime() - grace_start) >= FINALIZATION_GRACE_SECONDS:
                         break
 
-                # Full world reload gives a clean new run.
-                # The new supervisor instance resumes from eval_state.json.
                 supervisor.worldReload()
                 return
-            
+
 
 if __name__ == "__main__":
     main()

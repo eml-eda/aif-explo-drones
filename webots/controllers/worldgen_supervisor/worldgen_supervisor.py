@@ -32,10 +32,17 @@ MIN_SEPARATION = 0.70
 # Bottle object we spawn
 BOTTLE_PROTO_NODE = "BeerBottle"
 
+# ---- Drone placement ----
+DRONE_DEF = "CRAZYFLIE"
+DRONE_SPAWN_X = 0.0
+DRONE_SPAWN_Y = 0.0
+DRONE_SPAWN_YAW = 0.0
+
 # ---- Shared files ----
 SPAWNED_OBJECTS_FILENAME = "spawned_objects.json"
-TASK_STATE_FILENAME = "task_state.json"                    # supervisor-owned
-CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
+EXPERIMENT_INIT_FILENAME = "experiment_init.json"
+TASK_STATE_FILENAME = "task_state.json"
+CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"
 
 # ---- Run report ----
 REPORT_SUBDIR = "run_report"
@@ -99,6 +106,22 @@ def _write_spawned_objects_json(path: str, *, seed: int, positions_xy):
     payload = {
         "seed": int(seed),
         "objects": objects,
+    }
+    _atomic_write_json(path, payload)
+
+
+def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy, drone_spawn_yaw: float):
+    x, y = drone_spawn_xy
+    cxcy = _cxcy_from_xy(float(x), float(y))
+    payload = {
+        "seed": int(seed),
+        "drone_spawn": {
+            "x": float(x),
+            "y": float(y),
+            "yaw": float(drone_spawn_yaw),
+            "cx": int(cxcy[0]) if cxcy is not None else None,
+            "cy": int(cxcy[1]) if cxcy is not None else None,
+        },
     }
     _atomic_write_json(path, payload)
 
@@ -190,6 +213,25 @@ def _write_run_report(
     return out_path
 
 
+def _place_drone(supervisor: Supervisor, drone_node, *, x: float, y: float, yaw: float) -> None:
+    if drone_node is None:
+        raise RuntimeError(
+            f"Drone DEF '{DRONE_DEF}' not found. Set DRONE_DEF to the drone DEF used in your world."
+        )
+
+    translation_field = drone_node.getField("translation")
+    rotation_field = drone_node.getField("rotation")
+
+    current_translation = translation_field.getSFVec3f()
+    z = float(current_translation[2])
+
+    translation_field.setSFVec3f([float(x), float(y), z])
+    rotation_field.setSFRotation([0.0, 0.0, 1.0, float(yaw)])
+
+    drone_node.resetPhysics()
+    supervisor.simulationResetPhysics()
+
+
 def main():
     random.seed(SEED)
 
@@ -197,6 +239,7 @@ def main():
     timestep = int(supervisor.getBasicTimeStep())
 
     spawned_objects_path = _shared_path(SPAWNED_OBJECTS_FILENAME)
+    experiment_init_path = _shared_path(EXPERIMENT_INIT_FILENAME)
     task_state_path = _shared_path(TASK_STATE_FILENAME)
     controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
 
@@ -206,6 +249,16 @@ def main():
         return
     spawn_children = spawn_root.getField("children")
 
+    drone_node = supervisor.getFromDef(DRONE_DEF)
+    _place_drone(
+        supervisor,
+        drone_node,
+        x=DRONE_SPAWN_X,
+        y=DRONE_SPAWN_Y,
+        yaw=DRONE_SPAWN_YAW,
+    )
+    drone_xy = (DRONE_SPAWN_X, DRONE_SPAWN_Y)
+
     spawned_positions = []
     spawned_nodes = []
 
@@ -213,8 +266,6 @@ def main():
     xmax = +ARENA_X / 2.0 - WALL_MARGIN
     ymin = -ARENA_Y / 2.0 + WALL_MARGIN
     ymax = +ARENA_Y / 2.0 - WALL_MARGIN
-
-    drone_xy = (0.0, 0.0)
 
     def sample_position(max_tries=2000):
         for _ in range(max_tries):
@@ -255,7 +306,15 @@ def main():
         new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
         spawned_nodes.append(new_node)
 
-    print(f"Spawned {len(spawned_nodes)} bottles. Seed={SEED}")
+    print(f"Spawned {len(spawned_nodes)} bottles. Seed={SEED}", flush=True)
+
+    _write_experiment_init_json(
+        experiment_init_path,
+        seed=SEED,
+        drone_spawn_xy=drone_xy,
+        drone_spawn_yaw=DRONE_SPAWN_YAW,
+    )
+    print(f"Experiment init JSON exported: {experiment_init_path}", flush=True)
 
     _write_spawned_objects_json(
         spawned_objects_path,
@@ -284,14 +343,13 @@ def main():
         total_objects=total_objects,
         remaining_objects=total_objects,
         validated_found_cells=validated_found_cells,
-        timeout_s=EPISODE_SECONDS + WARMUP_SECONDS,
+        timeout_s=TOTAL_SECONDS,
         warmup_s=WARMUP_SECONDS,
         episode_s=EPISODE_SECONDS,
         now_time_s=0.0,
         report_written=False,
     )
 
-    # reset controller progress at run start
     _atomic_write_json(
         controller_progress_path,
         {
@@ -301,6 +359,13 @@ def main():
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "drone_spawn": {
+                "x": DRONE_SPAWN_X,
+                "y": DRONE_SPAWN_Y,
+                "yaw": DRONE_SPAWN_YAW,
+                "cx": _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y)[0] if _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y) else None,
+                "cy": _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y)[1] if _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y) else None,
+            },
         },
     )
 
@@ -327,14 +392,12 @@ def main():
             for (cx, cy) in controller_progress.get("claimed_found_cells", [])
         }
 
-        # validate claims against true spawned cells
         new_validated = claimed_found_cells.intersection(true_cells)
         if new_validated != validated_found_cells:
             validated_found_cells = set(new_validated)
 
         remaining_objects = max(0, int(total_objects) - int(len(validated_found_cells)))
 
-        # end conditions
         if len(validated_found_cells) >= total_objects and total_objects > 0:
             final_reason = "done"
             final_time_s = float(t)
@@ -359,7 +422,6 @@ def main():
             )
             continue
 
-        # finalize once
         if not report_written:
             _write_task_state(
                 task_state_path,
@@ -428,7 +490,6 @@ def main():
                     break
             break
 
-    # Cleanup
     for idx in range(spawn_children.getCount() - 1, -1, -1):
         node = spawn_children.getMFNode(idx)
         node.remove()

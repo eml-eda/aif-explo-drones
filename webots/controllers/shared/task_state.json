@@ -1,38 +1,26 @@
 {
-  "status": "done",
-  "reason": "done",
-  "seed": 55,
+  "status": "running",
+  "reason": null,
+  "seed": 28,
   "total_objects": 6,
-  "remaining_objects": 0,
+  "remaining_objects": 3,
   "validated_found_cells": [
     [
+      0,
+      3
+    ],
+    [
       1,
-      11
-    ],
-    [
-      2,
-      9
-    ],
-    [
-      3,
-      4
-    ],
-    [
-      7,
       6
     ],
     [
-      7,
-      11
-    ],
-    [
-      8,
-      9
+      4,
+      10
     ]
   ],
   "timeout_s": 195.0,
   "warmup_s": 15.0,
   "episode_s": 180.0,
-  "now_time_s": 114.656,
-  "report_written": true
+  "now_time_s": 48.096000000000004,
+  "report_written": false
 }

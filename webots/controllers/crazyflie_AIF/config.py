@@ -1,1 +1,1 @@
-AIF_POLICY = "spiral"   # or "wall_following", "spiral", "pseudo_random", "rotate_and_measure", "aif_saccade"
+AIF_POLICY = "aif_saccade"   # or "wall_following", "spiral", "pseudo_random", "rotate_and_measure", "aif_saccade"
