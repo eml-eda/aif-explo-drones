@@ -24,7 +24,7 @@ class _RotateMeasureSM:
     max_yaw_rate: float = 0.50
 
     # Phase B: fly toward best direction up to 2m
-    max_forward_speed: float = 0.30
+    max_forward_speed: float = 0.50
     max_travel_m: float = 2.0
     obstacle_threshold_m: float = 1.0  # safety stop condition
 

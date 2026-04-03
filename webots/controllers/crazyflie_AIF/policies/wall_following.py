@@ -20,7 +20,7 @@ class WallFollowing:
         RIGHT = -1
 
     def __init__(self, reference_distance_from_wall=0.0,
-                 max_forward_speed=0.2,
+                 max_forward_speed=0.5,
                  max_turn_rate=0.5,
                  wall_following_direction=WallFollowingDirection.LEFT,
                  first_run=False,

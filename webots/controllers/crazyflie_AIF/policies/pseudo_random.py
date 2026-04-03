@@ -19,7 +19,7 @@ def clamp(x: float, lo: float, hi: float) -> float:
 class _PseudoRandomSM:
     # Paper: obstacle if ToF < 1m; turn random angle always > ±90°
     obstacle_threshold_m: float = 1.0
-    max_forward_speed: float = 0.30
+    max_forward_speed: float = 0.50
     max_yaw_rate: float = 0.50
 
     yaw_eps_rad: float = 0.12

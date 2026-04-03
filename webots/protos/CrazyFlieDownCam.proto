@@ -51,7 +51,7 @@ PROTO CrazyFlieDownCam [
             name "range_right"
             lookupTable [
               0 0 0
-              2 2000 0
+              4 4000 0
             ]
           }
           DistanceSensor {
@@ -59,7 +59,7 @@ PROTO CrazyFlieDownCam [
             name "range_back"
             lookupTable [
               0 0 0
-              2 2000 0
+              4 4000 0
             ]
           }
           DistanceSensor {
@@ -67,14 +67,14 @@ PROTO CrazyFlieDownCam [
             name "range_left"
             lookupTable [
               0 0 0
-              2 2000 0
+              4 4000 0
             ]
           }
           DistanceSensor {
             name "range_front"
             lookupTable [
               0 0 0
-              2 2000 0
+              4 4000 0
             ]
           }
         ]

@@ -34,7 +34,7 @@ RectangleArena {
 DEF SPAWN_ROOT Group {
 }
 
-CrazyFlieDownCam {
+DEF CRAZYFLIE CrazyFlieDownCam {
   translation 0 0 0.015
   rotation 0 0 1 1.5707996938995747
   controller "crazyflie_AIF"
