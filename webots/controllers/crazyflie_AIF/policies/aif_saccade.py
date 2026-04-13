@@ -25,7 +25,7 @@ class AIFSaccadePolicy:
         p_fa: float = 0.05,
         conf_floor: float = 0.10,
         beta_info: float = 1.0,
-        move_cost: float = 0.02,
+        distance_cost_epsilon: float = 0.02,
         prefer_detect_strength: float = 0.95,
         yaw_options: Optional[List[float]] = None,
         planning_p_hit: float = 0.85,
@@ -39,7 +39,7 @@ class AIFSaccadePolicy:
         self.conf_floor = float(conf_floor)
 
         self.beta_info = float(beta_info)
-        self.move_cost = float(move_cost)
+        self.distance_cost_epsilon = float(distance_cost_epsilon)
         self.planning_p_hit = float(planning_p_hit)
 
         p_det = float(prefer_detect_strength)
@@ -192,7 +192,6 @@ class AIFSaccadePolicy:
             "yaw_rate": float(cmd["yaw_rate"]),
         }
 
-    # ---------- NEW: controller-triggered snapshot ----------
     def save_snapshot_from_controller(self, observation: dict, *, reason: str = "final") -> Optional[str]:
         """
         Called by the controller at 'done'/'timeout' to guarantee a final snapshot exists.
@@ -233,7 +232,6 @@ class AIFSaccadePolicy:
         visible_mask = grid.get("visible_mask", {}) or {}
         coverages = grid.get("coverages", {}) or {}
 
-        # If current_cell missing we still save; but action scoring requires a cell.
         scored_actions = []
         chosen = (current_cell, float(pose.get("yaw", 0.0)))
 
@@ -288,8 +286,8 @@ class AIFSaccadePolicy:
 
         self.navigator = Navigator(
             self.grid_spec,
-            max_forward=0.25,
-            max_sideways=0.25,
+            max_forward=0.50,
+            max_sideways=0.50,
             max_yaw_rate=0.60,
             k_pos=1.2,
             k_yaw=1.5,
@@ -361,17 +359,13 @@ class AIFSaccadePolicy:
 
     # ---------------- action selection ----------------
 
-    def _adjacent_cells(self, current_cell: Cell) -> List[Cell]:
+    def _all_cells(self) -> List[Cell]:
         assert self.grid_spec is not None
-        cx, cy = current_cell
-        nbrs: List[Cell] = []
-        for dy in (-1, 0, 1):
-            for dx in (-1, 0, 1):
-                nx = cx + dx
-                ny = cy + dy
-                if 0 <= nx < self.grid_spec.cols and 0 <= ny < self.grid_spec.rows:
-                    nbrs.append((nx, ny))
-        return nbrs
+        return [
+            (cx, cy)
+            for cy in range(self.grid_spec.rows)
+            for cx in range(self.grid_spec.cols)
+        ]
 
     def _cell_center_xy(self, cx: int, cy: int) -> Tuple[float, float]:
         assert self.grid_spec is not None
@@ -390,12 +384,12 @@ class AIFSaccadePolicy:
         assert self.grid_spec is not None
         assert self.q_s is not None
 
-        candidates = self._adjacent_cells(current_cell)
+        candidates = self._all_cells()
 
         found_cells = found_cells or set()
         candidates = [c for c in candidates if c not in found_cells]
         if not candidates:
-            candidates = self._adjacent_cells(current_cell)
+            candidates = self._all_cells()
 
         scores = [] if return_scores else None
 
@@ -408,11 +402,11 @@ class AIFSaccadePolicy:
         for cell in candidates:
             tx, ty = self._cell_center_xy(cell[0], cell[1])
             dist = math.hypot(tx - x0, ty - y0)
-            base_cost = self.move_cost * dist
+            distance_cost = self.distance_cost_epsilon * dist
 
             for yaw in self.yaw_options:
                 risk, IG = self._efe_components(target_cell=cell, target_xy=(tx, ty), target_yaw=yaw)
-                G = float(risk - self.beta_info * IG + base_cost)
+                G = float(risk - self.beta_info * IG + distance_cost)
 
                 if return_scores:
                     scores.append({
@@ -420,7 +414,8 @@ class AIFSaccadePolicy:
                         "yaw": float(yaw),
                         "risk": float(risk),
                         "IG": float(IG),
-                        "base_cost": float(base_cost),
+                        "distance": float(dist),
+                        "distance_cost": float(distance_cost),
                         "G": float(G),
                     })
 
@@ -433,7 +428,7 @@ class AIFSaccadePolicy:
     def _efe_components(self, *, target_cell: Cell, target_xy: Tuple[float, float], target_yaw: float) -> Tuple[float, float]:
         """
         Returns (risk, IG) used by EFE:
-          G = risk - beta_info * IG + move_cost*dist
+          G = risk - beta_info * IG + distance_cost_epsilon * dist
         """
         assert self.env_mgr is not None
         assert self.q_s is not None
@@ -462,7 +457,7 @@ class AIFSaccadePolicy:
             cx = int(c)
             prior = self.q_s[cy, cx, :]
 
-            p_o = A @ prior  # (2,)
+            p_o = A @ prior
             ig_cell = 0.0
 
             for o in (0, 1):

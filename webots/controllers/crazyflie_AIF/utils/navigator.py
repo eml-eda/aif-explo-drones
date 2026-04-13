@@ -30,8 +30,8 @@ class Navigator:
     """
     grid_spec: object  # expects GridSpec-like: min_x, min_y, cell_size, rows, cols
 
-    max_forward: float = 0.30
-    max_sideways: float = 0.30
+    max_forward: float = 0.50
+    max_sideways: float = 0.50
     max_yaw_rate: float = 0.8
 
     k_pos: float = 1.2
