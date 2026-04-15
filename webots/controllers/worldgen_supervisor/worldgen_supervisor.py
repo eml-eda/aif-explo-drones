@@ -8,7 +8,7 @@ import random
 from controller import Supervisor
 
 # ---- Experiment settings ----
-SEED = 28
+SEED = 34
 
 WARMUP_SECONDS = 15.0
 EPISODE_SECONDS = 180.0

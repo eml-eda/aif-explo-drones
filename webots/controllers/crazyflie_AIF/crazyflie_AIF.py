@@ -51,7 +51,7 @@ MAX_X = ARENA_WIDTH_M / 2.0
 MAX_Y = ARENA_HEIGHT_M / 2.0
 
 # ---- Camera FoV footprint on floor (meters) at 1.5m altitude ----
-FOV_WIDTH_M = 1.35
+FOV_WIDTH_M = 1.40
 FOV_FORWARD_M = 0.55
 FOV_BACKWARD_M = 0.45
 

@@ -25,7 +25,7 @@ class AIFSaccadePolicy:
         p_fa: float = 0.05,
         conf_floor: float = 0.10,
         beta_info: float = 1.0,
-        distance_cost_epsilon: float = 0.02,
+        distance_cost_epsilon: float = 0.1,
         prefer_detect_strength: float = 0.95,
         yaw_options: Optional[List[float]] = None,
         planning_p_hit: float = 0.85,
@@ -90,7 +90,11 @@ class AIFSaccadePolicy:
         det_conf: Dict[Cell, float] = grid.get("det_confidence", {})
         coverages: Dict[Cell, float] = grid.get("coverages", {})
 
-        self._update_beliefs(visible_mask=visible_mask, det_conf=det_conf)
+        self._update_beliefs(
+            visible_mask=visible_mask,
+            det_conf=det_conf,
+            coverages=coverages,
+        )
 
         assert self.navigator is not None
 
@@ -304,7 +308,27 @@ class AIFSaccadePolicy:
 
     # ---------------- belief update ----------------
 
-    def _update_beliefs(self, *, visible_mask: Dict[Cell, bool], det_conf: Dict[Cell, float]) -> None:
+    def _update_beliefs(
+        self,
+        *,
+        visible_mask: Dict[Cell, bool],
+        det_conf: Dict[Cell, float],
+        coverages: Dict[Cell, float],
+    ) -> None:
+        """
+        Coverage-weighted posterior interpolation update.
+
+        For each visible cell:
+          1) compute the full Bayesian posterior exactly as before
+          2) interpolate between prior and posterior with weight = coverage
+
+        q_new = (1 - w) * q_prior + w * q_full
+
+        where:
+          - w = coverage fraction in [0, 1]
+          - w = 0   => no update
+          - w = 1   => full update
+        """
         assert self.q_s is not None
         rows, cols = self.q_s.shape[0], self.q_s.shape[1]
 
@@ -314,22 +338,41 @@ class AIFSaccadePolicy:
             if not (0 <= cx < cols and 0 <= cy < rows):
                 continue
 
+            coverage = float(coverages.get((cx, cy), 0.0))
+            coverage = clamp(coverage, 0.0, 1.0)
+            if coverage <= 0.0:
+                continue
+
             conf = float(det_conf.get((cx, cy), 0.0))
             conf = clamp(conf, 0.0, 1.0)
 
             p_hit = clamp(max(conf, self.conf_floor), 0.0, 1.0)
             p_fa = self.p_fa
 
+            # Observation model exactly as before:
+            # - positive observation if conf > 0
+            # - negative observation otherwise
             A0 = np.array([1.0 - p_fa, 1.0 - p_hit], dtype=np.float64)
             A1 = np.array([p_fa, p_hit], dtype=np.float64)
-            A = (A1 if conf > 0.0 else A0)
+            likelihood = A1 if conf > 0.0 else A0
 
             prior = self.q_s[cy, cx, :].copy()
-            post_unnorm = A * prior
+
+            # Full posterior under the original observation model
+            post_unnorm = likelihood * prior
             z = float(post_unnorm.sum())
             if z <= 1e-12:
                 continue
-            self.q_s[cy, cx, :] = post_unnorm / z
+            full_post = post_unnorm / z
+
+            # Coverage-weighted interpolation between prior and full posterior
+            new_post = (1.0 - coverage) * prior + coverage * full_post
+
+            # Numerical safeguard; convex combination should already sum to 1
+            z2 = float(new_post.sum())
+            if z2 <= 1e-12:
+                continue
+            self.q_s[cy, cx, :] = new_post / z2
 
     def _belief_present(self, cx: int, cy: int) -> float:
         if self.q_s is None:
