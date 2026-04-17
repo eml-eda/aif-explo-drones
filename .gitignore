@@ -49,6 +49,7 @@ experiments/outputs/**/*.mkv
 # -------------------------
 data/
 datasets/
+dataset/
 models/         
 *.pt
 *.pth

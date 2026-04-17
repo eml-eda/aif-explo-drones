@@ -82,10 +82,16 @@ PROTO CrazyFlieDownCam [
       Camera {
         name "camera"
         translation 0.03 0 0.01
-        rotation 0 1 0 1.5708  # point down
+        rotation 0 1 0 1.5708
         fieldOfView 0.87
         width 320
         height 240
+        recognition Recognition {
+          maxRange 10
+          occlusion 1
+          segmentation FALSE
+          frameThickness 0
+        }
       }
       GPS {
       }

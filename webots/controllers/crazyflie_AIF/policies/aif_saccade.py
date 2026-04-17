@@ -25,7 +25,7 @@ class AIFSaccadePolicy:
         p_fa: float = 0.05,
         conf_floor: float = 0.10,
         beta_info: float = 1.0,
-        distance_cost_epsilon: float = 0.1,
+        distance_cost_epsilon: float = 0.04,
         prefer_detect_strength: float = 0.95,
         yaw_options: Optional[List[float]] = None,
         planning_p_hit: float = 0.85,

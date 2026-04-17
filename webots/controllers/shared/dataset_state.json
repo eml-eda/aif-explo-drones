@@ -1,0 +1,10 @@
+{
+  "status": "timeout",
+  "reason": "timeout",
+  "seed": 95,
+  "total_objects": 18,
+  "now_time_s": 3515.0080000000003,
+  "timeout_s": 3515.0,
+  "warmup_s": 15.0,
+  "collection_s": 3500.0
+}

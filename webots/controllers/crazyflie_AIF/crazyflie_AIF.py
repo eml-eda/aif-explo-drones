@@ -33,7 +33,7 @@ CAPTURE_EVERY_N_STEPS = 20
 # ---- Mode toggles ----
 # False -> regular single-run behavior
 # True  -> controller expects the evaluation supervisor to provide eval_state.json
-EVAL_MODE = True
+EVAL_MODE = False
 EVAL_STATE_FILENAME = "eval_state.json"
 
 # ---- Flight preference ----
@@ -72,7 +72,7 @@ DEBUG = {
 }
 
 # ---- Snapshot / debugging ----
-ENABLE_SNAPSHOTS = True
+ENABLE_SNAPSHOTS = False
 SNAPSHOT_EVERY_N_STEPS = 200
 SNAPSHOT_ON_STUCK = True
 STUCK_REPLAN_LIMIT = 40
