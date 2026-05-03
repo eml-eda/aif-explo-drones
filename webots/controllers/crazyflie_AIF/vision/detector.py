@@ -25,7 +25,7 @@ class Detector:
         class_names=None,  
     ):
         if model_name is None:
-            model_name = os.environ.get("AIF_YOLO_MODEL", "yolo11n.pt")
+            model_name = os.environ.get("AIF_YOLO_MODEL", "yolo11s.pt")
         self.model_name = model_name
 
         self.device = device
@@ -38,7 +38,7 @@ class Detector:
 
         # Class filtering by names 
         if class_names is None:
-            class_names = ["bottle"]  
+            class_names = ["target_bottle"]  
 
         name_to_id = {v: k for k, v in self.model.names.items()}
         self.classes = [name_to_id[n] for n in class_names if n in name_to_id]

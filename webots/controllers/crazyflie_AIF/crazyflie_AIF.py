@@ -33,7 +33,7 @@ CAPTURE_EVERY_N_STEPS = 20
 # ---- Mode toggles ----
 # False -> regular single-run behavior
 # True  -> controller expects the evaluation supervisor to provide eval_state.json
-EVAL_MODE = False
+EVAL_MODE = True
 EVAL_STATE_FILENAME = "eval_state.json"
 
 # ---- Flight preference ----
@@ -63,7 +63,7 @@ DEBUG = {
     "every_n": 100,
 
     # Controller
-    "fov": True,
+    "fov": False,
     "cmd": True,
 
     # Policy
@@ -75,10 +75,10 @@ DEBUG = {
 ENABLE_SNAPSHOTS = False
 SNAPSHOT_EVERY_N_STEPS = 200
 SNAPSHOT_ON_STUCK = True
-STUCK_REPLAN_LIMIT = 40
+STUCK_REPLAN_LIMIT = 100
 
 # ---- Detection mode ----
-USE_GROUND_TRUTH_DETECTIONS = True
+USE_GROUND_TRUTH_DETECTIONS = False
 GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
@@ -89,7 +89,7 @@ CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
 
 # ---- Task manager: "found" definition ----
 FOUND_DET_THRESHOLD = 0.8
-FOUND_STREAK_STEPS = 50
+FOUND_STREAK_STEPS = 20
 
 # ---- Takeoff warm-up ----
 AUTO_START_AUTONOMY = True
@@ -333,7 +333,14 @@ if __name__ == "__main__":
             confidence=GT_CONFIDENCE,
         )
     else:
-        detector = Detector()
+        detector = Detector(
+            model_name="/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/bottle_detector_runs/yolo11s_ft_bottles_v2/weights/best.pt",
+            device="cuda:0",
+            conf=0.65,
+            iou=0.45,
+            img_size=320,
+            class_names=["target_bottle"],
+        )
 
     print("\n[FoV setup]")
     print(
@@ -347,10 +354,8 @@ if __name__ == "__main__":
 
     base_log_dir = os.path.join(os.path.dirname(__file__), "logs")
 
-    run_dir = None
-    if ENABLE_LOGGING or ENABLE_CAPTURES or ENABLE_SNAPSHOTS:
-        run_dir = _resolve_run_dir(base_log_dir, policy_name, eval_state_path)
-        print("Run output dir:", run_dir)
+    run_dir = _resolve_run_dir(base_log_dir, policy_name, eval_state_path)
+    print("Run output dir:", run_dir)
 
     logger = ExperimentLogger(
         enabled=ENABLE_LOGGING,
@@ -623,7 +628,8 @@ if __name__ == "__main__":
                     "det_confidence": det_conf_cxcy,
                 },
                 "task": {
-                    "found_cells": sorted(list(validated_found_cells)),
+                    "found_cells": sorted(list(claimed_found_cells)),
+                    "validated_found_cells": sorted(list(validated_found_cells)),
                     "remaining_objects": remaining_objects,
                     "total_objects": TOTAL_OBJECTS,
                     "found_det_threshold": FOUND_DET_THRESHOLD,

@@ -23,12 +23,13 @@ class AIFSaccadePolicy:
         *,
         prior_present: float = 0.05,
         p_fa: float = 0.05,
-        conf_floor: float = 0.10,
+        conf_floor: float = 0.25,
         beta_info: float = 1.0,
         distance_cost_epsilon: float = 0.04,
         prefer_detect_strength: float = 0.95,
         yaw_options: Optional[List[float]] = None,
         planning_p_hit: float = 0.85,
+        replan_cooldown_s: float = 0.4,
     ):
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
@@ -41,6 +42,7 @@ class AIFSaccadePolicy:
         self.beta_info = float(beta_info)
         self.distance_cost_epsilon = float(distance_cost_epsilon)
         self.planning_p_hit = float(planning_p_hit)
+        self.replan_cooldown_s = float(replan_cooldown_s)
 
         p_det = float(prefer_detect_strength)
         self.C = np.array([1.0 - p_det, p_det], dtype=np.float64)
@@ -58,6 +60,7 @@ class AIFSaccadePolicy:
 
         self._snap_dir: Optional[str] = None
         self._stay_replan_streak: int = 0
+        self._last_replan_time_s: float = -1e9
 
     def compute_action(self, observation: dict) -> Dict[str, float]:
         self._ensure_initialized(observation)
@@ -99,7 +102,15 @@ class AIFSaccadePolicy:
         assert self.navigator is not None
 
         scored_actions = None
-        if (not self.navigator.has_target()) or self.navigator.arrived(pose, coverages):
+
+        time_now = float(observation.get("time", 0.0))
+        has_target = self.navigator.has_target()
+        arrived = self.navigator.arrived(pose, coverages) if has_target else False
+        cooldown_elapsed = (time_now - self._last_replan_time_s) >= self.replan_cooldown_s
+
+        should_replan = (not has_target) or (arrived and cooldown_elapsed)
+
+        if should_replan:
             if current_cell is not None:
                 (next_cell, next_yaw), scored_actions = self._pick_next_action(
                     current_cell=current_cell,
@@ -107,6 +118,7 @@ class AIFSaccadePolicy:
                     return_scores=True,
                 )
                 self.navigator.set_target(next_cell, next_yaw)
+                self._last_replan_time_s = time_now
 
                 if next_cell == current_cell:
                     self._stay_replan_streak += 1

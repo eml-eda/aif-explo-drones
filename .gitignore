@@ -32,7 +32,9 @@ Thumbs.db
 # -------------------------
 experiments/outputs/
 runs/
-logs/
+eval_runs/
+logs*/
+# logs_GT_*/
 *.log
 
 # Ignore media outputs
@@ -50,6 +52,7 @@ experiments/outputs/**/*.mkv
 data/
 datasets/
 dataset/
+dataset_bottles_only/
 models/         
 *.pt
 *.pth
@@ -58,6 +61,8 @@ models/
 *.tflite
 *.npz
 *.npy
+bottle_detector_runs/
+
 
 # -------------------------
 # Webots caches / generated

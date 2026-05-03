@@ -1,0 +1,132 @@
+{
+  "policy_name": "aif_saccade",
+  "seeds": [
+    28,
+    31,
+    34,
+    37,
+    40,
+    43,
+    46,
+    49,
+    52,
+    55
+  ],
+  "total_runs": 10,
+  "current_run_index": 9,
+  "current_seed": 55,
+  "eval_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005",
+  "aggregate_runs": [
+    {
+      "run_index": 0,
+      "seed": 28,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 56.992,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.21678321678321677,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run00_seed28_20260503_175006"
+    },
+    {
+      "run_index": 1,
+      "seed": 31,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 81.888,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.35664335664335667,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run01_seed31_20260503_175024"
+    },
+    {
+      "run_index": 2,
+      "seed": 34,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 88.896,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run02_seed34_20260503_175039"
+    },
+    {
+      "run_index": 3,
+      "seed": 37,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 84.03200000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3076923076923077,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run03_seed37_20260503_175056"
+    },
+    {
+      "run_index": 4,
+      "seed": 40,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 113.44000000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.46153846153846156,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run04_seed40_20260503_175111"
+    },
+    {
+      "run_index": 5,
+      "seed": 43,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 92.224,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.40559440559440557,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run05_seed43_20260503_175131"
+    },
+    {
+      "run_index": 6,
+      "seed": 46,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 125.824,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.4825174825174825,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run06_seed46_20260503_175147"
+    },
+    {
+      "run_index": 7,
+      "seed": 49,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 114.336,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.45454545454545453,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run07_seed49_20260503_175207"
+    },
+    {
+      "run_index": 8,
+      "seed": 52,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 100.736,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run08_seed52_20260503_175227"
+    },
+    {
+      "run_index": 9,
+      "seed": 55,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "elapsed_s": 92.0,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.34965034965034963,
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run09_seed55_20260503_175244"
+    }
+  ],
+  "completed": true
+}

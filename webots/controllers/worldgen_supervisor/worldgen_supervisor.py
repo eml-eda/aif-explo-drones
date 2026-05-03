@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 from controller import Supervisor
@@ -28,6 +29,14 @@ DRONE_EXCLUSION_RADIUS = 0.75
 
 # Avoid overlap between spawned objects
 MIN_SEPARATION = 0.70
+
+# ---- In-cell spawn restriction ----
+# Bottle centers are sampled inside a disc centered at the center of a cell.
+# This reduces near-edge / near-corner placements that are ambiguous for the
+# detector-to-cell mapping used by the controller.
+#
+# Must satisfy: 0 < SPAWN_CENTER_DISC_RADIUS_M < CELL_SIZE_M / 2
+SPAWN_CENTER_DISC_RADIUS_M = 0.20
 
 # Bottle object we spawn
 BOTTLE_PROTO_NODE = "BeerBottle"
@@ -91,6 +100,54 @@ def _cxcy_from_xy(x: float, y: float) -> tuple[int, int] | None:
     cx = int((x - min_x) / CELL_SIZE_M)
     cy = int((y - min_y) / CELL_SIZE_M)
     return (cx, cy)
+
+
+def _cell_center_xy(cx: int, cy: int) -> tuple[float, float]:
+    min_x = -ARENA_X / 2.0
+    min_y = -ARENA_Y / 2.0
+    x = min_x + (cx + 0.5) * CELL_SIZE_M
+    y = min_y + (cy + 0.5) * CELL_SIZE_M
+    return (x, y)
+
+
+def _uniform_point_in_disc(center_x: float, center_y: float, radius: float) -> tuple[float, float]:
+    # Uniform in area
+    r = radius * math.sqrt(random.random())
+    theta = random.uniform(0.0, 2.0 * math.pi)
+    x = center_x + r * math.cos(theta)
+    y = center_y + r * math.sin(theta)
+    return (x, y)
+
+
+def _eligible_spawn_cells(radius: float) -> list[tuple[int, int]]:
+    """
+    Returns cells whose center-disc of given radius lies entirely inside the
+    wall-margin-valid spawn region.
+    """
+    cols = int(ARENA_X / CELL_SIZE_M)
+    rows = int(ARENA_Y / CELL_SIZE_M)
+
+    xmin = -ARENA_X / 2.0 + WALL_MARGIN
+    xmax = +ARENA_X / 2.0 - WALL_MARGIN
+    ymin = -ARENA_Y / 2.0 + WALL_MARGIN
+    ymax = +ARENA_Y / 2.0 - WALL_MARGIN
+
+    cells = []
+    for cy in range(rows):
+        for cx in range(cols):
+            ccx, ccy = _cell_center_xy(cx, cy)
+
+            if (ccx - radius) < xmin:
+                continue
+            if (ccx + radius) > xmax:
+                continue
+            if (ccy - radius) < ymin:
+                continue
+            if (ccy + radius) > ymax:
+                continue
+
+            cells.append((cx, cy))
+    return cells
 
 
 def _write_spawned_objects_json(path: str, *, seed: int, positions_xy):
@@ -235,6 +292,12 @@ def _place_drone(supervisor: Supervisor, drone_node, *, x: float, y: float, yaw:
 def main():
     random.seed(SEED)
 
+    if not (0.0 < SPAWN_CENTER_DISC_RADIUS_M < (0.5 * CELL_SIZE_M)):
+        raise ValueError(
+            f"SPAWN_CENTER_DISC_RADIUS_M must be in (0, {0.5 * CELL_SIZE_M:.3f}), "
+            f"got {SPAWN_CENTER_DISC_RADIUS_M}"
+        )
+
     supervisor = Supervisor()
     timestep = int(supervisor.getBasicTimeStep())
 
@@ -262,15 +325,28 @@ def main():
     spawned_positions = []
     spawned_nodes = []
 
-    xmin = -ARENA_X / 2.0 + WALL_MARGIN
-    xmax = +ARENA_X / 2.0 - WALL_MARGIN
-    ymin = -ARENA_Y / 2.0 + WALL_MARGIN
-    ymax = +ARENA_Y / 2.0 - WALL_MARGIN
+    eligible_cells = _eligible_spawn_cells(SPAWN_CENTER_DISC_RADIUS_M)
+    if not eligible_cells:
+        raise RuntimeError(
+            "No eligible spawn cells available under current wall margin and center-disc radius."
+        )
+
+    print(
+        f"[SPAWN] using center-disc spawn restriction with radius={SPAWN_CENTER_DISC_RADIUS_M:.3f} m "
+        f"over {len(eligible_cells)} eligible cells",
+        flush=True,
+    )
 
     def sample_position(max_tries=2000):
         for _ in range(max_tries):
-            x = random.uniform(xmin, xmax)
-            y = random.uniform(ymin, ymax)
+            cx, cy = random.choice(eligible_cells)
+            center_x, center_y = _cell_center_xy(cx, cy)
+            x, y = _uniform_point_in_disc(center_x, center_y, SPAWN_CENTER_DISC_RADIUS_M)
+
+            # Safety check: sampled point should remain in its intended cell
+            sampled_cell = _cxcy_from_xy(x, y)
+            if sampled_cell != (cx, cy):
+                continue
 
             if dist2((x, y), drone_xy) < DRONE_EXCLUSION_RADIUS ** 2:
                 continue
