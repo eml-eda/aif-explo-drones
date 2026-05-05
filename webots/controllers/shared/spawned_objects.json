@@ -2,38 +2,62 @@
   "seed": 55,
   "objects": [
     {
+      "def": "BOTTLE_000",
       "x": -1.5487281827641781,
       "y": -1.3582235505656848,
+      "class_id": 0,
+      "class_name": "target_bottle",
+      "model": "target_bottle",
       "cx": 2,
       "cy": 3
     },
     {
+      "def": "BOTTLE_001",
       "x": -1.8731966809743612,
       "y": -0.06730909738274544,
+      "class_id": 0,
+      "class_name": "target_bottle",
+      "model": "target_bottle",
       "cx": 1,
       "cy": 6
     },
     {
+      "def": "BOTTLE_002",
       "x": -0.5774436837257525,
       "y": 2.067982562199494,
+      "class_id": 0,
+      "class_name": "target_bottle",
+      "model": "target_bottle",
       "cx": 4,
       "cy": 10
     },
     {
+      "def": "CAN_003",
       "x": -1.5184365067033048,
       "y": 0.9062490555719389,
+      "class_id": 1,
+      "class_name": "target_can",
+      "model": "target_can",
       "cx": 2,
       "cy": 8
     },
     {
+      "def": "CAN_004",
       "x": 0.6153550203127038,
       "y": -2.469588016031173,
+      "class_id": 1,
+      "class_name": "target_can",
+      "model": "target_can",
       "cx": 6,
       "cy": 1
     },
     {
+      "def": "CAN_005",
       "x": -0.8930167610452552,
       "y": -0.9901936527548172,
+      "class_id": 1,
+      "class_name": "target_can",
+      "model": "target_can",
       "cx": 3,
       "cy": 4
     }

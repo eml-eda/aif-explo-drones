@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 # Paste the relative path to the dataset run folder you want to inspect.
 # This path is interpreted relative to the location of this script file.
 # ---------------------------------------------------------------------
-DATASET_RUN_REL_PATH = "../datasets/bottle_dataset_raw/run_seed0065_pseudo_random_20260417_161653"
+DATASET_RUN_REL_PATH = "../datasets/mixed_bottle_can_dataset_raw/run_seed0050_pseudo_random_20260504_145955"
 
 # Save projected copies even for empty-label frames
 SAVE_EMPTY_OVERLAYS = True
@@ -26,6 +26,12 @@ THIN_BOX_MIN_SIDE_PX = 10
 SMALL_BOX_AREA_PX = 120
 BORDER_MARGIN_PX = 0
 CENTER_SAFE_MARGIN_PX = 20
+
+# Class legend for overlay text
+CLASS_NAMES = {
+    0: "bottle",
+    1: "can",
+}
 
 
 def parse_yolo_label_file(label_path: Path) -> List[Tuple[int, float, float, float, float]]:
@@ -155,11 +161,12 @@ def draw_boxes(
         x1, y1, x2, y2 = box
         draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=2)
 
+        cls_name = CLASS_NAMES.get(cls_id, str(cls_id))
         reason_suffix = ""
         if reasons:
             reason_suffix = "|" + ",".join(reasons[:2])
 
-        label = f"{cls_id}:{i}{reason_suffix}"
+        label = f"{cls_name}:{i}{reason_suffix}"
         text_x = x1 + 2
         text_y = max(0, y1 - 12)
         text_w = max(42, 7 * len(label))
@@ -232,6 +239,7 @@ def inspect_run(run_dir: Path) -> None:
             projected.save(overlay_path)
 
         image_reasons = sorted({reason for reasons in per_box_reasons for reason in reasons})
+        class_names_present = sorted({CLASS_NAMES.get(cls_id, str(cls_id)) for cls_id in class_ids})
         is_suspect = len(image_reasons) > 0
 
         if COPY_SUSPECTS and is_suspect and overlay_path.exists():
@@ -243,6 +251,7 @@ def inspect_run(run_dir: Path) -> None:
                 "image": img_path.name,
                 "label": label_path.name,
                 "num_boxes": len(pixel_boxes),
+                "classes_present": ";".join(class_names_present),
                 "empty": int(len(pixel_boxes) == 0),
                 "suspect": int(is_suspect),
                 "suspect_reasons": ";".join(image_reasons),
@@ -258,6 +267,7 @@ def inspect_run(run_dir: Path) -> None:
                 "image",
                 "label",
                 "num_boxes",
+                "classes_present",
                 "empty",
                 "suspect",
                 "suspect_reasons",
@@ -292,11 +302,6 @@ def inspect_run(run_dir: Path) -> None:
     print(f"[DONE] empty images: {empty_count}/{total_images} ({empty_pct:.2f}%)")
     print(f"[DONE] empty image list saved to: {empty_txt}")
     print(f"[DONE] empty image CSV saved to: {empty_csv}")
-
-    # if empty_images:
-    #     print("[EMPTY IMAGE IDS]")
-    #     for stem in empty_images:
-    #         print(stem)
 
 
 if __name__ == "__main__":

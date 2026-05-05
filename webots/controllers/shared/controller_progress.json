@@ -1,10 +1,26 @@
 {
-  "policy_name": "aif_saccade",
-  "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260503_175005/runs/log_run_aif_saccade_run09_seed55_20260503_175244",
+  "policy_name": "spiral",
+  "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run09_seed55_20260505_191227",
   "autonomy_start_time_s": 15.008000000000001,
-  "last_controller_time_s": 108.032,
+  "last_controller_time_s": 105.21600000000001,
   "visited_cells": [
     [
+      0,
+      10
+    ],
+    [
+      0,
+      11
+    ],
+    [
+      1,
+      0
+    ],
+    [
+      1,
+      1
+    ],
+    [
       1,
       2
     ],
@@ -26,6 +42,14 @@
     ],
     [
       1,
+      7
+    ],
+    [
+      1,
+      8
+    ],
+    [
+      1,
       9
     ],
     [
@@ -38,15 +62,11 @@
     ],
     [
       2,
-      2
+      0
     ],
     [
       2,
-      6
-    ],
-    [
-      2,
-      7
+      1
     ],
     [
       2,
@@ -57,8 +77,16 @@
       9
     ],
     [
+      2,
+      11
+    ],
+    [
       3,
-      2
+      1
+    ],
+    [
+      3,
+      4
     ],
     [
       3,
@@ -73,48 +101,36 @@
       7
     ],
     [
-      4,
-      2
-    ],
-    [
-      4,
-      7
-    ],
-    [
-      4,
+      3,
       8
     ],
     [
-      4,
+      3,
       9
+    ],
+    [
+      3,
+      10
+    ],
+    [
+      3,
+      11
+    ],
+    [
+      4,
+      1
     ],
     [
       4,
       10
     ],
     [
-      5,
-      2
+      4,
+      11
     ],
     [
       5,
-      5
-    ],
-    [
-      5,
-      6
-    ],
-    [
-      5,
-      7
-    ],
-    [
-      5,
-      8
-    ],
-    [
-      5,
-      9
+      1
     ],
     [
       5,
@@ -130,18 +146,6 @@
     ],
     [
       6,
-      2
-    ],
-    [
-      6,
-      5
-    ],
-    [
-      6,
-      6
-    ],
-    [
-      6,
       10
     ],
     [
@@ -149,36 +153,36 @@
       11
     ],
     [
+      6,
+      12
+    ],
+    [
       7,
       1
-    ],
-    [
-      7,
-      8
-    ],
-    [
-      7,
-      9
     ],
     [
       7,
       10
     ],
     [
+      7,
+      11
+    ],
+    [
+      7,
+      12
+    ],
+    [
       8,
       1
     ],
     [
       8,
-      6
+      11
     ],
     [
       8,
-      7
-    ],
-    [
-      8,
-      8
+      12
     ],
     [
       9,
@@ -203,6 +207,46 @@
     [
       9,
       6
+    ],
+    [
+      9,
+      7
+    ],
+    [
+      9,
+      8
+    ],
+    [
+      9,
+      9
+    ],
+    [
+      9,
+      10
+    ],
+    [
+      9,
+      11
+    ],
+    [
+      9,
+      12
+    ],
+    [
+      10,
+      1
+    ],
+    [
+      10,
+      2
+    ],
+    [
+      10,
+      11
+    ],
+    [
+      10,
+      12
     ]
   ],
   "claimed_found_cells": [
@@ -230,6 +274,44 @@
       6,
       1
     ]
+  ],
+  "claimed_found_objects": [
+    {
+      "cx": 6,
+      "cy": 1,
+      "class_name": "target_can",
+      "label": "target_can"
+    },
+    {
+      "cx": 2,
+      "cy": 3,
+      "class_name": "target_bottle",
+      "label": "target_bottle"
+    },
+    {
+      "cx": 3,
+      "cy": 4,
+      "class_name": "target_can",
+      "label": "target_can"
+    },
+    {
+      "cx": 1,
+      "cy": 6,
+      "class_name": "target_bottle",
+      "label": "target_bottle"
+    },
+    {
+      "cx": 2,
+      "cy": 8,
+      "class_name": "target_can",
+      "label": "target_can"
+    },
+    {
+      "cx": 4,
+      "cy": 10,
+      "class_name": "target_bottle",
+      "label": "target_bottle"
+    }
   ],
   "drone_spawn": {
     "x": -2.048300728653252,

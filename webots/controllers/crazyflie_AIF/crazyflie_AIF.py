@@ -17,7 +17,7 @@ from policies.rotate_and_measure import RotateAndMeasurePolicy
 from policies.aif_saccade import AIFSaccadePolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
-from vision.detector import Detector
+from vision.detector_yolo import Detector
 from vision.ground_truth_detector import GroundTruthDetector
 
 from env.env_manager import GridSpec, FoVSpec, GridEnvManager
@@ -31,8 +31,6 @@ LOG_EVERY_N_STEPS = 20
 CAPTURE_EVERY_N_STEPS = 20
 
 # ---- Mode toggles ----
-# False -> regular single-run behavior
-# True  -> controller expects the evaluation supervisor to provide eval_state.json
 EVAL_MODE = True
 EVAL_STATE_FILENAME = "eval_state.json"
 
@@ -58,15 +56,11 @@ FOV_BACKWARD_M = 0.45
 # ---- FoV → cell thresholds ----
 COVERAGE_UPDATE_THRESHOLD = 0.05
 
-# ---- Single debug config (controls controller + policy prints) ----
+# ---- Single debug config ----
 DEBUG = {
     "every_n": 100,
-
-    # Controller
     "fov": False,
     "cmd": True,
-
-    # Policy
     "policy_grid": True,
     "policy_detections": True,
 }
@@ -83,9 +77,9 @@ GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
 # ---- Shared init / task / progress files ----
-EXPERIMENT_INIT_FILENAME = "experiment_init.json"          # supervisor-owned
-TASK_STATE_FILENAME = "task_state.json"                    # supervisor-owned
-CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"  # controller-owned
+EXPERIMENT_INIT_FILENAME = "experiment_init.json"
+TASK_STATE_FILENAME = "task_state.json"
+CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"
 
 # ---- Task manager: "found" definition ----
 FOUND_DET_THRESHOLD = 0.8
@@ -154,16 +148,10 @@ def _wait_for_json(path: str, validator, timeout_s: float, poll_s: float):
     return last_data
 
 
-def load_gt_objects_xy(json_path: str):
+def load_gt_objects(json_path: str):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-
-    objs = data.get("objects", [])
-    out = []
-    for o in objs:
-        if "x" in o and "y" in o:
-            out.append((float(o["x"]), float(o["y"])))
-    return out
+    return list(data.get("objects", []))
 
 
 def load_gt_seed(json_path: str) -> int:
@@ -238,7 +226,6 @@ if __name__ == "__main__":
     controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
     eval_state_path = _shared_path(EVAL_STATE_FILENAME)
 
-    # ---- Wait for supervisor startup files ----
     experiment_init = _wait_for_json(
         experiment_init_path,
         validator=lambda d: isinstance(d.get("drone_spawn", None), dict) and ("x" in d["drone_spawn"]) and ("y" in d["drone_spawn"]),
@@ -266,7 +253,6 @@ if __name__ == "__main__":
         flush=True,
     )
 
-    # ---- Grid spec ----
     grid_spec = GridSpec(
         min_x=MIN_X,
         max_x=MAX_X,
@@ -277,7 +263,6 @@ if __name__ == "__main__":
         cols=GRID_COLS,
     )
 
-    # ---- FoV spec ----
     fov_spec = FoVSpec(
         half_left=FOV_WIDTH_M / 2.0,
         half_right=FOV_WIDTH_M / 2.0,
@@ -289,13 +274,14 @@ if __name__ == "__main__":
 
     detector = None
     gt_detector = None
-    gt_objects_xy = None
 
+    claimed_found_objects = set()  # (cx, cy, class_name)
     claimed_found_cells = set()
-    _found_streak_cell = None
+    _found_streak_key = None  # (cx, cy, class_name)
     _found_streak_count = 0
 
     validated_found_cells = set()
+    validated_found_objects = set()
     TOTAL_OBJECTS = 0
     remaining_objects = 0
     supervisor_status = "running"
@@ -318,28 +304,25 @@ if __name__ == "__main__":
             raise FileNotFoundError(f"Required GT file not found or invalid: {gt_path}")
 
         gt_seed = int(gt_json.get("seed", gt_seed))
-        gt_objects_xy = []
-        for o in gt_json.get("objects", []):
-            if "x" in o and "y" in o:
-                gt_objects_xy.append((float(o["x"]), float(o["y"])))
+        gt_objects = load_gt_objects(gt_path)
 
-        print(f"[GT] Loaded {len(gt_objects_xy)} objects from {gt_path}")
-        print("[GT] Example objects:", gt_objects_xy[:3])
+        print(f"[GT] Loaded {len(gt_objects)} objects from {gt_path}")
+        print("[GT] Example objects:", gt_objects[:3])
 
         gt_detector = GroundTruthDetector(
-            object_positions_xy=gt_objects_xy,
+            objects=gt_objects,
             grid_spec=grid_spec,
             fov_spec=fov_spec,
             confidence=GT_CONFIDENCE,
         )
     else:
         detector = Detector(
-            model_name="/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/bottle_detector_runs/yolo11s_ft_bottles_v2/weights/best.pt",
+            model_name=None,
             device="cuda:0",
             conf=0.65,
             iou=0.45,
             img_size=320,
-            class_names=["target_bottle"],
+            class_names=["target_bottle", "target_can"],
         )
 
     print("\n[FoV setup]")
@@ -353,7 +336,6 @@ if __name__ == "__main__":
     )
 
     base_log_dir = os.path.join(os.path.dirname(__file__), "logs")
-
     run_dir = _resolve_run_dir(base_log_dir, policy_name, eval_state_path)
     print("Run output dir:", run_dir)
 
@@ -384,6 +366,7 @@ if __name__ == "__main__":
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "claimed_found_objects": [],
             "drone_spawn": {
                 "x": drone_spawn_x,
                 "y": drone_spawn_y,
@@ -409,6 +392,7 @@ if __name__ == "__main__":
                     "total_objects": 0,
                     "remaining_objects": 0,
                     "validated_found_cells": [],
+                    "validated_found_objects": [],
                 },
             )
             supervisor_status = str(task_state.get("status", "running"))
@@ -418,6 +402,14 @@ if __name__ == "__main__":
             validated_found_cells = {
                 (int(cx), int(cy))
                 for (cx, cy) in task_state.get("validated_found_cells", [])
+            }
+            validated_found_objects = {
+                (
+                    int(o["cx"]),
+                    int(o["cy"]),
+                    str(o["class_name"]),
+                )
+                for o in task_state.get("validated_found_objects", [])
             }
 
             if AUTO_START_AUTONOMY and (not autonomous_mode):
@@ -491,19 +483,24 @@ if __name__ == "__main__":
             visible_mask_cxcy = dict_rc_to_cxcy(visible_mask)
 
             det_conf_rc = {}
+            det_meta_rc = {}
 
             if USE_GROUND_TRUTH_DETECTIONS:
                 assert gt_detector is not None
-                det_conf_rc_raw = gt_detector.process(
+                det_raw = gt_detector.process(
                     drone_x=x_pos,
                     drone_y=y_pos,
                     drone_yaw=yaw,
                 )
-                det_conf_rc = {
-                    cell: conf
-                    for cell, conf in det_conf_rc_raw.items()
-                    if visible_mask.get(cell, False)
-                }
+                for cell, meta in det_raw.items():
+                    if not visible_mask.get(cell, False):
+                        continue
+                    det_conf_rc[cell] = float(meta["confidence"])
+                    det_meta_rc[cell] = {
+                        "class_id": int(meta["class_id"]),
+                        "label": str(meta.get("label", meta.get("class_name", "unknown"))),
+                        "class_name": str(meta.get("class_name", meta.get("label", "unknown"))),
+                    }
             else:
                 assert detector is not None
                 detector_output = detector.process(
@@ -519,6 +516,9 @@ if __name__ == "__main__":
                 for det in detector_output.detections:
                     bbox = det.get("bbox_xyxy")
                     conf = float(det.get("confidence", 0.0))
+                    class_id = int(det.get("class_id", -1))
+                    label = str(det.get("label", "unknown"))
+
                     cell_rc = env_mgr.detection_cell_from_bbox(
                         bbox_xyxy=bbox,
                         img_w=img_w,
@@ -534,37 +534,66 @@ if __name__ == "__main__":
                     prev = det_conf_rc.get(cell_rc, 0.0)
                     if conf > prev:
                         det_conf_rc[cell_rc] = conf
+                        det_meta_rc[cell_rc] = {
+                            "class_id": class_id,
+                            "label": label,
+                            "class_name": label,
+                        }
 
             det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
+            det_meta_cxcy = dict_rc_to_cxcy(det_meta_rc)
 
-            best_cell = None
-            best_conf = 0.0
+            # Generic detection field for the AIF policy:
+            # multiple classes collapse to "there is some target object in this cell".
+            det_conf_generic_cxcy = dict(det_conf_cxcy)
+
+            best_obj = None
             if det_conf_cxcy:
                 best_cell, best_conf = max(det_conf_cxcy.items(), key=lambda kv: float(kv[1]))
+                best_meta = det_meta_cxcy.get(best_cell, {})
+                best_class_name = str(best_meta.get("class_name", best_meta.get("label", "unknown")))
+                best_class_id = int(best_meta.get("class_id", -1))
+                best_obj = {
+                    "cell": best_cell,
+                    "confidence": float(best_conf),
+                    "class_name": best_class_name,
+                    "class_id": best_class_id,
+                }
 
-            if (
-                (best_cell is not None)
-                and (float(best_conf) >= FOUND_DET_THRESHOLD)
-                and (best_cell not in claimed_found_cells)
-            ):
-                if _found_streak_cell == best_cell:
-                    _found_streak_count += 1
+            if best_obj is not None:
+                candidate_key = (
+                    int(best_obj["cell"][0]),
+                    int(best_obj["cell"][1]),
+                    str(best_obj["class_name"]),
+                )
+                if (
+                    float(best_obj["confidence"]) >= FOUND_DET_THRESHOLD
+                    and candidate_key not in claimed_found_objects
+                ):
+                    if _found_streak_key == candidate_key:
+                        _found_streak_count += 1
+                    else:
+                        _found_streak_key = candidate_key
+                        _found_streak_count = 1
+
+                    if _found_streak_count >= FOUND_STREAK_STEPS:
+                        claimed_found_objects.add(candidate_key)
+                        claimed_found_cells = {(cx, cy) for (cx, cy, _) in claimed_found_objects}
+                        print(
+                            f"[FOUND CLAIM] cell={best_obj['cell']} class={best_obj['class_name']} "
+                            f"conf={best_obj['confidence']:.2f} streak={_found_streak_count}",
+                            flush=True,
+                        )
+                        _found_streak_key = None
+                        _found_streak_count = 0
                 else:
-                    _found_streak_cell = best_cell
-                    _found_streak_count = 1
-
-                if _found_streak_count >= FOUND_STREAK_STEPS:
-                    claimed_found_cells.add(best_cell)
-                    print(
-                        f"[FOUND CLAIM] cell={best_cell} conf={best_conf:.2f} "
-                        f"streak={_found_streak_count}",
-                        flush=True,
-                    )
-                    _found_streak_cell = None
+                    _found_streak_key = None
                     _found_streak_count = 0
             else:
-                _found_streak_cell = None
+                _found_streak_key = None
                 _found_streak_count = 0
+
+            claimed_found_cells = {(cx, cy) for (cx, cy, _) in claimed_found_objects}
 
             if DEBUG.get("fov", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
                 top_rc = sorted(coverages.items(), key=lambda kv: kv[1], reverse=True)[:12]
@@ -588,7 +617,7 @@ if __name__ == "__main__":
                     dt_s=dt,
                 )
 
-            if (step_count % LOG_EVERY_N_STEPS == 0) or (best_cell in claimed_found_cells):
+            if (step_count % LOG_EVERY_N_STEPS == 0) or (best_obj is not None and best_obj["cell"] in claimed_found_cells):
                 progress_payload = {
                     "policy_name": policy_name,
                     "run_dir": run_dir,
@@ -596,6 +625,18 @@ if __name__ == "__main__":
                     "last_controller_time_s": float(time_now),
                     "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
                     "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
+                    "claimed_found_objects": sorted(
+                        [
+                            {
+                                "cx": int(cx),
+                                "cy": int(cy),
+                                "class_name": str(class_name),
+                                "label": str(class_name),
+                            }
+                            for (cx, cy, class_name) in claimed_found_objects
+                        ],
+                        key=lambda d: (d["cy"], d["cx"], d["class_name"]),
+                    ),
                     "drone_spawn": {
                         "x": drone_spawn_x,
                         "y": drone_spawn_y,
@@ -625,11 +666,23 @@ if __name__ == "__main__":
                     "coverages": coverages_cxcy,
                     "visible_mask": visible_mask_cxcy,
                     "coverage_threshold": COVERAGE_UPDATE_THRESHOLD,
-                    "det_confidence": det_conf_cxcy,
+                    # IMPORTANT:
+                    # policy gets generic detect evidence only, not class-specific evidence
+                    "det_confidence": det_conf_generic_cxcy,
+                    # controller/debug can still access the class-aware map if needed
+                    "det_confidence_multiclass": det_conf_cxcy,
+                    "det_metadata_multiclass": det_meta_cxcy,
                 },
                 "task": {
                     "found_cells": sorted(list(claimed_found_cells)),
                     "validated_found_cells": sorted(list(validated_found_cells)),
+                    "validated_found_objects": sorted(
+                        [
+                            {"cx": int(cx), "cy": int(cy), "class_name": str(class_name)}
+                            for (cx, cy, class_name) in validated_found_objects
+                        ],
+                        key=lambda d: (d["cy"], d["cx"], d["class_name"]),
+                    ),
                     "remaining_objects": remaining_objects,
                     "total_objects": TOTAL_OBJECTS,
                     "found_det_threshold": FOUND_DET_THRESHOLD,
@@ -718,6 +771,18 @@ if __name__ == "__main__":
                 "last_controller_time_s": float(time_now) if "time_now" in locals() else 0.0,
                 "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
                 "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
+                "claimed_found_objects": sorted(
+                    [
+                        {
+                            "cx": int(cx),
+                            "cy": int(cy),
+                            "class_name": str(class_name),
+                            "label": str(class_name),
+                        }
+                        for (cx, cy, class_name) in claimed_found_objects
+                    ],
+                    key=lambda d: (d["cy"], d["cx"], d["class_name"]),
+                ),
                 "drone_spawn": {
                     "x": drone_spawn_x,
                     "y": drone_spawn_y,

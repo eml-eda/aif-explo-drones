@@ -22,10 +22,10 @@ from env.env_manager import GridSpec, FoVSpec, GridEnvManager
 from vision.dataset_detector import DatasetDetector
 
 # ---------- Dataset collection config ----------
-DATASET_NAME = "bottle_dataset_raw"
+DATASET_NAME = "mixed_bottle_can_dataset_raw"
 DATASET_POLICY = os.environ.get("DATASET_POLICY", "pseudo_random")
 CAPTURE_EVERY_N_STEPS = 400
-MAX_SAMPLES = 200               # e.g. 2000, or None for unlimited until timeout
+MAX_SAMPLES = 800               # e.g. 2000, or None for unlimited until timeout
 SAVE_EMPTY_LABELS = True
 SAVE_SAMPLE_METADATA = True
 SAVE_SEGMENTATION_DEBUG = False  # optional QA only
@@ -62,6 +62,7 @@ DATASET_STATE_FILENAME = "dataset_state.json"
 # ---------- Class mapping ----------
 MODEL_TO_CLASS = {
     "target_bottle": 0,
+    "target_can": 1,
 }
 
 
@@ -177,7 +178,7 @@ if __name__ == "__main__":
     )
     if experiment_init is None:
         raise FileNotFoundError(f"Missing experiment init file: {experiment_init_path}")
-    
+
     dataset_objects = _wait_for_json(
         dataset_objects_path,
         validator=lambda d: isinstance(d.get("objects", None), list),
@@ -243,10 +244,11 @@ if __name__ == "__main__":
         "save_empty_labels": SAVE_EMPTY_LABELS,
         "save_sample_metadata": SAVE_SAMPLE_METADATA,
         "save_segmentation_debug": SAVE_SEGMENTATION_DEBUG,
+        "class_mapping": MODEL_TO_CLASS,
         "camera": {
             "width": int(camera.getWidth()),
             "height": int(camera.getHeight()),
-            "fov": float(camera.getFov())
+            "fov": float(camera.getFov()),
         },
         "objects_manifest_path": dataset_objects_path,
         "sample_count": 0,

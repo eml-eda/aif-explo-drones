@@ -6,11 +6,11 @@ import json
 import math
 import os
 import random
-from datetime import datetime
-from controller import Supervisor
-
-import os
 import sys
+from datetime import datetime
+from typing import Dict, List, Tuple
+
+from controller import Supervisor
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONTROLLERS_DIR = os.path.dirname(CURRENT_DIR)
@@ -28,24 +28,42 @@ EPISODE_SECONDS = 180.0
 TOTAL_SECONDS = WARMUP_SECONDS + EPISODE_SECONDS
 FINALIZATION_GRACE_SECONDS = 1.0
 
-N_BOTTLES = 6
+# ---- Object setup ----
+N_BOTTLES = 3
+N_CANS = 3
 
-# Arena in your world
+OBJECT_SPECS = [
+    {
+        "count": N_BOTTLES,
+        "proto": "BeerBottle",
+        "class_id": 0,
+        "class_name": "target_bottle",
+        "model": "target_bottle",
+        "def_prefix": "BOTTLE",
+    },
+    {
+        "count": N_CANS,
+        "proto": "Can",
+        "class_id": 1,
+        "class_name": "target_can",
+        "model": "target_can",
+        "def_prefix": "CAN",
+    },
+]
+
+# Arena
 ARENA_X = 5.5
 ARENA_Y = 6.5
 CELL_SIZE_M = 0.5
 
-# Keep bottles away from walls and drone start
+# Keep objects away from walls and drone start
 WALL_MARGIN = 0.35
 DRONE_EXCLUSION_RADIUS = 0.75
 
-# ---- In-cell spawn restriction for bottles ----
-# Bottle centers are sampled inside a disc centered at the center of a cell.
-# Must satisfy: 0 < SPAWN_CENTER_DISC_RADIUS_M < CELL_SIZE_M / 2
+# ---- In-cell spawn restriction ----
 SPAWN_CENTER_DISC_RADIUS_M = 0.15
 
-# Random drone spawn bounds requested by you
-# NOTE: these correspond to a 0.25 m margin from the walls, not 0.5 m.
+# Random drone spawn bounds
 DRONE_SPAWN_X_MIN = -2.5
 DRONE_SPAWN_X_MAX = 2.5
 DRONE_SPAWN_Y_MIN = -3.0
@@ -54,9 +72,6 @@ DRONE_SPAWN_YAW = 0.0
 
 # Avoid overlap between spawned objects
 MIN_SEPARATION = 0.70
-
-# Bottle object we spawn
-BOTTLE_PROTO_NODE = "BeerBottle"
 
 # ---- Drone placement ----
 DRONE_DEF = "CRAZYFLIE"
@@ -71,6 +86,8 @@ EVAL_STATE_FILENAME = "eval_state.json"
 # ---- Reports ----
 REPORT_SUBDIR = "run_report"
 EVAL_REPORT_SUBDIR = "eval_report"
+
+Cell = Tuple[int, int]
 
 
 def dist2(a, b) -> float:
@@ -109,6 +126,14 @@ def _atomic_write_json(path: str, payload) -> None:
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     os.replace(tmp_path, path)
+
+
+def _safe_remove(path: str) -> None:
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
 
 
 def _cxcy_from_xy(x: float, y: float) -> tuple[int, int] | None:
@@ -168,16 +193,7 @@ def _eligible_spawn_cells(radius: float) -> list[tuple[int, int]]:
     return cells
 
 
-def _write_spawned_objects_json(path: str, *, seed: int, positions_xy):
-    objects = []
-    for (x, y) in positions_xy:
-        cxcy = _cxcy_from_xy(float(x), float(y))
-        obj = {"x": float(x), "y": float(y)}
-        if cxcy is not None:
-            obj["cx"] = int(cxcy[0])
-            obj["cy"] = int(cxcy[1])
-        objects.append(obj)
-
+def _write_spawned_objects_json(path: str, *, seed: int, objects: list[dict]) -> None:
     payload = {
         "seed": int(seed),
         "objects": objects,
@@ -232,6 +248,158 @@ def _write_task_state(
     _atomic_write_json(path, payload)
 
 
+def _empty_classification_stats() -> dict:
+    return {
+        "unique_claims_evaluated": 0,
+        "correct_class_claims": 0,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 0,
+        "object_cell_claims": 0,
+        "object_cell_class_accuracy": 0.0,
+        "overall_claim_precision": 0.0,
+        "confusion_matrix": {},
+    }
+
+
+def _finalize_classification_stats(stats: dict) -> dict:
+    object_cell_claims = int(stats["correct_class_claims"]) + int(stats["wrong_class_claims"])
+    unique_claims = int(stats["unique_claims_evaluated"])
+    correct_claims = int(stats["correct_class_claims"])
+
+    stats["object_cell_claims"] = object_cell_claims
+    stats["object_cell_class_accuracy"] = (
+        float(correct_claims) / float(object_cell_claims) if object_cell_claims > 0 else 0.0
+    )
+    stats["overall_claim_precision"] = (
+        float(correct_claims) / float(unique_claims) if unique_claims > 0 else 0.0
+    )
+    return stats
+
+
+def _update_confusion_matrix(confusion_matrix: dict, true_name: str, pred_name: str) -> None:
+    if true_name not in confusion_matrix:
+        confusion_matrix[true_name] = {}
+    confusion_matrix[true_name][pred_name] = int(confusion_matrix[true_name].get(pred_name, 0)) + 1
+
+
+def _claim_key(claim: dict) -> tuple:
+    pred_name = claim.get("class_name", None)
+    if pred_name is None:
+        pred_name = claim.get("label", None)
+    return (
+        int(claim.get("cx")),
+        int(claim.get("cy")),
+        str(pred_name) if pred_name is not None else "unknown",
+    )
+
+
+def _extract_claims_from_progress(progress: dict) -> list[dict]:
+    claims = []
+
+    raw_objects = progress.get("claimed_found_objects", [])
+    if isinstance(raw_objects, list):
+        for obj in raw_objects:
+            if not isinstance(obj, dict):
+                continue
+            if "cx" not in obj or "cy" not in obj:
+                continue
+
+            class_name = obj.get("class_name", None)
+            if class_name is None:
+                class_name = obj.get("label", None)
+
+            claims.append(
+                {
+                    "cx": int(obj["cx"]),
+                    "cy": int(obj["cy"]),
+                    "class_id": None if obj.get("class_id", None) is None else int(obj["class_id"]),
+                    "class_name": None if class_name is None else str(class_name),
+                    "label": None if obj.get("label", None) is None else str(obj.get("label")),
+                    "confidence": None if obj.get("confidence", None) is None else float(obj["confidence"]),
+                }
+            )
+
+    # Fallback for older controller payloads
+    if not claims:
+        raw_cells = progress.get("claimed_found_cells", [])
+        if isinstance(raw_cells, list):
+            for cell in raw_cells:
+                if not isinstance(cell, (list, tuple)) or len(cell) != 2:
+                    continue
+                claims.append(
+                    {
+                        "cx": int(cell[0]),
+                        "cy": int(cell[1]),
+                        "class_id": None,
+                        "class_name": None,
+                        "label": None,
+                        "confidence": None,
+                    }
+                )
+
+    return claims
+
+
+def _evaluate_new_claims(
+    *,
+    claims: list[dict],
+    seen_claim_keys: set,
+    true_objects_by_cell: dict,
+    validated_found_cells: set,
+    classification_stats: dict,
+) -> set:
+    new_validated_found_cells = set(validated_found_cells)
+
+    for claim in claims:
+        key = _claim_key(claim)
+        if key in seen_claim_keys:
+            classification_stats["duplicate_claims_ignored"] = int(classification_stats["duplicate_claims_ignored"]) + 1
+            continue
+
+        seen_claim_keys.add(key)
+        classification_stats["unique_claims_evaluated"] = int(classification_stats["unique_claims_evaluated"]) + 1
+
+        cell = (int(claim["cx"]), int(claim["cy"]))
+        pred_class_id = claim.get("class_id", None)
+        pred_class_name = claim.get("class_name", None)
+        if pred_class_name is None:
+            pred_class_name = claim.get("label", None)
+
+        gt_obj = true_objects_by_cell.get(cell, None)
+        if gt_obj is None:
+            classification_stats["empty_cell_claims"] = int(classification_stats["empty_cell_claims"]) + 1
+            continue
+
+        gt_class_id = int(gt_obj["class_id"])
+        gt_class_name = str(gt_obj["class_name"])
+
+        is_correct = False
+
+        if pred_class_name is not None:
+            is_correct = (str(pred_class_name) == gt_class_name)
+        elif pred_class_id is not None:
+            is_correct = (int(pred_class_id) == gt_class_id)
+
+        if is_correct:
+            classification_stats["correct_class_claims"] = int(classification_stats["correct_class_claims"]) + 1
+            _update_confusion_matrix(
+                classification_stats["confusion_matrix"],
+                gt_class_name,
+                str(pred_class_name or gt_class_name),
+            )
+            new_validated_found_cells.add(cell)
+        else:
+            classification_stats["wrong_class_claims"] = int(classification_stats["wrong_class_claims"]) + 1
+            _update_confusion_matrix(
+                classification_stats["confusion_matrix"],
+                gt_class_name,
+                str(pred_class_name or (f"class_{pred_class_id}" if pred_class_id is not None else "unknown")),
+            )
+
+    return new_validated_found_cells
+
+
 def _write_run_report(
     *,
     run_dir: str,
@@ -247,6 +415,7 @@ def _write_run_report(
     grid_rows: int,
     grid_cols: int,
     reason: str,
+    classification_stats: dict,
 ) -> dict:
     os.makedirs(run_dir, exist_ok=True)
     report_dir = os.path.join(run_dir, REPORT_SUBDIR)
@@ -262,6 +431,8 @@ def _write_run_report(
     coverage_cells = int(len(visited_cells))
     total_cells = int(grid_rows * grid_cols)
     coverage_ratio = float(coverage_cells) / float(total_cells) if total_cells > 0 else 0.0
+
+    cls_stats = _finalize_classification_stats(dict(classification_stats))
 
     payload = {
         "policy": str(policy_name),
@@ -280,6 +451,7 @@ def _write_run_report(
             "total_cells": int(total_cells),
             "coverage_ratio": float(coverage_ratio),
         },
+        "classification": cls_stats,
     }
 
     out_path = os.path.join(run_dir, REPORT_SUBDIR, "run_report.json")
@@ -307,6 +479,16 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
         coverage_vals = [float(r["coverage_ratio"]) for r in runs]
         success_vals = [1 if str(r["reason"]) == "done" else 0 for r in runs]
 
+        cls_precision_vals = [float(r["classification"]["overall_claim_precision"]) for r in runs]
+        cls_acc_vals = [float(r["classification"]["object_cell_class_accuracy"]) for r in runs]
+
+        total_unique_claims = sum(int(r["classification"]["unique_claims_evaluated"]) for r in runs)
+        total_correct = sum(int(r["classification"]["correct_class_claims"]) for r in runs)
+        total_wrong = sum(int(r["classification"]["wrong_class_claims"]) for r in runs)
+        total_empty = sum(int(r["classification"]["empty_cell_claims"]) for r in runs)
+        total_duplicates = sum(int(r["classification"]["duplicate_claims_ignored"]) for r in runs)
+        total_object_cell_claims = sum(int(r["classification"]["object_cell_claims"]) for r in runs)
+
         payload = {
             "policy": policy_name,
             "num_runs": n,
@@ -322,6 +504,22 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
                 "max_found_count": int(max(found_vals)),
                 "min_coverage_ratio": float(min(coverage_vals)),
                 "max_coverage_ratio": float(max(coverage_vals)),
+            },
+            "classification_summary": {
+                "average_overall_claim_precision": float(sum(cls_precision_vals) / n),
+                "average_object_cell_class_accuracy": float(sum(cls_acc_vals) / n),
+                "total_unique_claims_evaluated": int(total_unique_claims),
+                "total_correct_class_claims": int(total_correct),
+                "total_wrong_class_claims": int(total_wrong),
+                "total_empty_cell_claims": int(total_empty),
+                "total_duplicate_claims_ignored": int(total_duplicates),
+                "total_object_cell_claims": int(total_object_cell_claims),
+                "global_overall_claim_precision": (
+                    float(total_correct) / float(total_unique_claims) if total_unique_claims > 0 else 0.0
+                ),
+                "global_object_cell_class_accuracy": (
+                    float(total_correct) / float(total_object_cell_claims) if total_object_cell_claims > 0 else 0.0
+                ),
             },
             "runs": runs,
         }
@@ -355,14 +553,6 @@ def _init_or_resume_eval_state(eval_state_path: str, policy_name: str) -> dict:
     return eval_state
 
 
-def _safe_remove(path: str) -> None:
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception:
-        pass
-
-
 def _sample_drone_spawn_xy():
     x = random.uniform(DRONE_SPAWN_X_MIN, DRONE_SPAWN_X_MAX)
     y = random.uniform(DRONE_SPAWN_Y_MIN, DRONE_SPAWN_Y_MAX)
@@ -386,6 +576,12 @@ def _place_drone(supervisor: Supervisor, drone_node, *, x: float, y: float, yaw:
 
     drone_node.resetPhysics()
     supervisor.simulationResetPhysics()
+
+
+def _cleanup_spawned_nodes(spawn_children) -> None:
+    for idx in range(spawn_children.getCount() - 1, -1, -1):
+        node = spawn_children.getMFNode(idx)
+        node.remove()
 
 
 def main():
@@ -448,6 +644,7 @@ def main():
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "claimed_found_objects": [],
             "drone_spawn": None,
         },
     )
@@ -474,9 +671,6 @@ def main():
         yaw=DRONE_SPAWN_YAW,
     )
 
-    spawned_positions = []
-    spawned_nodes = []
-
     eligible_cells = _eligible_spawn_cells(SPAWN_CENTER_DISC_RADIUS_M)
     if not eligible_cells:
         raise RuntimeError(
@@ -488,6 +682,9 @@ def main():
         f"over {len(eligible_cells)} eligible cells",
         flush=True,
     )
+
+    spawned_positions: List[Tuple[float, float]] = []
+    spawned_objects: List[dict] = []
 
     def sample_position(max_tries=2000):
         for _ in range(max_tries):
@@ -514,30 +711,49 @@ def main():
 
         return None
 
-    for i in range(N_BOTTLES):
-        pos = sample_position()
-        if pos is None:
-            print(f"WARNING: Could not place bottle {i} under constraints.")
-            break
+    global_index = 0
+    for spec in OBJECT_SPECS:
+        for local_i in range(int(spec["count"])):
+            pos = sample_position()
+            if pos is None:
+                print(
+                    f"WARNING: Could not place {spec['class_name']} #{local_i} under constraints.",
+                    flush=True,
+                )
+                break
 
-        x, y = pos
-        spawned_positions.append((x, y))
+            x, y = pos
+            spawned_positions.append((x, y))
 
-        node_string = (
-            f'DEF BOTTLE_{i:03d} {BOTTLE_PROTO_NODE} {{ '
-            f'  translation {x:.4f} {y:.4f} 0 '
-            f'}}'
-        )
+            def_name = f"{spec['def_prefix']}_{global_index:03d}"
+            node_string = (
+                f"DEF {def_name} {spec['proto']} {{ "
+                f"translation {x:.4f} {y:.4f} 0 "
+                f"}}"
+            )
 
-        spawn_children.importMFNodeFromString(-1, node_string)
-        new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
-        spawned_nodes.append(new_node)
+            spawn_children.importMFNodeFromString(-1, node_string)
+
+            cxcy = _cxcy_from_xy(x, y)
+            spawned_objects.append(
+                {
+                    "def": def_name,
+                    "x": float(x),
+                    "y": float(y),
+                    "class_id": int(spec["class_id"]),
+                    "class_name": str(spec["class_name"]),
+                    "model": str(spec["model"]),
+                    "cx": None if cxcy is None else int(cxcy[0]),
+                    "cy": None if cxcy is None else int(cxcy[1]),
+                }
+            )
+            global_index += 1
 
     print(
         f"[EVAL] run {run_index + 1}/{total_runs} "
         f"policy={policy_name} seed={current_seed} "
         f"drone_spawn=({drone_xy[0]:.3f},{drone_xy[1]:.3f}) "
-        f"spawned={len(spawned_nodes)}",
+        f"spawned={len(spawned_objects)}",
         flush=True,
     )
 
@@ -552,18 +768,21 @@ def main():
     _write_spawned_objects_json(
         spawned_objects_path,
         seed=current_seed,
-        positions_xy=spawned_positions,
+        objects=spawned_objects,
     )
     print(f"GT JSON exported: {spawned_objects_path}", flush=True)
 
-    true_cells = set()
-    for (x, y) in spawned_positions:
-        cxcy = _cxcy_from_xy(x, y)
-        if cxcy is not None:
-            true_cells.add(cxcy)
+    true_objects_by_cell: Dict[Cell, dict] = {}
+    for obj in spawned_objects:
+        if obj.get("cx", None) is None or obj.get("cy", None) is None:
+            continue
+        true_objects_by_cell[(int(obj["cx"]), int(obj["cy"]))] = obj
 
-    total_objects = len(true_cells)
+    total_objects = len(true_objects_by_cell)
     validated_found_cells = set()
+    classification_stats = _empty_classification_stats()
+    seen_claim_keys = set()
+
     report_written = False
     final_reason = None
     final_time_s = None
@@ -594,6 +813,7 @@ def main():
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "claimed_found_objects": [],
             "drone_spawn": {
                 "x": float(drone_xy[0]),
                 "y": float(drone_xy[1]),
@@ -619,17 +839,18 @@ def main():
                 "last_controller_time_s": 0.0,
                 "visited_cells": [],
                 "claimed_found_cells": [],
+                "claimed_found_objects": [],
             },
         )
 
-        claimed_found_cells = {
-            (int(cx), int(cy))
-            for (cx, cy) in controller_progress.get("claimed_found_cells", [])
-        }
-
-        new_validated = claimed_found_cells.intersection(true_cells)
-        if new_validated != validated_found_cells:
-            validated_found_cells = set(new_validated)
+        claims = _extract_claims_from_progress(controller_progress)
+        validated_found_cells = _evaluate_new_claims(
+            claims=claims,
+            seen_claim_keys=seen_claim_keys,
+            true_objects_by_cell=true_objects_by_cell,
+            validated_found_cells=validated_found_cells,
+            classification_stats=classification_stats,
+        )
 
         remaining_objects = max(0, int(total_objects) - int(len(validated_found_cells)))
 
@@ -695,12 +916,14 @@ def main():
                     grid_rows=int(ARENA_Y / CELL_SIZE_M),
                     grid_cols=int(ARENA_X / CELL_SIZE_M),
                     reason=final_reason,
+                    classification_stats=classification_stats,
                 )
             else:
                 print("[RUN REPORT] run_dir not available yet, skipping file write", flush=True)
                 coverage_cells = int(len(visited_cells))
                 total_cells = int(int(ARENA_Y / CELL_SIZE_M) * int(ARENA_X / CELL_SIZE_M))
                 coverage_ratio = float(coverage_cells) / float(total_cells) if total_cells > 0 else 0.0
+                cls_stats = _finalize_classification_stats(dict(classification_stats))
                 run_payload = {
                     "policy": policy_name,
                     "gt_seed": current_seed,
@@ -718,6 +941,7 @@ def main():
                         "total_cells": total_cells,
                         "coverage_ratio": coverage_ratio,
                     },
+                    "classification": cls_stats,
                 }
 
             aggregate_runs.append(
@@ -730,12 +954,12 @@ def main():
                     "found_count": int(run_payload["found_count"]),
                     "remaining_objects": int(run_payload["remaining_objects"]),
                     "coverage_ratio": float(run_payload["coverage"]["coverage_ratio"]),
+                    "classification": dict(run_payload["classification"]),
                     "run_dir": run_dir,
                 }
             )
 
             report_written = True
-
             is_last_run = (run_index + 1) >= total_runs
 
             if is_last_run:
@@ -780,6 +1004,7 @@ def main():
                     if (supervisor.getTime() - grace_start) >= FINALIZATION_GRACE_SECONDS:
                         break
 
+                _cleanup_spawned_nodes(spawn_children)
                 print("Cleanup complete. Quitting simulation.", flush=True)
                 supervisor.simulationQuit(0)
                 return
@@ -826,6 +1051,7 @@ def main():
                     if (supervisor.getTime() - grace_start) >= FINALIZATION_GRACE_SECONDS:
                         break
 
+                _cleanup_spawned_nodes(spawn_children)
                 supervisor.worldReload()
                 return
 

@@ -32,7 +32,7 @@ Thumbs.db
 # -------------------------
 experiments/outputs/
 runs/
-eval_runs/
+eval_runs*/
 logs*/
 # logs_GT_*/
 *.log
@@ -51,8 +51,7 @@ experiments/outputs/**/*.mkv
 # -------------------------
 data/
 datasets/
-dataset/
-dataset_bottles_only/
+dataset*/
 models/         
 *.pt
 *.pth
@@ -62,6 +61,14 @@ models/
 *.npz
 *.npy
 bottle_detector_runs/
+mixed_detector_runs/
+train_merge_manifest*
+
+# --------------------------------
+# Notebook figures and Artifacts
+# --------------------------------
+eval_comparison_summary.csv
+figures_eval_comparison/
 
 
 # -------------------------

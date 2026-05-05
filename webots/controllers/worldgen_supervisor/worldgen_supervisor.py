@@ -16,14 +16,15 @@ EPISODE_SECONDS = 180.0
 TOTAL_SECONDS = WARMUP_SECONDS + EPISODE_SECONDS
 FINALIZATION_GRACE_SECONDS = 1.0
 
-N_BOTTLES = 6
+N_BOTTLES = 3
+N_CANS = 3
 
 # Arena in your world
 ARENA_X = 5.5
 ARENA_Y = 6.5
 CELL_SIZE_M = 0.5
 
-# Keep bottles away from walls and drone start
+# Keep objects away from walls and drone start
 WALL_MARGIN = 0.35
 DRONE_EXCLUSION_RADIUS = 0.75
 
@@ -31,15 +32,23 @@ DRONE_EXCLUSION_RADIUS = 0.75
 MIN_SEPARATION = 0.70
 
 # ---- In-cell spawn restriction ----
-# Bottle centers are sampled inside a disc centered at the center of a cell.
-# This reduces near-edge / near-corner placements that are ambiguous for the
-# detector-to-cell mapping used by the controller.
-#
-# Must satisfy: 0 < SPAWN_CENTER_DISC_RADIUS_M < CELL_SIZE_M / 2
 SPAWN_CENTER_DISC_RADIUS_M = 0.20
 
-# Bottle object we spawn
+# ---- Class / proto mapping ----
+CLASS_BOTTLE = "target_bottle"
+CLASS_CAN = "target_can"
+
+CLASS_NAME_TO_ID = {
+    CLASS_BOTTLE: 0,
+    CLASS_CAN: 1,
+}
+
 BOTTLE_PROTO_NODE = "BeerBottle"
+CAN_PROTO_NODE = "Can"
+
+# Proto/world z placement
+BOTTLE_SPAWN_Z = 0.0
+CAN_SPAWN_Z = 0.0611
 
 # ---- Drone placement ----
 DRONE_DEF = "CRAZYFLIE"
@@ -60,6 +69,12 @@ REPORT_SUBDIR = "run_report"
 def dist2(a, b) -> float:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
+def _safe_remove(path: str) -> None:
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
 
 def _shared_dir() -> str:
     here = os.path.dirname(__file__)
@@ -111,7 +126,6 @@ def _cell_center_xy(cx: int, cy: int) -> tuple[float, float]:
 
 
 def _uniform_point_in_disc(center_x: float, center_y: float, radius: float) -> tuple[float, float]:
-    # Uniform in area
     r = radius * math.sqrt(random.random())
     theta = random.uniform(0.0, 2.0 * math.pi)
     x = center_x + r * math.cos(theta)
@@ -120,10 +134,6 @@ def _uniform_point_in_disc(center_x: float, center_y: float, radius: float) -> t
 
 
 def _eligible_spawn_cells(radius: float) -> list[tuple[int, int]]:
-    """
-    Returns cells whose center-disc of given radius lies entirely inside the
-    wall-margin-valid spawn region.
-    """
     cols = int(ARENA_X / CELL_SIZE_M)
     rows = int(ARENA_Y / CELL_SIZE_M)
 
@@ -150,19 +160,27 @@ def _eligible_spawn_cells(radius: float) -> list[tuple[int, int]]:
     return cells
 
 
-def _write_spawned_objects_json(path: str, *, seed: int, positions_xy):
-    objects = []
-    for (x, y) in positions_xy:
-        cxcy = _cxcy_from_xy(float(x), float(y))
-        obj = {"x": float(x), "y": float(y)}
+def _write_spawned_objects_json(path: str, *, seed: int, objects):
+    payload_objects = []
+    for o in objects:
+        x = float(o["x"])
+        y = float(o["y"])
+        cxcy = _cxcy_from_xy(x, y)
+        obj = {
+            "x": x,
+            "y": y,
+            "class_name": str(o["class_name"]),
+            "class_id": int(o["class_id"]),
+            "proto": str(o["proto"]),
+        }
         if cxcy is not None:
             obj["cx"] = int(cxcy[0])
             obj["cy"] = int(cxcy[1])
-        objects.append(obj)
+        payload_objects.append(obj)
 
     payload = {
         "seed": int(seed),
-        "objects": objects,
+        "objects": payload_objects,
     }
     _atomic_write_json(path, payload)
 
@@ -191,13 +209,15 @@ def _write_task_state(
     seed: int,
     total_objects: int,
     remaining_objects: int,
-    validated_found_cells: set,
+    validated_found_objects: set,
     timeout_s: float,
     warmup_s: float,
     episode_s: float,
     now_time_s: float,
     report_written: bool,
 ) -> None:
+    validated_found_cells = {(cx, cy) for (cx, cy, _) in validated_found_objects}
+
     payload = {
         "status": str(status),
         "reason": reason,
@@ -205,6 +225,18 @@ def _write_task_state(
         "total_objects": int(total_objects),
         "remaining_objects": int(remaining_objects),
         "validated_found_cells": sorted([[int(c[0]), int(c[1])] for c in validated_found_cells]),
+        "validated_found_objects": sorted(
+            [
+                {
+                    "cx": int(cx),
+                    "cy": int(cy),
+                    "class_name": str(class_name),
+                    "class_id": int(CLASS_NAME_TO_ID[class_name]),
+                }
+                for (cx, cy, class_name) in validated_found_objects
+            ],
+            key=lambda d: (d["cy"], d["cx"], d["class_name"]),
+        ),
         "timeout_s": float(timeout_s),
         "warmup_s": float(warmup_s),
         "episode_s": float(episode_s),
@@ -220,7 +252,7 @@ def _write_run_report(
     policy_name: str,
     gt_seed: int,
     total_objects: int,
-    validated_found_cells: set,
+    validated_found_objects: set,
     remaining_objects: int,
     autonomy_start_time_s: float | None,
     now_time_s: float,
@@ -234,7 +266,7 @@ def _write_run_report(
     report_dir = os.path.join(run_dir, REPORT_SUBDIR)
     os.makedirs(report_dir, exist_ok=True)
 
-    found_count = int(len(validated_found_cells))
+    found_count = int(len(validated_found_objects))
     elapsed = (
         float(now_time_s - autonomy_start_time_s)
         if autonomy_start_time_s is not None
@@ -256,7 +288,18 @@ def _write_run_report(
         "total_objects": int(total_objects),
         "found_count": int(found_count),
         "remaining_objects": int(remaining_objects),
-        "found_cells": sorted([[int(c[0]), int(c[1])] for c in validated_found_cells]),
+        "found_objects": sorted(
+            [
+                {
+                    "cx": int(cx),
+                    "cy": int(cy),
+                    "class_name": str(class_name),
+                    "class_id": int(CLASS_NAME_TO_ID[class_name]),
+                }
+                for (cx, cy, class_name) in validated_found_objects
+            ],
+            key=lambda d: (d["cy"], d["cx"], d["class_name"]),
+        ),
         "coverage": {
             "visited_cells": int(coverage_cells),
             "total_cells": int(total_cells),
@@ -306,6 +349,13 @@ def main():
     task_state_path = _shared_path(TASK_STATE_FILENAME)
     controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
 
+    # Clear stale shared files from previous runs so controllers cannot
+    # accidentally bootstrap from an old seed/config.
+    _safe_remove(spawned_objects_path)
+    _safe_remove(experiment_init_path)
+    _safe_remove(task_state_path)
+    _safe_remove(controller_progress_path)
+
     spawn_root = supervisor.getFromDef("SPAWN_ROOT")
     if spawn_root is None:
         print("ERROR: DEF SPAWN_ROOT Group not found in the world.")
@@ -322,7 +372,7 @@ def main():
     )
     drone_xy = (DRONE_SPAWN_X, DRONE_SPAWN_Y)
 
-    spawned_positions = []
+    spawned_objects = []
     spawned_nodes = []
 
     eligible_cells = _eligible_spawn_cells(SPAWN_CENTER_DISC_RADIUS_M)
@@ -343,7 +393,6 @@ def main():
             center_x, center_y = _cell_center_xy(cx, cy)
             x, y = _uniform_point_in_disc(center_x, center_y, SPAWN_CENTER_DISC_RADIUS_M)
 
-            # Safety check: sampled point should remain in its intended cell
             sampled_cell = _cxcy_from_xy(x, y)
             if sampled_cell != (cx, cy):
                 continue
@@ -352,7 +401,9 @@ def main():
                 continue
 
             ok = True
-            for (px, py) in spawned_positions:
+            for o in spawned_objects:
+                px = float(o["x"])
+                py = float(o["y"])
                 if dist2((x, y), (px, py)) < MIN_SEPARATION ** 2:
                     ok = False
                     break
@@ -363,18 +414,32 @@ def main():
 
         return None
 
-    for i in range(N_BOTTLES):
+    spawn_plan = (
+        [{"class_name": CLASS_BOTTLE, "class_id": CLASS_NAME_TO_ID[CLASS_BOTTLE], "proto": BOTTLE_PROTO_NODE, "z": BOTTLE_SPAWN_Z}] * N_BOTTLES
+        + [{"class_name": CLASS_CAN, "class_id": CLASS_NAME_TO_ID[CLASS_CAN], "proto": CAN_PROTO_NODE, "z": CAN_SPAWN_Z}] * N_CANS
+    )
+    random.shuffle(spawn_plan)
+
+    for i, spec in enumerate(spawn_plan):
         pos = sample_position()
         if pos is None:
-            print(f"WARNING: Could not place bottle {i} under constraints.")
+            print(f"WARNING: Could not place object {i} under constraints.")
             break
 
         x, y = pos
-        spawned_positions.append((x, y))
+        spawned_objects.append(
+            {
+                "x": float(x),
+                "y": float(y),
+                "class_name": str(spec["class_name"]),
+                "class_id": int(spec["class_id"]),
+                "proto": str(spec["proto"]),
+            }
+        )
 
         node_string = (
-            f'DEF BOTTLE_{i:03d} {BOTTLE_PROTO_NODE} {{ '
-            f'  translation {x:.4f} {y:.4f} 0 '
+            f'DEF OBJ_{i:03d} {spec["proto"]} {{ '
+            f'  translation {x:.4f} {y:.4f} {float(spec["z"]):.4f} '
             f'}}'
         )
 
@@ -382,7 +447,13 @@ def main():
         new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
         spawned_nodes.append(new_node)
 
-    print(f"Spawned {len(spawned_nodes)} bottles. Seed={SEED}", flush=True)
+    print(
+        f"Spawned {len(spawned_nodes)} objects "
+        f"({sum(1 for o in spawned_objects if o['class_name'] == CLASS_BOTTLE)} bottles, "
+        f"{sum(1 for o in spawned_objects if o['class_name'] == CLASS_CAN)} cans). "
+        f"Seed={SEED}",
+        flush=True,
+    )
 
     _write_experiment_init_json(
         experiment_init_path,
@@ -395,18 +466,18 @@ def main():
     _write_spawned_objects_json(
         spawned_objects_path,
         seed=SEED,
-        positions_xy=spawned_positions,
+        objects=spawned_objects,
     )
     print(f"GT JSON exported: {spawned_objects_path}", flush=True)
 
-    true_cells = set()
-    for (x, y) in spawned_positions:
-        cxcy = _cxcy_from_xy(x, y)
+    true_objects = set()
+    for o in spawned_objects:
+        cxcy = _cxcy_from_xy(float(o["x"]), float(o["y"]))
         if cxcy is not None:
-            true_cells.add(cxcy)
+            true_objects.add((int(cxcy[0]), int(cxcy[1]), str(o["class_name"])))
 
-    total_objects = len(true_cells)
-    validated_found_cells = set()
+    total_objects = len(true_objects)
+    validated_found_objects = set()
     report_written = False
     final_reason = None
     final_time_s = None
@@ -418,7 +489,7 @@ def main():
         seed=SEED,
         total_objects=total_objects,
         remaining_objects=total_objects,
-        validated_found_cells=validated_found_cells,
+        validated_found_objects=validated_found_objects,
         timeout_s=TOTAL_SECONDS,
         warmup_s=WARMUP_SECONDS,
         episode_s=EPISODE_SECONDS,
@@ -435,6 +506,7 @@ def main():
             "last_controller_time_s": 0.0,
             "visited_cells": [],
             "claimed_found_cells": [],
+            "claimed_found_objects": [],
             "drone_spawn": {
                 "x": DRONE_SPAWN_X,
                 "y": DRONE_SPAWN_Y,
@@ -460,21 +532,26 @@ def main():
                 "last_controller_time_s": 0.0,
                 "visited_cells": [],
                 "claimed_found_cells": [],
+                "claimed_found_objects": [],
             },
         )
 
-        claimed_found_cells = {
-            (int(cx), int(cy))
-            for (cx, cy) in controller_progress.get("claimed_found_cells", [])
+        claimed_found_objects = {
+            (
+                int(o["cx"]),
+                int(o["cy"]),
+                str(o["class_name"]),
+            )
+            for o in controller_progress.get("claimed_found_objects", [])
         }
 
-        new_validated = claimed_found_cells.intersection(true_cells)
-        if new_validated != validated_found_cells:
-            validated_found_cells = set(new_validated)
+        new_validated = claimed_found_objects.intersection(true_objects)
+        if new_validated != validated_found_objects:
+            validated_found_objects = set(new_validated)
 
-        remaining_objects = max(0, int(total_objects) - int(len(validated_found_cells)))
+        remaining_objects = max(0, int(total_objects) - int(len(validated_found_objects)))
 
-        if len(validated_found_cells) >= total_objects and total_objects > 0:
+        if len(validated_found_objects) >= total_objects and total_objects > 0:
             final_reason = "done"
             final_time_s = float(t)
         elif elapsed_total >= TOTAL_SECONDS:
@@ -489,7 +566,7 @@ def main():
                 seed=SEED,
                 total_objects=total_objects,
                 remaining_objects=remaining_objects,
-                validated_found_cells=validated_found_cells,
+                validated_found_objects=validated_found_objects,
                 timeout_s=TOTAL_SECONDS,
                 warmup_s=WARMUP_SECONDS,
                 episode_s=EPISODE_SECONDS,
@@ -506,7 +583,7 @@ def main():
                 seed=SEED,
                 total_objects=total_objects,
                 remaining_objects=remaining_objects,
-                validated_found_cells=validated_found_cells,
+                validated_found_objects=validated_found_objects,
                 timeout_s=TOTAL_SECONDS,
                 warmup_s=WARMUP_SECONDS,
                 episode_s=EPISODE_SECONDS,
@@ -528,7 +605,7 @@ def main():
                     policy_name=policy_name,
                     gt_seed=SEED,
                     total_objects=total_objects,
-                    validated_found_cells=validated_found_cells,
+                    validated_found_objects=validated_found_objects,
                     remaining_objects=remaining_objects,
                     autonomy_start_time_s=autonomy_start_time_s,
                     now_time_s=float(final_time_s),
@@ -550,7 +627,7 @@ def main():
                 seed=SEED,
                 total_objects=total_objects,
                 remaining_objects=remaining_objects,
-                validated_found_cells=validated_found_cells,
+                validated_found_objects=validated_found_objects,
                 timeout_s=TOTAL_SECONDS,
                 warmup_s=WARMUP_SECONDS,
                 episode_s=EPISODE_SECONDS,

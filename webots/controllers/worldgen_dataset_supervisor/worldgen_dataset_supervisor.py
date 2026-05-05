@@ -10,14 +10,15 @@ import random
 from controller import Supervisor
 
 # ---------- Dataset run config ----------
-SEED = 95
+SEED = 50
 
 WARMUP_SECONDS = 15.0
-DATA_COLLECTION_SECONDS = 3500.0
+DATA_COLLECTION_SECONDS = 10000.0
 TOTAL_SECONDS = WARMUP_SECONDS + DATA_COLLECTION_SECONDS
 FINALIZATION_GRACE_SECONDS = 1.0
 
-N_BOTTLES = 18
+N_BOTTLES = 10
+N_CANS = 10
 
 # ---------- Arena ----------
 ARENA_X = 5.5
@@ -34,9 +35,17 @@ BOTTLE_CLASS_NAME = "target_bottle"
 BOTTLE_MODEL_NAME = "target_bottle"
 
 # Approximate bounding cylinder for recognition/size estimation
-# Tighten these if the boxes look too loose.
 BOTTLE_BBOX_RADIUS_M = 0.035
 BOTTLE_BBOX_HEIGHT_M = 0.245
+
+# ---------- Can wrapper ----------
+CAN_CLASS_ID = 1
+CAN_CLASS_NAME = "target_can"
+CAN_MODEL_NAME = "target_can"
+
+# Can dimensions from Webots docs: 0.03175 x 0.03175 x 0.1222 m
+CAN_BBOX_RADIUS_M = 0.018
+CAN_BBOX_HEIGHT_M = 0.125
 
 # ---------- Drone placement ----------
 DRONE_DEF = "CRAZYFLIE"
@@ -53,6 +62,12 @@ DATASET_STATE_FILENAME = "dataset_state.json"
 def dist2(a, b) -> float:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
+def _safe_remove(path: str) -> None:
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
 
 def _shared_dir() -> str:
     here = os.path.dirname(__file__)
@@ -143,7 +158,6 @@ def _instance_color(index: int) -> tuple[float, float, float]:
     """
     hue = (index * 0.61803398875) % 1.0
     r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 1.0)
-    # Avoid pure black or too-dark colors
     return (max(0.1, r), max(0.1, g), max(0.1, b))
 
 
@@ -165,6 +179,30 @@ DEF {def_name} Solid {{
   boundingObject Cylinder {{
     height {BOTTLE_BBOX_HEIGHT_M:.6f}
     radius {BOTTLE_BBOX_RADIUS_M:.6f}
+    subdivision 16
+  }}
+}}
+'''.strip()
+
+
+def _can_wrapper_node_string(index: int, x: float, y: float, color_rgb) -> str:
+    r, g, b = color_rgb
+    def_name = f"TARGET_CAN_{index:03d}"
+
+    return f'''
+DEF {def_name} Solid {{
+  translation {x:.6f} {y:.6f} 0
+  model "{CAN_MODEL_NAME}"
+  recognitionColors [
+    {r:.6f} {g:.6f} {b:.6f}
+  ]
+  children [
+    Can {{
+    }}
+  ]
+  boundingObject Cylinder {{
+    height {CAN_BBOX_HEIGHT_M:.6f}
+    radius {CAN_BBOX_RADIUS_M:.6f}
     subdivision 16
   }}
 }}
@@ -205,6 +243,11 @@ def main():
     experiment_init_path = _shared_path(EXPERIMENT_INIT_FILENAME)
     dataset_objects_path = _shared_path(DATASET_OBJECTS_FILENAME)
     dataset_state_path = _shared_path(DATASET_STATE_FILENAME)
+
+    # Clear stale shared files from previous runs.
+    _safe_remove(experiment_init_path)
+    _safe_remove(dataset_objects_path)
+    _safe_remove(dataset_state_path)
 
     spawn_root = supervisor.getFromDef("SPAWN_ROOT")
     if spawn_root is None:
@@ -248,15 +291,20 @@ def main():
                 return (x, y)
         return None
 
-    for i in range(N_BOTTLES):
+    bottle_index = 0
+    can_index = 0
+    global_instance_index = 0
+
+    # Spawn bottles
+    for _ in range(N_BOTTLES):
         pos = sample_position()
         if pos is None:
-            print(f"WARNING: could not place bottle {i} under constraints.", flush=True)
+            print(f"WARNING: could not place bottle {bottle_index} under constraints.", flush=True)
             break
 
         x, y = pos
-        color_rgb = _instance_color(i)
-        node_string = _bottle_wrapper_node_string(i, x, y, color_rgb)
+        color_rgb = _instance_color(global_instance_index)
+        node_string = _bottle_wrapper_node_string(bottle_index, x, y, color_rgb)
 
         spawn_children.importMFNodeFromString(-1, node_string)
         new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
@@ -266,7 +314,7 @@ def main():
 
         cxcy = _cxcy_from_xy(x, y)
         obj_record = {
-            "def": f"TARGET_BOTTLE_{i:03d}",
+            "def": f"TARGET_BOTTLE_{bottle_index:03d}",
             "id": _node_id(new_node),
             "class_id": int(BOTTLE_CLASS_ID),
             "class_name": BOTTLE_CLASS_NAME,
@@ -280,7 +328,49 @@ def main():
         }
         objects_manifest.append(obj_record)
 
-    print(f"[SPAWN] spawned {len(spawned_nodes)} bottles, seed={SEED}", flush=True)
+        bottle_index += 1
+        global_instance_index += 1
+
+    # Spawn cans
+    for _ in range(N_CANS):
+        pos = sample_position()
+        if pos is None:
+            print(f"WARNING: could not place can {can_index} under constraints.", flush=True)
+            break
+
+        x, y = pos
+        color_rgb = _instance_color(global_instance_index)
+        node_string = _can_wrapper_node_string(can_index, x, y, color_rgb)
+
+        spawn_children.importMFNodeFromString(-1, node_string)
+        new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
+
+        spawned_positions.append((x, y))
+        spawned_nodes.append(new_node)
+
+        cxcy = _cxcy_from_xy(x, y)
+        obj_record = {
+            "def": f"TARGET_CAN_{can_index:03d}",
+            "id": _node_id(new_node),
+            "class_id": int(CAN_CLASS_ID),
+            "class_name": CAN_CLASS_NAME,
+            "model": CAN_MODEL_NAME,
+            "recognition_color_rgb": [float(color_rgb[0]), float(color_rgb[1]), float(color_rgb[2])],
+            "x": float(x),
+            "y": float(y),
+            "z": 0.0,
+            "cx": None if cxcy is None else int(cxcy[0]),
+            "cy": None if cxcy is None else int(cxcy[1]),
+        }
+        objects_manifest.append(obj_record)
+
+        can_index += 1
+        global_instance_index += 1
+
+    print(
+        f"[SPAWN] spawned {bottle_index} bottles + {can_index} cans = {len(spawned_nodes)} objects, seed={SEED}",
+        flush=True,
+    )
 
     _write_experiment_init_json(
         experiment_init_path,
