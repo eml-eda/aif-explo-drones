@@ -1,37 +1,146 @@
 {
-  "policy_name": "spiral",
+  "policy_name": "aif_saccade",
   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
     28,
+    29,
+    30,
     31,
+    32,
+    33,
     34,
+    35,
+    36,
     37,
+    38,
+    39,
     40,
+    41,
+    42,
     43,
+    44,
+    45,
     46,
+    47,
+    48,
     49,
+    50,
+    51,
     52,
-    55
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100
   ],
-  "total_runs": 10,
-  "current_run_index": 9,
-  "current_seed": 55,
-  "eval_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946",
+  "total_runs": 100,
+  "current_run_index": 99,
+  "current_seed": 100,
+  "eval_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755",
   "aggregate_runs": [
     {
       "run_index": 0,
-      "seed": 28,
-      "policy": "spiral",
+      "seed": 1,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 130.816,
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 24.823779517203473,
+        "average_m": 0.9929511806881389,
+        "min_m": 0.0,
+        "max_m": 2.8284271247461903
+      },
+      "elapsed_s": 104.096,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.6223776223776224,
+      "coverage_ratio": 0.34265734265734266,
       "classification": {
         "unique_claims_evaluated": 6,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
         "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 14547,
+        "duplicate_claims_ignored": 7720,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
         "overall_claim_precision": 1.0,
@@ -44,110 +153,153 @@
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run00_seed28_20260505_190947"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run00_seed1_20260522_163757"
     },
     {
       "run_index": 1,
-      "seed": 31,
-      "policy": "spiral",
+      "seed": 2,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 127.39200000000001,
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 26.478444563198927,
+        "average_m": 1.0184017139691894,
+        "min_m": 0.0,
+        "max_m": 3.3541019662496847
+      },
+      "elapsed_s": 104.096,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.5874125874125874,
+      "coverage_ratio": 0.4125874125874126,
       "classification": {
         "unique_claims_evaluated": 6,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
         "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 11944,
+        "duplicate_claims_ignored": 6880,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
         "overall_claim_precision": 1.0,
         "confusion_matrix": {
-          "target_bottle": {
-            "target_bottle": 3
-          },
           "target_can": {
             "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run01_seed31_20260505_191021"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run01_seed2_20260522_163814"
     },
     {
       "run_index": 2,
-      "seed": 34,
-      "policy": "spiral",
+      "seed": 3,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 85.82400000000001,
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 22.943174758686332,
+        "average_m": 0.9177269903474533,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 100.256,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.46853146853146854,
+      "coverage_ratio": 0.34265734265734266,
       "classification": {
         "unique_claims_evaluated": 6,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
         "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 6846,
+        "duplicate_claims_ignored": 5480,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
         "overall_claim_precision": 1.0,
         "confusion_matrix": {
-          "target_can": {
-            "target_can": 3
-          },
           "target_bottle": {
             "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run02_seed34_20260505_191038"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run02_seed3_20260522_163822"
     },
     {
       "run_index": 3,
-      "seed": 37,
-      "policy": "spiral",
+      "seed": 4,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 91.13600000000001,
-      "found_count": 6,
-      "remaining_objects": 0,
-      "coverage_ratio": 0.45454545454545453,
-      "classification": {
-        "unique_claims_evaluated": 6,
-        "correct_class_claims": 6,
-        "wrong_class_claims": 0,
-        "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 5593,
-        "object_cell_claims": 6,
-        "object_cell_class_accuracy": 1.0,
-        "overall_claim_precision": 1.0,
-        "confusion_matrix": {
-          "target_bottle": {
-            "target_bottle": 3
-          },
-          "target_can": {
-            "target_can": 3
-          }
-        }
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 19,
+        "sum_m": 18.36067467586918,
+        "average_m": 0.9663512987299568,
+        "min_m": 0.0,
+        "max_m": 3.0
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run03_seed37_20260505_191050"
-    },
-    {
-      "run_index": 4,
-      "seed": 40,
-      "policy": "spiral",
-      "reason": "done",
-      "elapsed_s": 115.16800000000002,
+      "elapsed_s": 79.13600000000001,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.5384615384615384,
+      "coverage_ratio": 0.2727272727272727,
       "classification": {
         "unique_claims_evaluated": 7,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
         "empty_cell_claims": 1,
-        "duplicate_claims_ignored": 14108,
+        "duplicate_claims_ignored": 7580,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
         "overall_claim_precision": 0.8571428571428571,
@@ -160,52 +312,153 @@
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run04_seed40_20260505_191104"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run03_seed4_20260522_163831"
+    },
+    {
+      "run_index": 4,
+      "seed": 5,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 20.97542230980933,
+        "average_m": 0.9988296338004442,
+        "min_m": 0.0,
+        "max_m": 3.5
+      },
+      "elapsed_s": 86.816,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2867132867132867,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 9920,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run04_seed5_20260522_163838"
     },
     {
       "run_index": 5,
-      "seed": 43,
-      "policy": "spiral",
+      "seed": 6,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 142.272,
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 17,
+        "sum_m": 17.31720680758398,
+        "average_m": 1.018659223975528,
+        "min_m": 0.0,
+        "max_m": 1.5811388300841898
+      },
+      "elapsed_s": 74.016,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.6363636363636364,
+      "coverage_ratio": 0.2517482517482518,
       "classification": {
-        "unique_claims_evaluated": 6,
+        "unique_claims_evaluated": 7,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
-        "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 18420,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 9040,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
-        "overall_claim_precision": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
         "confusion_matrix": {
-          "target_bottle": {
-            "target_bottle": 3
-          },
           "target_can": {
             "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run05_seed43_20260505_191119"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run05_seed6_20260522_163846"
     },
     {
       "run_index": 6,
-      "seed": 46,
-      "policy": "spiral",
+      "seed": 7,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 100.64,
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 16,
+        "sum_m": 16.835023188854983,
+        "average_m": 1.0521889493034364,
+        "min_m": 0.0,
+        "max_m": 2.0
+      },
+      "elapsed_s": 72.736,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.5034965034965035,
+      "coverage_ratio": 0.24475524475524477,
       "classification": {
         "unique_claims_evaluated": 6,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
         "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 9220,
+        "duplicate_claims_ignored": 6500,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
         "overall_claim_precision": 1.0,
@@ -218,81 +471,206 @@
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run06_seed46_20260505_191138"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run06_seed7_20260522_163853"
     },
     {
       "run_index": 7,
-      "seed": 49,
-      "policy": "spiral",
+      "seed": 8,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 79.13600000000001,
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 23,
+        "sum_m": 21.26831552862278,
+        "average_m": 0.9247093708096861,
+        "min_m": 0.5,
+        "max_m": 1.5
+      },
+      "elapsed_s": 106.656,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.42657342657342656,
+      "coverage_ratio": 0.32167832167832167,
       "classification": {
-        "unique_claims_evaluated": 6,
+        "unique_claims_evaluated": 8,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
-        "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 6220,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 8460,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
-        "overall_claim_precision": 1.0,
+        "overall_claim_precision": 0.75,
         "confusion_matrix": {
-          "target_bottle": {
-            "target_bottle": 3
-          },
           "target_can": {
             "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run07_seed49_20260505_191152"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run07_seed8_20260522_163859"
     },
     {
       "run_index": 8,
-      "seed": 52,
-      "policy": "spiral",
-      "reason": "timeout",
-      "elapsed_s": 180.0,
-      "found_count": 4,
-      "remaining_objects": 2,
-      "coverage_ratio": 0.34265734265734266,
+      "seed": 9,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 19,
+        "sum_m": 16.825140769936443,
+        "average_m": 0.885533724733497,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 53.535999999999994,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.23076923076923078,
       "classification": {
-        "unique_claims_evaluated": 4,
-        "correct_class_claims": 4,
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
         "wrong_class_claims": 0,
-        "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 16703,
-        "object_cell_claims": 4,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 5280,
+        "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
-        "overall_claim_precision": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
         "confusion_matrix": {
-          "target_can": {
-            "target_can": 2
-          },
           "target_bottle": {
-            "target_bottle": 2
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run08_seed52_20260505_191204"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run08_seed9_20260522_163908"
     },
     {
       "run_index": 9,
-      "seed": 55,
-      "policy": "spiral",
+      "seed": 10,
+      "policy": "aif_saccade",
       "reason": "done",
-      "elapsed_s": 89.18400000000001,
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 25.850482405856344,
+        "average_m": 1.0771034335773477,
+        "min_m": 0.0,
+        "max_m": 3.2015621187164243
+      },
+      "elapsed_s": 99.61600000000001,
       "found_count": 6,
       "remaining_objects": 0,
-      "coverage_ratio": 0.42657342657342656,
+      "coverage_ratio": 0.3706293706293706,
       "classification": {
         "unique_claims_evaluated": 6,
         "correct_class_claims": 6,
         "wrong_class_claims": 0,
         "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 8841,
+        "duplicate_claims_ignored": 7060,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run09_seed10_20260522_163914"
+    },
+    {
+      "run_index": 10,
+      "seed": 11,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 26.940916451025956,
+        "average_m": 1.0776366580410381,
+        "min_m": 0.0,
+        "max_m": 3.2015621187164243
+      },
+      "elapsed_s": 109.21600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3916083916083916,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7580,
         "object_cell_claims": 6,
         "object_cell_class_accuracy": 1.0,
         "overall_claim_precision": 1.0,
@@ -305,7 +683,4729 @@
           }
         }
       },
-      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_spiral_20260505_190946/runs/log_run_spiral_run09_seed55_20260505_191227"
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run10_seed11_20260522_163923"
+    },
+    {
+      "run_index": 11,
+      "seed": 12,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 23,
+        "sum_m": 20.736067977499786,
+        "average_m": 0.9015681729347733,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 93.85600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3076923076923077,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9480,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run11_seed12_20260522_163931"
+    },
+    {
+      "run_index": 12,
+      "seed": 13,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 26.651378691185702,
+        "average_m": 1.0250530265840654,
+        "min_m": 0.0,
+        "max_m": 3.3541019662496847
+      },
+      "elapsed_s": 110.49600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3706293706293706,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 11980,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run12_seed13_20260522_163940"
+    },
+    {
+      "run_index": 13,
+      "seed": 14,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 27,
+        "sum_m": 31.318686242475696,
+        "average_m": 1.1599513423139147,
+        "min_m": 0.0,
+        "max_m": 4.272001872658765
+      },
+      "elapsed_s": 145.05599999999998,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.45454545454545453,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 12300,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run13_seed14_20260522_163949"
+    },
+    {
+      "run_index": 14,
+      "seed": 15,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 22.85738832105943,
+        "average_m": 0.9142955328423773,
+        "min_m": 0.5,
+        "max_m": 1.5
+      },
+      "elapsed_s": 112.41600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3356643356643357,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 10260,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run14_seed15_20260522_163958"
+    },
+    {
+      "run_index": 15,
+      "seed": 16,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 20,
+        "sum_m": 21.179242736186126,
+        "average_m": 1.0589621368093063,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 79.77600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3076923076923077,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 11140,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run15_seed16_20260522_164007"
+    },
+    {
+      "run_index": 16,
+      "seed": 17,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 18,
+        "sum_m": 18.211834352681713,
+        "average_m": 1.011768575148984,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 82.33600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2727272727272727,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 11300,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run16_seed17_20260522_164014"
+    },
+    {
+      "run_index": 17,
+      "seed": 18,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 19.56449510224598,
+        "average_m": 0.8892952319202719,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 91.936,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2867132867132867,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 8980,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run17_seed18_20260522_164021"
+    },
+    {
+      "run_index": 18,
+      "seed": 19,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 17.34945435870697,
+        "average_m": 0.8261644932717606,
+        "min_m": 0.0,
+        "max_m": 1.5811388300841898
+      },
+      "elapsed_s": 90.016,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.26573426573426573,
+      "classification": {
+        "unique_claims_evaluated": 8,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 10460,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.75,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run18_seed19_20260522_164029"
+    },
+    {
+      "run_index": 19,
+      "seed": 20,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 22.975422309809325,
+        "average_m": 0.9573092629087219,
+        "min_m": 0.0,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 90.016,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3356643356643357,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7280,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run19_seed20_20260522_164037"
+    },
+    {
+      "run_index": 20,
+      "seed": 21,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 20.58113883008419,
+        "average_m": 0.9355063104583722,
+        "min_m": 0.0,
+        "max_m": 1.5811388300841898
+      },
+      "elapsed_s": 98.97600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2867132867132867,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 12240,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run20_seed21_20260522_164045"
+    },
+    {
+      "run_index": 21,
+      "seed": 22,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 25.23471237360878,
+        "average_m": 1.147032380618581,
+        "min_m": 0.0,
+        "max_m": 3.5
+      },
+      "elapsed_s": 97.05600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.34965034965034963,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 10680,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run21_seed22_20260522_164053"
+    },
+    {
+      "run_index": 22,
+      "seed": 23,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 19,
+        "sum_m": 17.231420369957075,
+        "average_m": 0.9069168615766882,
+        "min_m": 0.0,
+        "max_m": 1.5811388300841898
+      },
+      "elapsed_s": 70.816,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.25874125874125875,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 6260,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run22_seed23_20260522_164102"
+    },
+    {
+      "run_index": 23,
+      "seed": 24,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 24.332810630868764,
+        "average_m": 1.0138671096195317,
+        "min_m": 0.0,
+        "max_m": 2.8284271247461903
+      },
+      "elapsed_s": 113.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3356643356643357,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 8700,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run23_seed24_20260522_164109"
+    },
+    {
+      "run_index": 24,
+      "seed": 25,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 18.94646111349608,
+        "average_m": 0.9022124339760038,
+        "min_m": 0.0,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 81.05600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2727272727272727,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 4700,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run24_seed25_20260522_164117"
+    },
+    {
+      "run_index": 25,
+      "seed": 26,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 17.561208747436233,
+        "average_m": 0.8362480355922015,
+        "min_m": 0.0,
+        "max_m": 1.118033988749895
+      },
+      "elapsed_s": 67.616,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.26573426573426573,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 6460,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run25_seed26_20260522_164125"
+    },
+    {
+      "run_index": 26,
+      "seed": 27,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 29,
+        "sum_m": 29.65687760398168,
+        "average_m": 1.0226509518614373,
+        "min_m": 0.0,
+        "max_m": 2.23606797749979
+      },
+      "elapsed_s": 113.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.4125874125874126,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9700,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run26_seed27_20260522_164132"
+    },
+    {
+      "run_index": 27,
+      "seed": 28,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 18.886349517372672,
+        "average_m": 0.8584704326078487,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 81.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2867132867132867,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 7700,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run27_seed28_20260522_164142"
+    },
+    {
+      "run_index": 28,
+      "seed": 29,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 23,
+        "sum_m": 23.679242736186126,
+        "average_m": 1.0295322928776576,
+        "min_m": 0.0,
+        "max_m": 3.3541019662496847
+      },
+      "elapsed_s": 102.816,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.34265734265734266,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9420,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run28_seed29_20260522_164149"
+    },
+    {
+      "run_index": 29,
+      "seed": 30,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 24.33024535425504,
+        "average_m": 0.9732098141702017,
+        "min_m": 0.0,
+        "max_m": 3.0413812651491097
+      },
+      "elapsed_s": 103.456,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.34265734265734266,
+      "classification": {
+        "unique_claims_evaluated": 8,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 10700,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.75,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run29_seed30_20260522_164158"
+    },
+    {
+      "run_index": 30,
+      "seed": 31,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 27.733588047793106,
+        "average_m": 1.066676463376658,
+        "min_m": 0.5,
+        "max_m": 4.031128874149275
+      },
+      "elapsed_s": 90.656,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3776223776223776,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 10180,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run30_seed31_20260522_164206"
+    },
+    {
+      "run_index": 31,
+      "seed": 32,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 23.80056307974577,
+        "average_m": 0.9916901283227405,
+        "min_m": 0.0,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 88.736,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.36363636363636365,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 11040,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run31_seed32_20260522_164215"
+    },
+    {
+      "run_index": 32,
+      "seed": 33,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 18.62570384968221,
+        "average_m": 0.8466229022582823,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 81.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2937062937062937,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 9380,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run32_seed33_20260522_164223"
+    },
+    {
+      "run_index": 33,
+      "seed": 34,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 19.418941133868262,
+        "average_m": 0.8826791424485574,
+        "min_m": 0.0,
+        "max_m": 2.0615528128088303
+      },
+      "elapsed_s": 91.296,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2867132867132867,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 10780,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run33_seed34_20260522_164231"
+    },
+    {
+      "run_index": 34,
+      "seed": 35,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 23.0,
+        "average_m": 1.0454545454545454,
+        "min_m": 0.0,
+        "max_m": 4.0
+      },
+      "elapsed_s": 97.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 8640,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run34_seed35_20260522_164238"
+    },
+    {
+      "run_index": 35,
+      "seed": 36,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 18,
+        "sum_m": 17.23606797749979,
+        "average_m": 0.9575593320833217,
+        "min_m": 0.5,
+        "max_m": 1.5
+      },
+      "elapsed_s": 80.41600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.24475524475524477,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 6640,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run35_seed36_20260522_164247"
+    },
+    {
+      "run_index": 36,
+      "seed": 37,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 19.504383506122565,
+        "average_m": 0.8865628866419347,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 85.536,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2937062937062937,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7880,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run36_seed37_20260522_164254"
+    },
+    {
+      "run_index": 37,
+      "seed": 38,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 23.29727672493602,
+        "average_m": 0.9318910689974408,
+        "min_m": 0.0,
+        "max_m": 3.3541019662496847
+      },
+      "elapsed_s": 86.176,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.34965034965034963,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 9560,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run37_seed38_20260522_164302"
+    },
+    {
+      "run_index": 38,
+      "seed": 39,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 30,
+        "sum_m": 29.62805229547453,
+        "average_m": 0.9876017431824843,
+        "min_m": 0.0,
+        "max_m": 4.272001872658765
+      },
+      "elapsed_s": 129.05599999999998,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.4405594405594406,
+      "classification": {
+        "unique_claims_evaluated": 9,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 3,
+        "duplicate_claims_ignored": 21160,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.6666666666666666,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run38_seed39_20260522_164310"
+    },
+    {
+      "run_index": 39,
+      "seed": 40,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 22.82842712474619,
+        "average_m": 0.9131370849898477,
+        "min_m": 0.0,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 94.49600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3356643356643357,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 10540,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run39_seed40_20260522_164320"
+    },
+    {
+      "run_index": 40,
+      "seed": 41,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 27,
+        "sum_m": 27.320493162393724,
+        "average_m": 1.0118701171256934,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 136.096,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3986013986013986,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 17240,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run40_seed41_20260522_164328"
+    },
+    {
+      "run_index": 41,
+      "seed": 42,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 20.771601883432524,
+        "average_m": 0.9441637219742056,
+        "min_m": 0.5,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 74.656,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "classification": {
+        "unique_claims_evaluated": 8,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 14200,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.75,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run41_seed42_20260522_164338"
+    },
+    {
+      "run_index": 42,
+      "seed": 43,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 20.467488347456865,
+        "average_m": 0.9746423022598507,
+        "min_m": 0.5,
+        "max_m": 1.5811388300841898
+      },
+      "elapsed_s": 84.896,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "classification": {
+        "unique_claims_evaluated": 8,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 9680,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.75,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run42_seed43_20260522_164346"
+    },
+    {
+      "run_index": 43,
+      "seed": 44,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 23,
+        "sum_m": 22.51966598122781,
+        "average_m": 0.9791159122272961,
+        "min_m": 0.0,
+        "max_m": 3.1622776601683795
+      },
+      "elapsed_s": 95.77600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.34265734265734266,
+      "classification": {
+        "unique_claims_evaluated": 8,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 14720,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.75,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run43_seed44_20260522_164353"
+    },
+    {
+      "run_index": 44,
+      "seed": 45,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 20,
+        "sum_m": 17.150281539872886,
+        "average_m": 0.8575140769936442,
+        "min_m": 0.0,
+        "max_m": 1.118033988749895
+      },
+      "elapsed_s": 63.136,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.25874125874125875,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 4080,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run44_seed45_20260522_164402"
+    },
+    {
+      "run_index": 45,
+      "seed": 46,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 21.325140769936443,
+        "average_m": 0.9693245804516565,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 90.656,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3006993006993007,
+      "classification": {
+        "unique_claims_evaluated": 8,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 12100,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.75,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run45_seed46_20260522_164409"
+    },
+    {
+      "run_index": 46,
+      "seed": 47,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 26.44646111349608,
+        "average_m": 1.0171715812883109,
+        "min_m": 0.0,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 109.21600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3706293706293706,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 8100,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run46_seed47_20260522_164417"
+    },
+    {
+      "run_index": 47,
+      "seed": 48,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 10,
+        "sum_m": 7.618033988749895,
+        "average_m": 0.7618033988749895,
+        "min_m": 0.0,
+        "max_m": 1.118033988749895
+      },
+      "elapsed_s": 43.296,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.11188811188811189,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 4080,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run47_seed48_20260522_164425"
+    },
+    {
+      "run_index": 48,
+      "seed": 49,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 22.561208747436233,
+        "average_m": 0.9400503644765097,
+        "min_m": 0.0,
+        "max_m": 3.5
+      },
+      "elapsed_s": 95.13600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9100,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run48_seed49_20260522_164431"
+    },
+    {
+      "run_index": 49,
+      "seed": 50,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 27,
+        "sum_m": 29.132676548527943,
+        "average_m": 1.0789880203158497,
+        "min_m": 0.0,
+        "max_m": 4.272001872658765
+      },
+      "elapsed_s": 129.05599999999998,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.40559440559440557,
+      "classification": {
+        "unique_claims_evaluated": 9,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 3,
+        "duplicate_claims_ignored": 25880,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.6666666666666666,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run49_seed50_20260522_164439"
+    },
+    {
+      "run_index": 50,
+      "seed": 51,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 26.154830279732188,
+        "average_m": 1.0461932111892875,
+        "min_m": 0.0,
+        "max_m": 2.9154759474226504
+      },
+      "elapsed_s": 103.456,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.34265734265734266,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 8120,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run50_seed51_20260522_164448"
+    },
+    {
+      "run_index": 51,
+      "seed": 52,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 27,
+        "sum_m": 27.217238778842074,
+        "average_m": 1.0080458806978545,
+        "min_m": 0.0,
+        "max_m": 3.0413812651491097
+      },
+      "elapsed_s": 113.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.4125874125874126,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9580,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run51_seed52_20260522_164457"
+    },
+    {
+      "run_index": 52,
+      "seed": 53,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 20.82514076993644,
+        "average_m": 0.9916733699969733,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 79.77600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3076923076923077,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7720,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run52_seed53_20260522_164506"
+    },
+    {
+      "run_index": 53,
+      "seed": 54,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 22.68287315636847,
+        "average_m": 0.8724181983218642,
+        "min_m": 0.0,
+        "max_m": 2.0615528128088303
+      },
+      "elapsed_s": 102.816,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.32867132867132864,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9400,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run53_seed54_20260522_164513"
+    },
+    {
+      "run_index": 54,
+      "seed": 55,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 19.82514076993644,
+        "average_m": 0.8260475320806849,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 83.616,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.27972027972027974,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 11040,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run54_seed55_20260522_164522"
+    },
+    {
+      "run_index": 55,
+      "seed": 56,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 25.947902330181503,
+        "average_m": 1.0379160932072602,
+        "min_m": 0.5,
+        "max_m": 2.5
+      },
+      "elapsed_s": 115.616,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3706293706293706,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 12380,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run55_seed56_20260522_164530"
+    },
+    {
+      "run_index": 56,
+      "seed": 57,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 16,
+        "sum_m": 17.032247551122992,
+        "average_m": 1.064515471945187,
+        "min_m": 0.5,
+        "max_m": 3.0
+      },
+      "elapsed_s": 82.33600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.24475524475524477,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 9080,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run56_seed57_20260522_164539"
+    },
+    {
+      "run_index": 57,
+      "seed": 58,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 25.29365716454268,
+        "average_m": 1.053902381855945,
+        "min_m": 0.0,
+        "max_m": 3.2015621187164243
+      },
+      "elapsed_s": 85.536,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.36363636363636365,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 8840,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run57_seed58_20260522_164546"
+    },
+    {
+      "run_index": 58,
+      "seed": 59,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 20.311197947308298,
+        "average_m": 0.846299914471179,
+        "min_m": 0.0,
+        "max_m": 3.1622776601683795
+      },
+      "elapsed_s": 84.896,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3076923076923077,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 12880,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run58_seed59_20260522_164554"
+    },
+    {
+      "run_index": 59,
+      "seed": 60,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 20,
+        "sum_m": 20.43852715114362,
+        "average_m": 1.021926357557181,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 95.77600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2727272727272727,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7080,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run59_seed60_20260522_164602"
+    },
+    {
+      "run_index": 60,
+      "seed": 61,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 27,
+        "sum_m": 27.94181350595337,
+        "average_m": 1.0348819817019768,
+        "min_m": 0.0,
+        "max_m": 3.5
+      },
+      "elapsed_s": 119.456,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3776223776223776,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 17580,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run60_seed61_20260522_164610"
+    },
+    {
+      "run_index": 61,
+      "seed": 62,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 30,
+        "sum_m": 31.002170837194857,
+        "average_m": 1.033405694573162,
+        "min_m": 0.0,
+        "max_m": 3.640054944640259
+      },
+      "elapsed_s": 116.25600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.46153846153846156,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 10640,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run61_seed62_20260522_164619"
+    },
+    {
+      "run_index": 62,
+      "seed": 63,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 23.354101966249686,
+        "average_m": 0.9730875819270702,
+        "min_m": 0.0,
+        "max_m": 2.0
+      },
+      "elapsed_s": 105.376,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3356643356643357,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 6760,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run62_seed63_20260522_164628"
+    },
+    {
+      "run_index": 63,
+      "seed": 64,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 28.621056242139495,
+        "average_m": 1.1008098554669037,
+        "min_m": 0.0,
+        "max_m": 4.242640687119285
+      },
+      "elapsed_s": 109.21600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.42657342657342656,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 11240,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run63_seed64_20260522_164637"
+    },
+    {
+      "run_index": 64,
+      "seed": 65,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 20.792611411745966,
+        "average_m": 0.9901243529402841,
+        "min_m": 0.0,
+        "max_m": 2.692582403567252
+      },
+      "elapsed_s": 97.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 9820,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run64_seed65_20260522_164646"
+    },
+    {
+      "run_index": 65,
+      "seed": 66,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 25.788245611270735,
+        "average_m": 0.9918556004334899,
+        "min_m": 0.0,
+        "max_m": 3.0
+      },
+      "elapsed_s": 114.97600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3706293706293706,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9900,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run65_seed66_20260522_164654"
+    },
+    {
+      "run_index": 66,
+      "seed": 67,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 22.43193673587679,
+        "average_m": 1.0196334879943996,
+        "min_m": 0.0,
+        "max_m": 2.692582403567252
+      },
+      "elapsed_s": 90.656,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3006993006993007,
+      "classification": {
+        "unique_claims_evaluated": 8,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 2,
+        "duplicate_claims_ignored": 10560,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.75,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run66_seed67_20260522_164703"
+    },
+    {
+      "run_index": 67,
+      "seed": 68,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 19,
+        "sum_m": 17.532247551122992,
+        "average_m": 0.9227498711117365,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 66.976,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.25874125874125875,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 3840,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run67_seed68_20260522_164711"
+    },
+    {
+      "run_index": 68,
+      "seed": 69,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 18,
+        "sum_m": 18.032247551122985,
+        "average_m": 1.0017915306179437,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 80.41600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.26573426573426573,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 5900,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run68_seed69_20260522_164718"
+    },
+    {
+      "run_index": 69,
+      "seed": 70,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 20,
+        "sum_m": 18.150281539872886,
+        "average_m": 0.9075140769936443,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 70.176,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2727272727272727,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 5340,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run69_seed70_20260522_164725"
+    },
+    {
+      "run_index": 70,
+      "seed": 71,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 16,
+        "sum_m": 13.886349517372675,
+        "average_m": 0.8678968448357922,
+        "min_m": 0.0,
+        "max_m": 1.118033988749895
+      },
+      "elapsed_s": 66.33600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.21678321678321677,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7120,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run70_seed71_20260522_164732"
+    },
+    {
+      "run_index": 71,
+      "seed": 72,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 17,
+        "sum_m": 17.64234757752042,
+        "average_m": 1.0377851516188483,
+        "min_m": 0.0,
+        "max_m": 3.0
+      },
+      "elapsed_s": 86.816,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.25874125874125875,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 8760,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run71_seed72_20260522_164739"
+    },
+    {
+      "run_index": 72,
+      "seed": 73,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 21.118033988749893,
+        "average_m": 1.0056206661309472,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 83.616,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2937062937062937,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 6180,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run72_seed73_20260522_164746"
+    },
+    {
+      "run_index": 73,
+      "seed": 74,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 23.288245611270735,
+        "average_m": 1.0585566186941244,
+        "min_m": 0.0,
+        "max_m": 3.5
+      },
+      "elapsed_s": 102.816,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.32867132867132864,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 10420,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run73_seed74_20260522_164753"
+    },
+    {
+      "run_index": 74,
+      "seed": 75,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 17,
+        "sum_m": 15.207106781186548,
+        "average_m": 0.8945356930109734,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 66.33600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2097902097902098,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 4360,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run74_seed75_20260522_164802"
+    },
+    {
+      "run_index": 75,
+      "seed": 76,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 27,
+        "sum_m": 24.771601883432524,
+        "average_m": 0.9174667364234268,
+        "min_m": 0.0,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 95.13600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.36363636363636365,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7440,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run75_seed76_20260522_164808"
+    },
+    {
+      "run_index": 76,
+      "seed": 77,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 19,
+        "sum_m": 19.185815445805623,
+        "average_m": 1.0097797603055592,
+        "min_m": 0.0,
+        "max_m": 2.8284271247461903
+      },
+      "elapsed_s": 98.33600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2867132867132867,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 7400,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run76_seed77_20260522_164817"
+    },
+    {
+      "run_index": 77,
+      "seed": 78,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 18,
+        "sum_m": 17.118033988749893,
+        "average_m": 0.951001888263883,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 70.176,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.24475524475524477,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 5040,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run77_seed78_20260522_164825"
+    },
+    {
+      "run_index": 78,
+      "seed": 79,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 28,
+        "sum_m": 24.039917412055306,
+        "average_m": 0.8585684790019752,
+        "min_m": 0.0,
+        "max_m": 2.23606797749979
+      },
+      "elapsed_s": 113.69600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3706293706293706,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 14400,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run78_seed79_20260522_164832"
+    },
+    {
+      "run_index": 79,
+      "seed": 80,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 23,
+        "sum_m": 21.320493162393728,
+        "average_m": 0.926977963582336,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 90.016,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.32867132867132864,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 12440,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run79_seed80_20260522_164841"
+    },
+    {
+      "run_index": 80,
+      "seed": 81,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 19.5,
+        "average_m": 0.9285714285714286,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 104.736,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2727272727272727,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 10340,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run80_seed81_20260522_164849"
+    },
+    {
+      "run_index": 81,
+      "seed": 82,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 28.101978830668006,
+        "average_m": 1.1240791532267203,
+        "min_m": 0.0,
+        "max_m": 4.716990566028302
+      },
+      "elapsed_s": 118.176,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.4125874125874126,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 11440,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run81_seed82_20260522_164857"
+    },
+    {
+      "run_index": 82,
+      "seed": 83,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 15,
+        "sum_m": 13.27160188343253,
+        "average_m": 0.884773458895502,
+        "min_m": 0.0,
+        "max_m": 2.0
+      },
+      "elapsed_s": 52.25599999999999,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2097902097902098,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 3460,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run82_seed83_20260522_164906"
+    },
+    {
+      "run_index": 83,
+      "seed": 84,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 16,
+        "sum_m": 16.532247551122992,
+        "average_m": 1.033265471945187,
+        "min_m": 0.0,
+        "max_m": 3.0
+      },
+      "elapsed_s": 60.576,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.22377622377622378,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 6880,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run83_seed84_20260522_164912"
+    },
+    {
+      "run_index": 84,
+      "seed": 85,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 18,
+        "sum_m": 14.357388321059432,
+        "average_m": 0.7976326845033017,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 71.456,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.21678321678321677,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 5720,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run84_seed85_20260522_164918"
+    },
+    {
+      "run_index": 85,
+      "seed": 86,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 19.65356789468263,
+        "average_m": 0.8933439952128469,
+        "min_m": 0.5,
+        "max_m": 1.5
+      },
+      "elapsed_s": 82.33600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3006993006993007,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 5740,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run85_seed86_20260522_164925"
+    },
+    {
+      "run_index": 86,
+      "seed": 87,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 24,
+        "sum_m": 20.354101966249686,
+        "average_m": 0.8480875819270702,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 84.256,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3006993006993007,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 7640,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run86_seed87_20260522_164933"
+    },
+    {
+      "run_index": 87,
+      "seed": 88,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 21.03224755112299,
+        "average_m": 0.9560112523237723,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 94.49600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 9780,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run87_seed88_20260522_164941"
+    },
+    {
+      "run_index": 88,
+      "seed": 89,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 21,
+        "sum_m": 20.14234757752042,
+        "average_m": 0.9591594084533535,
+        "min_m": 0.0,
+        "max_m": 2.5
+      },
+      "elapsed_s": 77.21600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.32167832167832167,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 5160,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run88_seed89_20260522_164949"
+    },
+    {
+      "run_index": 89,
+      "seed": 90,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 23,
+        "sum_m": 20.032247551122992,
+        "average_m": 0.8709672848314345,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 80.41600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2937062937062937,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 5920,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run89_seed90_20260522_164957"
+    },
+    {
+      "run_index": 90,
+      "seed": 91,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 14,
+        "sum_m": 11.825140769936443,
+        "average_m": 0.8446529121383174,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 63.136,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.17482517482517482,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 6700,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run90_seed91_20260522_165005"
+    },
+    {
+      "run_index": 91,
+      "seed": 92,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 31,
+        "sum_m": 34.39653112151362,
+        "average_m": 1.1095655200488264,
+        "min_m": 0.0,
+        "max_m": 4.031128874149275
+      },
+      "elapsed_s": 136.736,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.4825174825174825,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 15600,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run91_seed92_20260522_165011"
+    },
+    {
+      "run_index": 92,
+      "seed": 93,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 20,
+        "sum_m": 20.69079850570374,
+        "average_m": 1.034539925285187,
+        "min_m": 0.0,
+        "max_m": 4.301162633521313
+      },
+      "elapsed_s": 88.096,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3146853146853147,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 6840,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run92_seed93_20260522_165021"
+    },
+    {
+      "run_index": 93,
+      "seed": 94,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 26,
+        "sum_m": 22.65356789468263,
+        "average_m": 0.8712910728724089,
+        "min_m": 0.0,
+        "max_m": 2.1213203435596424
+      },
+      "elapsed_s": 98.33600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3356643356643357,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 6000,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run93_seed94_20260522_165029"
+    },
+    {
+      "run_index": 94,
+      "seed": 95,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 14,
+        "sum_m": 11.86067467586918,
+        "average_m": 0.84719104827637,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 56.096,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.18181818181818182,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 4240,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run94_seed95_20260522_165038"
+    },
+    {
+      "run_index": 95,
+      "seed": 96,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 25,
+        "sum_m": 21.561208747436226,
+        "average_m": 0.862448349897449,
+        "min_m": 0.0,
+        "max_m": 1.5
+      },
+      "elapsed_s": 109.85600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.32867132867132864,
+      "classification": {
+        "unique_claims_evaluated": 6,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 0,
+        "duplicate_claims_ignored": 8880,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 1.0,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run95_seed96_20260522_165044"
+    },
+    {
+      "run_index": 96,
+      "seed": 97,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 20.156877603981677,
+        "average_m": 0.9162217092718944,
+        "min_m": 0.0,
+        "max_m": 1.8027756377319946
+      },
+      "elapsed_s": 77.21600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.2937062937062937,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 5420,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run96_seed97_20260522_165053"
+    },
+    {
+      "run_index": 97,
+      "seed": 98,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 30,
+        "sum_m": 30.818205091213386,
+        "average_m": 1.0272735030404463,
+        "min_m": 0.0,
+        "max_m": 3.3541019662496847
+      },
+      "elapsed_s": 116.896,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.45454545454545453,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 14120,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run97_seed98_20260522_165100"
+    },
+    {
+      "run_index": 98,
+      "seed": 99,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 22,
+        "sum_m": 21.199172818834086,
+        "average_m": 0.9635987644924584,
+        "min_m": 0.0,
+        "max_m": 1.5811388300841898
+      },
+      "elapsed_s": 93.85600000000001,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.3076923076923077,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 7420,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_bottle": {
+            "target_bottle": 3
+          },
+          "target_can": {
+            "target_can": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run98_seed99_20260522_165110"
+    },
+    {
+      "run_index": 99,
+      "seed": 100,
+      "policy": "aif_saccade",
+      "reason": "done",
+      "detector_used": "yolo",
+      "detector_model_family": "yolo11",
+      "detector_model_size": "nano",
+      "detector_model_variant": "yolo11s",
+      "detector_model_path": "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/yolov11_s_all/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+      "spawn_conditions": "spawn15",
+      "target_setup": "mixed_easy",
+      "found_det_threshold": 0.45,
+      "found_streak_steps": 1,
+      "target_distance_stats": {
+        "enabled": true,
+        "policy_supported": true,
+        "tracked": true,
+        "count": 30,
+        "sum_m": 29.341520396354504,
+        "average_m": 0.9780506798784835,
+        "min_m": 0.0,
+        "max_m": 3.3541019662496847
+      },
+      "elapsed_s": 117.53600000000002,
+      "found_count": 6,
+      "remaining_objects": 0,
+      "coverage_ratio": 0.4125874125874126,
+      "classification": {
+        "unique_claims_evaluated": 7,
+        "correct_class_claims": 6,
+        "wrong_class_claims": 0,
+        "empty_cell_claims": 1,
+        "duplicate_claims_ignored": 15680,
+        "object_cell_claims": 6,
+        "object_cell_class_accuracy": 1.0,
+        "overall_claim_precision": 0.8571428571428571,
+        "confusion_matrix": {
+          "target_can": {
+            "target_can": 3
+          },
+          "target_bottle": {
+            "target_bottle": 3
+          }
+        }
+      },
+      "detector_limitations": {
+        "mode": "time",
+        "frames_interval": null,
+        "time_interval_s": 0.625
+      },
+      "run_dir": "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/eval_aif_saccade_20260522_163755/runs/log_run_aif_saccade_run99_seed100_20260522_165118"
     }
   ],
   "completed": true

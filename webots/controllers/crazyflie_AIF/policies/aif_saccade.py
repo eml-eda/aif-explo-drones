@@ -62,7 +62,7 @@ class AIFSaccadePolicy:
         self._stay_replan_streak: int = 0
         self._last_replan_time_s: float = -1e9
 
-    def compute_action(self, observation: dict) -> Dict[str, float]:
+    def compute_action(self, observation: dict) -> Dict[str, object]:
         self._ensure_initialized(observation)
 
         step = observation.get("step", None)
@@ -102,6 +102,7 @@ class AIFSaccadePolicy:
         assert self.navigator is not None
 
         scored_actions = None
+        target_selection = None
 
         time_now = float(observation.get("time", 0.0))
         has_target = self.navigator.has_target()
@@ -117,6 +118,18 @@ class AIFSaccadePolicy:
                     found_cells=found_cells,
                     return_scores=True,
                 )
+
+                target_distance_m = self._cell_distance_m(current_cell, next_cell)
+
+                target_selection = {
+                    "step": None if step is None else int(step),
+                    "time_s": float(time_now),
+                    "current_cell": [int(current_cell[0]), int(current_cell[1])],
+                    "target_cell": [int(next_cell[0]), int(next_cell[1])],
+                    "target_yaw": float(next_yaw),
+                    "distance_m": float(target_distance_m),
+                }
+
                 self.navigator.set_target(next_cell, next_yaw)
                 self._last_replan_time_s = time_now
 
@@ -206,6 +219,7 @@ class AIFSaccadePolicy:
             "forward": float(cmd["forward"]),
             "sideways": float(cmd["sideways"]),
             "yaw_rate": float(cmd["yaw_rate"]),
+            "target_selection": target_selection,
         }
 
     def save_snapshot_from_controller(self, observation: dict, *, reason: str = "final") -> Optional[str]:
@@ -428,6 +442,11 @@ class AIFSaccadePolicy:
         y0 = self.grid_spec.min_y + cy * self.grid_spec.cell_size
         cs = self.grid_spec.cell_size
         return (x0 + 0.5 * cs, y0 + 0.5 * cs)
+    
+    def _cell_distance_m(self, a: Cell, b: Cell) -> float:
+        ax, ay = self._cell_center_xy(int(a[0]), int(a[1]))
+        bx, by = self._cell_center_xy(int(b[0]), int(b[1]))
+        return float(math.hypot(bx - ax, by - ay))
 
     def _pick_next_action(
         self,

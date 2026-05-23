@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""Evaluate YOLO on the mixed bottle/can dataset and print the main metrics clearly.
+
+This script is robust to being placed either in:
+
+    detection_model_training/eval_mixed_yolo_print_metrics.py
+
+or in:
+
+    detection_model_training/yolov11_s_all/eval_mixed_yolo_print_metrics.py
+
+It keeps Ultralytics plots enabled, so you still get BoxF1_curve.png,
+BoxPR_curve.png, confusion matrices, and val_batch*_pred.jpg files.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+from ultralytics import YOLO
+
+
+def find_project_root() -> Path:
+    script_dir = Path(__file__).resolve().parent
+    if (script_dir / "dataset_bottle_can_mixed" / "target_objects.yaml").exists():
+        return script_dir
+    if (script_dir.parent / "dataset_bottle_can_mixed" / "target_objects.yaml").exists():
+        return script_dir.parent
+    raise FileNotFoundError(
+        "Could not find dataset_bottle_can_mixed/target_objects.yaml next to this script "
+        "or one directory above it."
+    )
+
+
+PROJECT_ROOT = find_project_root()
+DEFAULT_DATA_YAML = PROJECT_ROOT / "dataset_bottle_can_mixed" / "target_objects.yaml"
+DEFAULT_WEIGHTS = (
+    PROJECT_ROOT
+    / "yolov11_s_all"
+    / "mixed_detector_runs"
+    / "yolo11s_ft_bottle_can_v1"
+    / "weights"
+    / "best.pt"
+)
+DEFAULT_EVAL_PROJECT = PROJECT_ROOT / "yolov11_s_all" / "eval_runs_mixed"
+
+
+def repo_path(path: str | Path) -> Path:
+    p = Path(path).expanduser()
+    if p.is_absolute():
+        return p.resolve()
+    return (PROJECT_ROOT / p).resolve()
+
+
+def to_jsonable(obj: Any) -> Any:
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [to_jsonable(v) for v in obj]
+    if hasattr(obj, "tolist"):
+        return obj.tolist()
+    try:
+        return float(obj)
+    except Exception:
+        return str(obj)
+
+
+def extract_yolo_metrics(metrics: Any, model: YOLO) -> dict[str, Any]:
+    """Extract the metrics that matter from an Ultralytics DetMetrics object."""
+    results_dict = dict(getattr(metrics, "results_dict", {}) or {})
+    box = getattr(metrics, "box", None)
+
+    summary: dict[str, Any] = {
+        "results_dict": to_jsonable(results_dict),
+        "precision": None,
+        "recall": None,
+        "mAP50": None,
+        "mAP50_95": None,
+        "mAP75": None,
+        "fitness": results_dict.get("fitness"),
+        "per_class_mAP50_95": {},
+    }
+
+    # Direct box attributes are more stable/readable when available.
+    if box is not None:
+        for out_key, attr in [
+            ("precision", "mp"),
+            ("recall", "mr"),
+            ("mAP50", "map50"),
+            ("mAP50_95", "map"),
+            ("mAP75", "map75"),
+        ]:
+            if hasattr(box, attr):
+                try:
+                    summary[out_key] = float(getattr(box, attr))
+                except Exception:
+                    pass
+
+        maps = getattr(box, "maps", None)
+        if maps is not None:
+            names = getattr(model, "names", {}) or {}
+            maps_list = maps.tolist() if hasattr(maps, "tolist") else list(maps)
+            for idx, val in enumerate(maps_list):
+                class_name = names.get(idx, str(idx)) if isinstance(names, dict) else str(idx)
+                summary["per_class_mAP50_95"][class_name] = float(val)
+
+    # Fallback to results_dict key names used by Ultralytics.
+    key_aliases = {
+        "precision": ["metrics/precision(B)", "precision"],
+        "recall": ["metrics/recall(B)", "recall"],
+        "mAP50": ["metrics/mAP50(B)", "mAP50"],
+        "mAP50_95": ["metrics/mAP50-95(B)", "mAP50-95", "mAP50_95"],
+    }
+    for out_key, aliases in key_aliases.items():
+        if summary[out_key] is None:
+            for key in aliases:
+                if key in results_dict:
+                    summary[out_key] = float(results_dict[key])
+                    break
+
+    return summary
+
+
+def print_metric_summary(split: str, summary: dict[str, Any]) -> None:
+    print(f"\n{split.upper()} main metrics")
+    print(f"precision(B):  {summary['precision']:.4f}" if summary["precision"] is not None else "precision(B):  n/a")
+    print(f"recall(B):     {summary['recall']:.4f}" if summary["recall"] is not None else "recall(B):     n/a")
+    print(f"mAP50(B):      {summary['mAP50']:.4f}" if summary["mAP50"] is not None else "mAP50(B):      n/a")
+    print(f"mAP50-95(B):   {summary['mAP50_95']:.4f}" if summary["mAP50_95"] is not None else "mAP50-95(B):   n/a")
+    if summary.get("mAP75") is not None:
+        print(f"mAP75(B):      {summary['mAP75']:.4f}")
+    if summary.get("fitness") is not None:
+        print(f"fitness:       {float(summary['fitness']):.4f}")
+
+    per_class = summary.get("per_class_mAP50_95") or {}
+    if per_class:
+        print("\nPer-class mAP50-95")
+        for name, val in per_class.items():
+            print(f"  {name:>14s}: {float(val):.4f}")
+
+    print("\nRaw Ultralytics results_dict")
+    print(json.dumps(summary["results_dict"], indent=2))
+
+
+def evaluate_split(model: YOLO, data_yaml: Path, split: str, device: str, eval_project: Path) -> dict[str, Any]:
+    print(f"\n===== {split.upper()} SPLIT =====")
+    metrics = model.val(
+        data=str(data_yaml),
+        split=split,
+        device=device,
+        project=str(eval_project),
+        name=f"{split}_eval",
+        exist_ok=True,
+        plots=True,
+    )
+    summary = extract_yolo_metrics(metrics, model)
+    print_metric_summary(split, summary)
+
+    split_dir = eval_project / f"{split}_eval"
+    split_dir.mkdir(parents=True, exist_ok=True)
+    with (split_dir / "metrics_pretty.json").open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    print(f"\nSaved readable metrics: {split_dir / 'metrics_pretty.json'}")
+    return summary
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate YOLO mixed bottle/can detector with explicit metric printing.")
+    parser.add_argument("--data", type=str, default=str(DEFAULT_DATA_YAML))
+    parser.add_argument("--weights", type=str, default=str(DEFAULT_WEIGHTS))
+    parser.add_argument("--eval-project", type=str, default=str(DEFAULT_EVAL_PROJECT))
+    parser.add_argument("--split", type=str, default="both", choices=["val", "test", "both"])
+    parser.add_argument("--device", type=str, default="0")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    data_yaml = repo_path(args.data)
+    weights = repo_path(args.weights)
+    eval_project = repo_path(args.eval_project)
+
+    if not data_yaml.exists():
+        raise FileNotFoundError(f"Missing dataset yaml: {data_yaml}")
+    if not weights.exists():
+        raise FileNotFoundError(f"Missing weights: {weights}")
+
+    print(f"Project root: {PROJECT_ROOT}")
+    print(f"Data YAML:    {data_yaml}")
+    print(f"Weights:      {weights}")
+    print(f"Eval project: {eval_project}")
+    print(f"Device:       {args.device}")
+
+    model = YOLO(str(weights))
+    splits = ["val", "test"] if args.split == "both" else [args.split]
+    summary = {split: evaluate_split(model, data_yaml, split, args.device, eval_project) for split in splits}
+
+    eval_project.mkdir(parents=True, exist_ok=True)
+    with (eval_project / "summary_metrics_pretty.json").open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    print(f"\nSaved summary metrics: {eval_project / 'summary_metrics_pretty.json'}")
+
+
+if __name__ == "__main__":
+    main()

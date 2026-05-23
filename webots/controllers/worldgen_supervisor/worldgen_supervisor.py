@@ -1,7 +1,8 @@
-# controllers/worldgen_supervisor/worldgen_supervisor.py
+# webots/controllers/worldgen_supervisor/worldgen_supervisor.py
 
 from __future__ import annotations
 
+import colorsys
 import json
 import math
 import os
@@ -34,6 +35,17 @@ MIN_SEPARATION = 0.70
 # ---- In-cell spawn restriction ----
 SPAWN_CENTER_DISC_RADIUS_M = 0.20
 
+# ---- Recognition-aware spawning ----
+# Leave this True. It keeps the visual BeerBottle/Can children, while adding
+# Webots recognition metadata needed by the camera-recognition GT detector.
+USE_RECOGNITION_WRAPPER_SOLIDS = True
+
+# Approximate bounding cylinders used only for Webots recognition/size estimation.
+BOTTLE_BBOX_RADIUS_M = 0.035
+BOTTLE_BBOX_HEIGHT_M = 0.245
+CAN_BBOX_RADIUS_M = 0.018
+CAN_BBOX_HEIGHT_M = 0.125
+
 # ---- Class / proto mapping ----
 CLASS_BOTTLE = "target_bottle"
 CLASS_CAN = "target_can"
@@ -46,7 +58,7 @@ CLASS_NAME_TO_ID = {
 BOTTLE_PROTO_NODE = "BeerBottle"
 CAN_PROTO_NODE = "Can"
 
-# Proto/world z placement
+# Proto/world z placement for non-wrapper legacy spawning.
 BOTTLE_SPAWN_Z = 0.0
 CAN_SPAWN_Z = 0.0611
 
@@ -69,12 +81,14 @@ REPORT_SUBDIR = "run_report"
 def dist2(a, b) -> float:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
+
 def _safe_remove(path: str) -> None:
     try:
         if os.path.exists(path):
             os.remove(path)
     except Exception:
         pass
+
 
 def _shared_dir() -> str:
     here = os.path.dirname(__file__)
@@ -101,6 +115,61 @@ def _atomic_write_json(path: str, payload) -> None:
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     os.replace(tmp_path, path)
+
+
+def _node_id(node):
+    if hasattr(node, "getId"):
+        return int(node.getId())
+    if hasattr(node, "get_id"):
+        return int(node.get_id())
+    return None
+
+
+def _instance_color(index: int) -> tuple[float, float, float]:
+    """Unique-ish per-instance recognition color."""
+    hue = (index * 0.61803398875) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 1.0)
+    return (max(0.1, r), max(0.1, g), max(0.1, b))
+
+
+def _bbox_dims_for_class(class_name: str) -> tuple[float, float]:
+    if class_name == CLASS_BOTTLE:
+        return BOTTLE_BBOX_HEIGHT_M, BOTTLE_BBOX_RADIUS_M
+    if class_name == CLASS_CAN:
+        return CAN_BBOX_HEIGHT_M, CAN_BBOX_RADIUS_M
+    raise ValueError(f"Unknown class_name={class_name}")
+
+
+def _recognition_wrapper_node_string(
+    *,
+    def_name: str,
+    proto: str,
+    model: str,
+    x: float,
+    y: float,
+    color_rgb,
+    bbox_height: float,
+    bbox_radius: float,
+) -> str:
+    r, g, b = color_rgb
+    return f'''
+DEF {def_name} Solid {{
+  translation {x:.6f} {y:.6f} 0
+  model "{model}"
+  recognitionColors [
+    {r:.6f} {g:.6f} {b:.6f}
+  ]
+  children [
+    {proto} {{
+    }}
+  ]
+  boundingObject Cylinder {{
+    height {bbox_height:.6f}
+    radius {bbox_radius:.6f}
+    subdivision 16
+  }}
+}}
+'''.strip()
 
 
 def _cxcy_from_xy(x: float, y: float) -> tuple[int, int] | None:
@@ -172,6 +241,10 @@ def _write_spawned_objects_json(path: str, *, seed: int, objects):
             "class_name": str(o["class_name"]),
             "class_id": int(o["class_id"]),
             "proto": str(o["proto"]),
+            "model": str(o.get("model", o["class_name"])),
+            "def": str(o.get("def", "")),
+            "id": o.get("id", None),
+            "recognition_color_rgb": o.get("recognition_color_rgb", None),
         }
         if cxcy is not None:
             obj["cx"] = int(cxcy[0])
@@ -427,25 +500,49 @@ def main():
             break
 
         x, y = pos
-        spawned_objects.append(
-            {
-                "x": float(x),
-                "y": float(y),
-                "class_name": str(spec["class_name"]),
-                "class_id": int(spec["class_id"]),
-                "proto": str(spec["proto"]),
-            }
-        )
+        class_name = str(spec["class_name"])
+        proto = str(spec["proto"])
 
-        node_string = (
-            f'DEF OBJ_{i:03d} {spec["proto"]} {{ '
-            f'  translation {x:.4f} {y:.4f} {float(spec["z"]):.4f} '
-            f'}}'
-        )
+        if USE_RECOGNITION_WRAPPER_SOLIDS:
+            def_name = f"TARGET_{class_name.upper()}_{i:03d}"
+            color_rgb = _instance_color(i)
+            bbox_height, bbox_radius = _bbox_dims_for_class(class_name)
+            node_string = _recognition_wrapper_node_string(
+                def_name=def_name,
+                proto=proto,
+                model=class_name,
+                x=float(x),
+                y=float(y),
+                color_rgb=color_rgb,
+                bbox_height=bbox_height,
+                bbox_radius=bbox_radius,
+            )
+        else:
+            def_name = f"OBJ_{i:03d}"
+            color_rgb = None
+            node_string = (
+                f'DEF {def_name} {proto} {{ '
+                f'  translation {x:.4f} {y:.4f} {float(spec["z"]):.4f} '
+                f'}}'
+            )
 
         spawn_children.importMFNodeFromString(-1, node_string)
         new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
         spawned_nodes.append(new_node)
+
+        spawned_objects.append(
+            {
+                "def": def_name,
+                "id": _node_id(new_node),
+                "x": float(x),
+                "y": float(y),
+                "class_name": class_name,
+                "class_id": int(spec["class_id"]),
+                "proto": proto,
+                "model": class_name,
+                "recognition_color_rgb": None if color_rgb is None else [float(color_rgb[0]), float(color_rgb[1]), float(color_rgb[2])],
+            }
+        )
 
     print(
         f"Spawned {len(spawned_nodes)} objects "
@@ -497,6 +594,8 @@ def main():
         report_written=False,
     )
 
+    spawn_cxcy = _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y)
+
     _atomic_write_json(
         controller_progress_path,
         {
@@ -511,8 +610,8 @@ def main():
                 "x": DRONE_SPAWN_X,
                 "y": DRONE_SPAWN_Y,
                 "yaw": DRONE_SPAWN_YAW,
-                "cx": _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y)[0] if _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y) else None,
-                "cy": _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y)[1] if _cxcy_from_xy(DRONE_SPAWN_X, DRONE_SPAWN_Y) else None,
+                "cx": spawn_cxcy[0] if spawn_cxcy is not None else None,
+                "cy": spawn_cxcy[1] if spawn_cxcy is not None else None,
             },
         },
     )

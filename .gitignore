@@ -69,7 +69,7 @@ train_merge_manifest*
 # --------------------------------
 eval_comparison_summary.csv
 figures_eval_comparison/
-
+script_exec.txt
 
 # -------------------------
 # Webots caches / generated
@@ -98,3 +98,5 @@ webots/controllers/crazyflie_py_wallfollowing/
 
 # Ignore papers and books
 papers/
+
+self-utils/

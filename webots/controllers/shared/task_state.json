@@ -1,38 +1,38 @@
 {
   "status": "done",
   "reason": "done",
-  "seed": 55,
+  "seed": 100,
   "total_objects": 6,
   "remaining_objects": 0,
   "validated_found_cells": [
     [
       1,
-      6
-    ],
-    [
-      2,
       3
     ],
     [
-      2,
+      6,
       8
     ],
     [
-      3,
+      7,
       4
     ],
     [
-      4,
-      10
+      9,
+      3
     ],
     [
-      6,
-      1
+      9,
+      5
+    ],
+    [
+      9,
+      11
     ]
   ],
   "timeout_s": 195.0,
   "warmup_s": 15.0,
   "episode_s": 180.0,
-  "now_time_s": 104.19200000000001,
+  "now_time_s": 132.544,
   "report_written": true
 }

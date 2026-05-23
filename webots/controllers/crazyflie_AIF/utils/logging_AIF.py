@@ -23,9 +23,10 @@ class ExperimentLogger:
         self.arena_meta = arena_meta or {}
         self.min_time_s = float(min_time_s)
 
-        self._occupancy_log = None
-        self._step_log = None
-        self._summary_path = None
+        self.log_dir = log_dir
+        self.occupancy_log_path = None
+        self.occupancy_summary_path = None
+        self.step_log_path = None
 
         self._occupancy_write_count = 0
         self._step_write_count = 0
@@ -43,9 +44,13 @@ class ExperimentLogger:
         os.makedirs(log_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._occupancy_log_path = os.path.join(log_dir, f"occupancy_log_{timestamp}.csv")
-        self._summary_path = os.path.join(log_dir, f"occupancy_summary_{timestamp}.csv")
-        self._step_log_path = os.path.join(log_dir, f"step_log_{timestamp}.csv")
+        self.occupancy_log_path = os.path.join(log_dir, f"occupancy_log_{timestamp}.csv")
+        self.occupancy_summary_path = os.path.join(log_dir, f"occupancy_summary_{timestamp}.csv")
+        self.step_log_path = os.path.join(log_dir, f"step_log_{timestamp}.csv")
+
+        self._occupancy_log_path = self.occupancy_log_path
+        self._summary_path = self.occupancy_summary_path
+        self._step_log_path = self.step_log_path
 
         self._occupancy_log = open(self._occupancy_log_path, "w", encoding="utf-8")
         self._occupancy_log.write("time_s,x_m,y_m,row,col,dt_s,inside\n")
@@ -100,10 +105,17 @@ class ExperimentLogger:
         self._step_write_count += 1
         if self._step_write_count % 20 == 0:
             self._step_log.flush()
+    
+    def paths(self):
+        return {
+            "occupancy_log": self.occupancy_log_path,
+            "occupancy_summary": self.occupancy_summary_path,
+            "step_log": self.step_log_path,
+        }
 
     def close(self):
         if not self.enabled:
-            return
+            return self.paths()
 
         if self._step_log:
             self._step_log.close()
@@ -128,3 +140,5 @@ class ExperimentLogger:
                 for row in range(gs.rows):
                     for col in range(gs.cols):
                         summary_file.write(f"{row},{col},{self.occupancy_time_s[row][col]:.6f}\n")
+
+        return self.paths()

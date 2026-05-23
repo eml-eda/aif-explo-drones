@@ -4,7 +4,7 @@ import os
 
 import numpy as np
 from ultralytics import YOLO
-
+from config import AIF_YOLO_MODEL
 
 class DetectorOutput:
     def __init__(self, detections=None, embedding=None, raw=None):
@@ -26,7 +26,7 @@ class Detector:
         if model_name is None:
             model_name = os.environ.get(
                 "AIF_YOLO_MODEL",
-                "/home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/mixed_detector_runs/yolo11s_ft_bottle_can_v1/weights/best.pt",
+                AIF_YOLO_MODEL,
             )
         self.model_name = model_name
 

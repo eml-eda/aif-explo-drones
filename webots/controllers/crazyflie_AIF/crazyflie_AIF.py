@@ -17,22 +17,40 @@ from policies.rotate_and_measure import RotateAndMeasurePolicy
 from policies.aif_saccade import AIFSaccadePolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
-from vision.detector_yolo import Detector
 from vision.ground_truth_detector import GroundTruthDetector
+from utils.run_visualizations import generate_run_visualizations
 
 from env.env_manager import GridSpec, FoVSpec, GridEnvManager
 
 from config import AIF_POLICY as DEFAULT_POLICY
+import config as aif_config
+# ---- Detector backend ----
+DETECTOR_BACKEND = "yolo"  # options: "yolo", "mobilenet_ssd"
+
+GT_DETECTOR_BACKEND = "camera_recognition"  # options: "analytic_fov", "camera_recognition"
 
 # ---- Run toggles ----
-ENABLE_LOGGING = True
+ENABLE_CSV_LOGGING = False
+
+ENABLE_OCCUPANCY_HEATMAP = True
+ENABLE_TRAJECTORY_PLOT = True
+TRACK_AIF_TARGET_DISTANCE = True
+
+ENABLE_LOGGING = ENABLE_CSV_LOGGING or ENABLE_OCCUPANCY_HEATMAP or ENABLE_TRAJECTORY_PLOT
+
 ENABLE_CAPTURES = False
 LOG_EVERY_N_STEPS = 20
 CAPTURE_EVERY_N_STEPS = 20
 
+TRAJECTORY_PLOTS_SUBDIR = "trajectory plots"
+
 # ---- Mode toggles ----
 EVAL_MODE = True
 EVAL_STATE_FILENAME = "eval_state.json"
+
+# ---- Experiment labels for report aggregation - EVAL mode ----
+SPAWN_CONDITIONS = "spawn15"
+TARGET_SETUP = "mixed_easy"  # options: "bottles_only", "mixed_easy", "mixed_hard"
 
 # ---- Flight preference ----
 FLYING_ATTITUDE = 1.5
@@ -60,9 +78,9 @@ COVERAGE_UPDATE_THRESHOLD = 0.05
 DEBUG = {
     "every_n": 100,
     "fov": False,
-    "cmd": True,
-    "policy_grid": True,
-    "policy_detections": True,
+    "cmd": False,
+    "policy_grid": False,
+    "policy_detections": False,
 }
 
 # ---- Snapshot / debugging ----
@@ -76,14 +94,23 @@ USE_GROUND_TRUTH_DETECTIONS = False
 GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
+# ---- Perception sampling / throttling ----
+# "none"   -> process detector every control step
+# "frames" -> process once every DETECTION_EVERY_N_FRAMES control steps
+# "time"   -> process once every DETECTION_EVERY_S simulation seconds
+DETECTION_THROTTLE_MODE = "time"   # "none", "frames", "time"
+
+DETECTION_EVERY_N_FRAMES = 20
+DETECTION_EVERY_S = 0.625
+
 # ---- Shared init / task / progress files ----
 EXPERIMENT_INIT_FILENAME = "experiment_init.json"
 TASK_STATE_FILENAME = "task_state.json"
 CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"
 
 # ---- Task manager: "found" definition ----
-FOUND_DET_THRESHOLD = 0.8
-FOUND_STREAK_STEPS = 20
+FOUND_DET_THRESHOLD = 0.45
+FOUND_STREAK_STEPS = 1
 
 # ---- Takeoff warm-up ----
 AUTO_START_AUTONOMY = True
@@ -182,6 +209,22 @@ def load_policy(name, debug=None):
         raise ValueError(f"Unknown policy '{name}'. Available: {', '.join(sorted(registry))}")
     return registry[name](debug=debug)
 
+def load_detector_class(backend: str):
+    backend = str(backend).lower().strip()
+
+    if backend == "yolo":
+        from vision.detector_yolo import Detector
+        return Detector
+
+    if backend == "mobilenet_ssd":
+        from vision.detector_mobilenet_ssd import Detector
+        return Detector
+
+    raise ValueError(
+        f"Unknown DETECTOR_BACKEND='{backend}'. "
+        "Use 'yolo' or 'mobilenet_ssd'."
+    )
+
 
 def _resolve_run_dir(base_log_dir: str, policy_name: str, eval_state_path: str) -> str:
     """
@@ -209,6 +252,143 @@ def _resolve_run_dir(base_log_dir: str, policy_name: str, eval_state_path: str) 
     return make_run_dir(runs_dir, prefix=prefix)
 
 
+def _should_process_detection(
+    *,
+    mode: str,
+    step_count: int,
+    time_now_s: float,
+    last_det_step: int,
+    last_det_time_s: float,
+) -> bool:
+    mode = str(mode).lower()
+
+    if mode == "none":
+        return True
+
+    if mode == "frames":
+        if DETECTION_EVERY_N_FRAMES <= 0:
+            raise ValueError("DETECTION_EVERY_N_FRAMES must be > 0 when using mode='frames'")
+        return (step_count - last_det_step) >= int(DETECTION_EVERY_N_FRAMES)
+
+    if mode == "time":
+        if DETECTION_EVERY_S <= 0.0:
+            raise ValueError("DETECTION_EVERY_S must be > 0 when using mode='time'")
+        return (time_now_s - last_det_time_s) >= float(DETECTION_EVERY_S)
+
+    raise ValueError(
+        f"Unknown DETECTION_THROTTLE_MODE='{mode}'. Use 'none', 'frames', or 'time'."
+    )
+
+def _detector_limitations_payload() -> dict:
+    mode = str(DETECTION_THROTTLE_MODE).lower()
+
+    payload = {
+        "mode": mode,
+        "frames_interval": None,
+        "time_interval_s": None,
+    }
+
+    if mode == "frames":
+        payload["frames_interval"] = int(DETECTION_EVERY_N_FRAMES)
+    elif mode == "time":
+        payload["time_interval_s"] = float(DETECTION_EVERY_S)
+
+    return payload
+
+def _detector_model_metadata_payload() -> dict:
+    if USE_GROUND_TRUTH_DETECTIONS:
+        return {
+            "detector_model_family": "ground_truth",
+            "detector_model_size": None,
+            "detector_model_variant": None,
+            "detector_model_path": None,
+        }
+
+    backend = str(DETECTOR_BACKEND).lower().strip()
+
+    if backend == "yolo":
+        return {
+            "detector_model_family": "yolo11",
+            "detector_model_size": str(getattr(aif_config, "AIF_YOLO_MODEL_SIZE", "unknown")),
+            "detector_model_variant": str(getattr(aif_config, "AIF_YOLO_MODEL_VARIANT", "unknown")),
+            "detector_model_path": str(
+                os.environ.get(
+                    "AIF_YOLO_MODEL",
+                    getattr(aif_config, "AIF_YOLO_MODEL", "unknown"),
+                )
+            ),
+        }
+
+    if backend == "mobilenet_ssd":
+        return {
+            "detector_model_family": "mobilenetv2_ssd",
+            "detector_model_size": str(getattr(aif_config, "AIF_MOBILENET_MODEL_SIZE", "unknown")),
+            "detector_model_variant": str(getattr(aif_config, "AIF_MOBILENET_MODEL_VARIANT", "unknown")),
+            "detector_model_path": str(
+                os.environ.get(
+                    "AIF_MBV2SSD_MODEL",
+                    getattr(aif_config, "AIF_MOBILENET_MODEL", "unknown"),
+                )
+            ),
+        }
+
+    return {
+        "detector_model_family": backend,
+        "detector_model_size": "unknown",
+        "detector_model_variant": "unknown",
+        "detector_model_path": "unknown",
+    }
+
+def _experiment_metadata_payload() -> dict:
+    detector_used = "ground_truth" if USE_GROUND_TRUTH_DETECTIONS else str(DETECTOR_BACKEND)
+    model_meta = _detector_model_metadata_payload()
+
+    return {
+        "detector_used": detector_used,
+        **model_meta,
+        "detector_backend": str(DETECTOR_BACKEND),
+        "use_ground_truth_detections": bool(USE_GROUND_TRUTH_DETECTIONS),
+        "found_det_threshold": float(FOUND_DET_THRESHOLD),
+        "found_streak_steps": int(FOUND_STREAK_STEPS),
+        "spawn_conditions": str(SPAWN_CONDITIONS),
+        "target_setup": str(TARGET_SETUP),
+    }
+
+def _tracks_aif_target_distance(policy_name: str) -> bool:
+    return bool(
+        TRACK_AIF_TARGET_DISTANCE
+        and str(policy_name).lower().strip() == "aif_saccade"
+    )
+
+
+def _target_distance_stats_payload(
+    *,
+    policy_name: str,
+    count: int,
+    sum_m: float,
+    min_m,
+    max_m,
+) -> dict:
+    enabled = bool(TRACK_AIF_TARGET_DISTANCE)
+    policy_supported = str(policy_name).lower().strip() == "aif_saccade"
+    tracked = bool(enabled and policy_supported)
+
+    count = int(count)
+    sum_m = float(sum_m)
+
+    average_m = (sum_m / float(count)) if count > 0 else None
+
+    return {
+        "enabled": enabled,
+        "policy_supported": policy_supported,
+        "tracked": tracked,
+        "count": count,
+        "sum_m": sum_m,
+        "average_m": None if average_m is None else float(average_m),
+        "min_m": None if min_m is None else float(min_m),
+        "max_m": None if max_m is None else float(max_m),
+    }
+
 if __name__ == "__main__":
     robot = Robot()
     timestep = int(robot.getBasicTimeStep())
@@ -216,6 +396,9 @@ if __name__ == "__main__":
     devices = CrazyflieDevices(robot, timestep)
     keyboard = Keyboard()
     keyboard.enable(timestep)
+
+    camera = robot.getDevice("camera")
+    camera.enable(timestep)
 
     policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
     policy = load_policy(policy_name, debug=DEBUG)
@@ -272,13 +455,16 @@ if __name__ == "__main__":
 
     env_mgr = GridEnvManager(grid_spec, fov_spec)
 
+    Detector = load_detector_class(DETECTOR_BACKEND)
+
     detector = None
     gt_detector = None
 
     claimed_found_objects = set()  # (cx, cy, class_name)
     claimed_found_cells = set()
-    _found_streak_key = None  # (cx, cy, class_name)
-    _found_streak_count = 0
+
+    # key = (cx, cy, class_name) -> consecutive processed detections count
+    _found_streak_counts = {}
 
     validated_found_cells = set()
     validated_found_objects = set()
@@ -309,18 +495,43 @@ if __name__ == "__main__":
         print(f"[GT] Loaded {len(gt_objects)} objects from {gt_path}")
         print("[GT] Example objects:", gt_objects[:3])
 
-        gt_detector = GroundTruthDetector(
-            objects=gt_objects,
-            grid_spec=grid_spec,
-            fov_spec=fov_spec,
-            confidence=GT_CONFIDENCE,
-        )
+        if GT_DETECTOR_BACKEND == "analytic_fov":
+            gt_detector = GroundTruthDetector(
+                objects=gt_objects,
+                grid_spec=grid_spec,
+                fov_spec=fov_spec,
+                confidence=GT_CONFIDENCE,
+            )
+
+        elif GT_DETECTOR_BACKEND == "camera_recognition":
+            from vision.ground_truth_detector_v2 import CameraRecognitionGroundTruthDetector
+
+            gt_detector = CameraRecognitionGroundTruthDetector(
+                camera=camera,
+                objects=gt_objects,
+                grid_spec=grid_spec,
+                confidence=GT_CONFIDENCE,
+                model_to_class={
+                    "target_bottle": 0,
+                    "target_can": 1,
+                },
+                min_box_pixels=2,
+                require_known_id=True,
+            )
+            gt_detector.enable(timestep)
+
+        else:
+            raise ValueError(
+                f"Unknown GT_DETECTOR_BACKEND='{GT_DETECTOR_BACKEND}'. "
+                "Use 'analytic_fov' or 'camera_recognition'."
+            )
     else:
+        print(f"[DETECTOR] backend={DETECTOR_BACKEND}", flush=True)
         detector = Detector(
             model_name=None,
             device="cuda:0",
-            conf=0.65,
-            iou=0.45,
+            conf=0.45,
+            iou=0.40,
             img_size=320,
             class_names=["target_bottle", "target_can"],
         )
@@ -339,6 +550,10 @@ if __name__ == "__main__":
     run_dir = _resolve_run_dir(base_log_dir, policy_name, eval_state_path)
     print("Run output dir:", run_dir)
 
+    claim_log_path = os.path.join(run_dir, f"claim_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    claim_log_file = open(claim_log_path, "w", encoding="utf-8")
+    claim_log_file.write("time_s,x_m,y_m,current_cx,current_cy,claim_cx,claim_cy,class_name,confidence\n")
+
     logger = ExperimentLogger(
         enabled=ENABLE_LOGGING,
         log_dir=run_dir,
@@ -351,22 +566,43 @@ if __name__ == "__main__":
     height_desired = FLYING_ATTITUDE
     autonomous_mode = False
     step_count = 0
+    occupancy_dt_accum = 0.0
 
-    print("\n====== AIF Controller ======\n")
-    print("AIF_POLICY =", policy_name)
-    print("Controls: Arrow keys for planar motion, Q/E yaw, W/S altitude")
-    print("Press A to enable autonomous mode, D to disable\n")
+    # Average target distance tracking
+    target_distance_count = 0
+    target_distance_sum_m = 0.0
+    target_distance_min_m = None
+    target_distance_max_m = None
 
-    _atomic_write_json(
-        controller_progress_path,
-        {
+    def write_progress(last_time_s: float):
+        progress_payload = {
             "policy_name": policy_name,
             "run_dir": run_dir,
-            "autonomy_start_time_s": None,
-            "last_controller_time_s": 0.0,
-            "visited_cells": [],
-            "claimed_found_cells": [],
-            "claimed_found_objects": [],
+            "autonomy_start_time_s": autonomy_start_time,
+            "last_controller_time_s": float(last_time_s),
+            "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
+            "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
+            "claimed_found_objects": sorted(
+                [
+                    {
+                        "cx": int(cx),
+                        "cy": int(cy),
+                        "class_name": str(class_name),
+                        "label": str(class_name),
+                    }
+                    for (cx, cy, class_name) in claimed_found_objects
+                ],
+                key=lambda d: (d["cy"], d["cx"], d["class_name"]),
+            ),
+            "detector_limitations": _detector_limitations_payload(),
+            "experiment_metadata": _experiment_metadata_payload(),
+            "target_distance_stats": _target_distance_stats_payload(
+                policy_name=policy_name,
+                count=target_distance_count,
+                sum_m=target_distance_sum_m,
+                min_m=target_distance_min_m,
+                max_m=target_distance_max_m,
+            ),
             "drone_spawn": {
                 "x": drone_spawn_x,
                 "y": drone_spawn_y,
@@ -374,8 +610,18 @@ if __name__ == "__main__":
                 "cx": drone_spawn_cx,
                 "cy": drone_spawn_cy,
             },
-        },
-    )
+        }
+        _atomic_write_json(controller_progress_path, progress_payload)
+
+    print("\n====== AIF Controller ======\n")
+    print("AIF_POLICY =", policy_name)
+    print("Controls: Arrow keys for planar motion, Q/E yaw, W/S altitude")
+    print("Press A to enable autonomous mode, D to disable\n")
+
+    write_progress(last_time_s=0.0)
+
+    last_detection_step = -10**9
+    last_detection_time_s = -1e9
 
     try:
         while robot.step(timestep) != -1:
@@ -383,6 +629,8 @@ if __name__ == "__main__":
             observation = devices.read()
             dt = observation["dt"]
             time_now = float(observation["time"])
+
+            occupancy_dt_accum += float(dt)
 
             task_state = _read_json(
                 task_state_path,
@@ -484,68 +732,86 @@ if __name__ == "__main__":
 
             det_conf_rc = {}
             det_meta_rc = {}
+            detector_output = None
 
-            if USE_GROUND_TRUTH_DETECTIONS:
-                assert gt_detector is not None
-                det_raw = gt_detector.process(
-                    drone_x=x_pos,
-                    drone_y=y_pos,
-                    drone_yaw=yaw,
-                )
-                for cell, meta in det_raw.items():
-                    if not visible_mask.get(cell, False):
-                        continue
-                    det_conf_rc[cell] = float(meta["confidence"])
-                    det_meta_rc[cell] = {
-                        "class_id": int(meta["class_id"]),
-                        "label": str(meta.get("label", meta.get("class_name", "unknown"))),
-                        "class_name": str(meta.get("class_name", meta.get("label", "unknown"))),
-                    }
-            else:
-                assert detector is not None
-                detector_output = detector.process(
-                    observation["camera"]["image"],
-                    width=observation["camera"]["width"],
-                    height=observation["camera"]["height"],
-                    timestamp=observation["camera"]["time"],
-                )
+            process_detection_this_step = _should_process_detection(
+                mode=DETECTION_THROTTLE_MODE,
+                step_count=step_count,
+                time_now_s=time_now,
+                last_det_step=last_detection_step,
+                last_det_time_s=last_detection_time_s,
+            )
 
-                img_w = observation["camera"]["width"]
-                img_h = observation["camera"]["height"]
-
-                for det in detector_output.detections:
-                    bbox = det.get("bbox_xyxy")
-                    conf = float(det.get("confidence", 0.0))
-                    class_id = int(det.get("class_id", -1))
-                    label = str(det.get("label", "unknown"))
-
-                    cell_rc = env_mgr.detection_cell_from_bbox(
-                        bbox_xyxy=bbox,
-                        img_w=img_w,
-                        img_h=img_h,
+            if process_detection_this_step:
+                if USE_GROUND_TRUTH_DETECTIONS:
+                    assert gt_detector is not None
+                    det_raw = gt_detector.process(
                         drone_x=x_pos,
                         drone_y=y_pos,
                         drone_yaw=yaw,
                     )
-                    if cell_rc is None:
-                        continue
-                    if not visible_mask.get(cell_rc, False):
-                        continue
-                    prev = det_conf_rc.get(cell_rc, 0.0)
-                    if conf > prev:
-                        det_conf_rc[cell_rc] = conf
-                        det_meta_rc[cell_rc] = {
-                            "class_id": class_id,
-                            "label": label,
-                            "class_name": label,
+                    for cell, meta in det_raw.items():
+                        if not visible_mask.get(cell, False):
+                            continue
+                        det_conf_rc[cell] = float(meta["confidence"])
+                        det_meta_rc[cell] = {
+                            "class_id": int(meta["class_id"]),
+                            "label": str(meta.get("label", meta.get("class_name", "unknown"))),
+                            "class_name": str(meta.get("class_name", meta.get("label", "unknown"))),
                         }
+                else:
+                    assert detector is not None
+                    detector_output = detector.process(
+                        observation["camera"]["image"],
+                        width=observation["camera"]["width"],
+                        height=observation["camera"]["height"],
+                        timestamp=observation["camera"]["time"],
+                    )
+
+                    img_w = observation["camera"]["width"]
+                    img_h = observation["camera"]["height"]
+
+                    for det in detector_output.detections:
+                        bbox = det.get("bbox_xyxy")
+                        conf = float(det.get("confidence", 0.0))
+                        class_id = int(det.get("class_id", -1))
+                        label = str(det.get("label", "unknown"))
+
+                        cell_rc = env_mgr.detection_cell_from_bbox(
+                            bbox_xyxy=bbox,
+                            img_w=img_w,
+                            img_h=img_h,
+                            drone_x=x_pos,
+                            drone_y=y_pos,
+                            drone_yaw=yaw,
+                        )
+                        if cell_rc is None:
+                            continue
+                        if not visible_mask.get(cell_rc, False):
+                            continue
+                        prev = det_conf_rc.get(cell_rc, 0.0)
+                        if conf > prev:
+                            det_conf_rc[cell_rc] = conf
+                            det_meta_rc[cell_rc] = {
+                                "class_id": class_id,
+                                "label": label,
+                                "class_name": label,
+                            }
+
+                last_detection_step = step_count
+                last_detection_time_s = time_now
 
             det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
             det_meta_cxcy = dict_rc_to_cxcy(det_meta_rc)
 
-            # Generic detection field for the AIF policy:
-            # multiple classes collapse to "there is some target object in this cell".
+            # Generic detection field for AIF
             det_conf_generic_cxcy = dict(det_conf_cxcy)
+
+            # Policy only receives evidence on processed perception steps
+            policy_visible_mask_cxcy = visible_mask_cxcy if process_detection_this_step else {}
+            policy_det_conf_generic_cxcy = det_conf_generic_cxcy if process_detection_this_step else {}
+            policy_det_conf_cxcy = det_conf_cxcy if process_detection_this_step else {}
+            policy_det_meta_cxcy = det_meta_cxcy if process_detection_this_step else {}
 
             best_obj = None
             if det_conf_cxcy:
@@ -560,38 +826,59 @@ if __name__ == "__main__":
                     "class_id": best_class_id,
                 }
 
-            if best_obj is not None:
-                candidate_key = (
-                    int(best_obj["cell"][0]),
-                    int(best_obj["cell"][1]),
-                    str(best_obj["class_name"]),
-                )
-                if (
-                    float(best_obj["confidence"]) >= FOUND_DET_THRESHOLD
-                    and candidate_key not in claimed_found_objects
-                ):
-                    if _found_streak_key == candidate_key:
-                        _found_streak_count += 1
-                    else:
-                        _found_streak_key = candidate_key
-                        _found_streak_count = 1
+            # ---- Per-candidate streak accumulation ----
+            # IMPORTANT:
+            # Update/reset streaks ONLY on processed perception steps.
+            # Skipped steps are "no new evidence", not negative evidence.
+            if process_detection_this_step:
+                current_seen_keys = set()
 
-                    if _found_streak_count >= FOUND_STREAK_STEPS:
+                for cell, conf in det_conf_cxcy.items():
+                    meta = det_meta_cxcy.get(cell, {})
+                    class_name = str(meta.get("class_name", meta.get("label", "unknown")))
+
+                    candidate_key = (
+                        int(cell[0]),
+                        int(cell[1]),
+                        class_name,
+                    )
+
+                    if candidate_key in claimed_found_objects:
+                        continue
+
+                    if float(conf) < FOUND_DET_THRESHOLD:
+                        continue
+
+                    current_seen_keys.add(candidate_key)
+                    _found_streak_counts[candidate_key] = int(_found_streak_counts.get(candidate_key, 0)) + 1
+
+                    if _found_streak_counts[candidate_key] >= FOUND_STREAK_STEPS:
                         claimed_found_objects.add(candidate_key)
                         claimed_found_cells = {(cx, cy) for (cx, cy, _) in claimed_found_objects}
+
                         print(
-                            f"[FOUND CLAIM] cell={best_obj['cell']} class={best_obj['class_name']} "
-                            f"conf={best_obj['confidence']:.2f} streak={_found_streak_count}",
+                            f"[FOUND CLAIM] cell={(int(cell[0]), int(cell[1]))} class={class_name} "
+                            f"conf={float(conf):.2f} streak={_found_streak_counts[candidate_key]}",
                             flush=True,
                         )
-                        _found_streak_key = None
-                        _found_streak_count = 0
-                else:
-                    _found_streak_key = None
-                    _found_streak_count = 0
-            else:
-                _found_streak_key = None
-                _found_streak_count = 0
+
+                        if claim_log_file is not None:
+                            cur_cx, cur_cy = current_cell_cxcy if current_cell_cxcy is not None else (-1, -1)
+                            claim_log_file.write(
+                                f"{time_now:.6f},{x_pos:.6f},{y_pos:.6f},"
+                                f"{int(cur_cx)},{int(cur_cy)},"
+                                f"{int(cell[0])},{int(cell[1])},"
+                                f"{class_name},{float(conf):.6f}\n"
+                            )
+                            claim_log_file.flush()
+
+                        _found_streak_counts.pop(candidate_key, None)
+
+
+
+                stale_keys = [k for k in list(_found_streak_counts.keys()) if k not in current_seen_keys]
+                for k in stale_keys:
+                    _found_streak_counts.pop(k, None)
 
             claimed_found_cells = {(cx, cy) for (cx, cy, _) in claimed_found_objects}
 
@@ -614,38 +901,12 @@ if __name__ == "__main__":
                     time_s=observation["time"],
                     x_m=x_pos,
                     y_m=y_pos,
-                    dt_s=dt,
+                    dt_s=occupancy_dt_accum,
                 )
+                occupancy_dt_accum = 0.0
 
             if (step_count % LOG_EVERY_N_STEPS == 0) or (best_obj is not None and best_obj["cell"] in claimed_found_cells):
-                progress_payload = {
-                    "policy_name": policy_name,
-                    "run_dir": run_dir,
-                    "autonomy_start_time_s": autonomy_start_time,
-                    "last_controller_time_s": float(time_now),
-                    "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
-                    "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
-                    "claimed_found_objects": sorted(
-                        [
-                            {
-                                "cx": int(cx),
-                                "cy": int(cy),
-                                "class_name": str(class_name),
-                                "label": str(class_name),
-                            }
-                            for (cx, cy, class_name) in claimed_found_objects
-                        ],
-                        key=lambda d: (d["cy"], d["cx"], d["class_name"]),
-                    ),
-                    "drone_spawn": {
-                        "x": drone_spawn_x,
-                        "y": drone_spawn_y,
-                        "yaw": drone_spawn_yaw,
-                        "cx": drone_spawn_cx,
-                        "cy": drone_spawn_cy,
-                    },
-                }
-                _atomic_write_json(controller_progress_path, progress_payload)
+                write_progress(last_time_s=time_now)
 
             obs_for_policy = {
                 **observation,
@@ -660,18 +921,20 @@ if __name__ == "__main__":
                     "rows": grid_spec.rows,
                     "cols": grid_spec.cols,
                 },
-                **({} if USE_GROUND_TRUTH_DETECTIONS else {"detections": detector_output.detections}),
+                **(
+                    {}
+                    if USE_GROUND_TRUTH_DETECTIONS
+                    else {"detections": [] if detector_output is None else detector_output.detections}
+                ),
                 "grid": {
                     "current_cell": current_cell_cxcy,
                     "coverages": coverages_cxcy,
-                    "visible_mask": visible_mask_cxcy,
+                    "visible_mask": policy_visible_mask_cxcy,
                     "coverage_threshold": COVERAGE_UPDATE_THRESHOLD,
-                    # IMPORTANT:
-                    # policy gets generic detect evidence only, not class-specific evidence
-                    "det_confidence": det_conf_generic_cxcy,
-                    # controller/debug can still access the class-aware map if needed
-                    "det_confidence_multiclass": det_conf_cxcy,
-                    "det_metadata_multiclass": det_meta_cxcy,
+                    "det_confidence": policy_det_conf_generic_cxcy,
+                    "det_confidence_multiclass": policy_det_conf_cxcy,
+                    "det_metadata_multiclass": policy_det_meta_cxcy,
+                    "perception_processed_this_step": bool(process_detection_this_step),
                 },
                 "task": {
                     "found_cells": sorted(list(claimed_found_cells)),
@@ -724,6 +987,26 @@ if __name__ == "__main__":
                 sideways_desired = policy_action.get("sideways", 0.0)
                 yaw_desired = policy_action.get("yaw_rate", 0.0)
 
+                if _tracks_aif_target_distance(policy_name):
+                    target_selection = policy_action.get("target_selection", None)
+
+                    if isinstance(target_selection, dict):
+                        distance_m = target_selection.get("distance_m", None)
+
+                        if distance_m is not None:
+                            distance_m = float(distance_m)
+
+                            target_distance_count += 1
+                            target_distance_sum_m += distance_m
+
+                            if target_distance_min_m is None or distance_m < target_distance_min_m:
+                                target_distance_min_m = distance_m
+
+                            if target_distance_max_m is None or distance_m > target_distance_max_m:
+                                target_distance_max_m = distance_m
+
+                            write_progress(last_time_s=time_now)
+
             if DEBUG.get("cmd", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
                 print(
                     f"[cmd] step={step_count} auto={autonomous_mode} "
@@ -751,7 +1034,7 @@ if __name__ == "__main__":
                 if USE_GROUND_TRUTH_DETECTIONS:
                     det_count = len(det_conf_rc)
                 else:
-                    det_count = len(detector_output.detections)
+                    det_count = 0 if detector_output is None else len(detector_output.detections)
 
                 logger.log_step(
                     time=observation["time"],
@@ -764,35 +1047,32 @@ if __name__ == "__main__":
 
     finally:
         try:
-            progress_payload = {
-                "policy_name": policy_name,
-                "run_dir": run_dir,
-                "autonomy_start_time_s": autonomy_start_time,
-                "last_controller_time_s": float(time_now) if "time_now" in locals() else 0.0,
-                "visited_cells": sorted([[int(c[0]), int(c[1])] for c in visited_cells]),
-                "claimed_found_cells": sorted([[int(c[0]), int(c[1])] for c in claimed_found_cells]),
-                "claimed_found_objects": sorted(
-                    [
-                        {
-                            "cx": int(cx),
-                            "cy": int(cy),
-                            "class_name": str(class_name),
-                            "label": str(class_name),
-                        }
-                        for (cx, cy, class_name) in claimed_found_objects
-                    ],
-                    key=lambda d: (d["cy"], d["cx"], d["class_name"]),
-                ),
-                "drone_spawn": {
-                    "x": drone_spawn_x,
-                    "y": drone_spawn_y,
-                    "yaw": drone_spawn_yaw,
-                    "cx": drone_spawn_cx,
-                    "cy": drone_spawn_cy,
-                },
-            }
-            _atomic_write_json(controller_progress_path, progress_payload)
+            write_progress(last_time_s=float(time_now) if "time_now" in locals() else 0.0)
         except Exception:
             pass
 
-        logger.close()
+        logger_paths = logger.close()
+
+        try:
+            if claim_log_file is not None:
+                claim_log_file.close()
+        except Exception:
+            pass
+
+        if ENABLE_OCCUPANCY_HEATMAP or ENABLE_TRAJECTORY_PLOT:
+            try:
+                visual_outputs = generate_run_visualizations(
+                    run_dir=run_dir,
+                    make_heatmap=ENABLE_OCCUPANCY_HEATMAP,
+                    make_trajectory=ENABLE_TRAJECTORY_PLOT,
+                    occupancy_summary_path=logger_paths.get("occupancy_summary"),
+                    occupancy_log_path=logger_paths.get("occupancy_log"),
+                    gt_json_path=gt_path if os.path.exists(gt_path) else None,
+                    plots_subdir=TRAJECTORY_PLOTS_SUBDIR,
+                )
+
+                for name, path in visual_outputs.items():
+                    print(f"[VIS] wrote {name}: {path}", flush=True)
+
+            except Exception as e:
+                print(f"[VIS] failed to generate run visualizations: {e}", flush=True)

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import colorsys
 import json
 import math
 import os
 import random
+import statistics
 import sys
 from datetime import datetime
 from typing import Dict, List, Tuple
@@ -21,7 +23,9 @@ if CONTROLLERS_DIR not in sys.path:
 from crazyflie_AIF.config import AIF_POLICY as DEFAULT_POLICY
 
 # ---- Evaluation settings ----
-EVAL_SEEDS = [28, 31, 34, 37, 40, 43, 46, 49, 52, 55]
+EVAL_NUM_RUNS = 100
+
+FIXED_10_EVAL_SEEDS = [28, 31, 34, 37, 40, 43, 46, 49, 52, 55]
 
 WARMUP_SECONDS = 15.0
 EPISODE_SECONDS = 180.0
@@ -40,6 +44,8 @@ OBJECT_SPECS = [
         "class_name": "target_bottle",
         "model": "target_bottle",
         "def_prefix": "BOTTLE",
+        "bbox_radius_m": 0.035,
+        "bbox_height_m": 0.245,
     },
     {
         "count": N_CANS,
@@ -48,8 +54,14 @@ OBJECT_SPECS = [
         "class_name": "target_can",
         "model": "target_can",
         "def_prefix": "CAN",
+        "bbox_radius_m": 0.018,
+        "bbox_height_m": 0.125,
     },
 ]
+
+# Recognition-aware object spawning. Keep this enabled: YOLO/MobileNet and
+# analytic GT still work with these wrapped objects. Camera-recognition GT needs it.
+USE_RECOGNITION_WRAPPER_SOLIDS = True
 
 # Arena
 ARENA_X = 5.5
@@ -86,6 +98,8 @@ EVAL_STATE_FILENAME = "eval_state.json"
 # ---- Reports ----
 REPORT_SUBDIR = "run_report"
 EVAL_REPORT_SUBDIR = "eval_report"
+INCLUDE_RUNS_IN_EVAL_REPORT = False
+INCLUDE_RUN_METRICS_IN_EVAL_REPORT = True
 
 Cell = Tuple[int, int]
 
@@ -135,6 +149,143 @@ def _safe_remove(path: str) -> None:
     except Exception:
         pass
 
+
+def _node_id(node):
+    if hasattr(node, "getId"):
+        return int(node.getId())
+    if hasattr(node, "get_id"):
+        return int(node.get_id())
+    return None
+
+
+def _instance_color(index: int) -> tuple[float, float, float]:
+    """Stable, distinct-ish recognition color for each spawned object."""
+    hue = (index * 0.61803398875) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 1.0)
+    return (max(0.1, r), max(0.1, g), max(0.1, b))
+
+
+def _recognition_wrapper_node_string(
+    *,
+    def_name: str,
+    proto: str,
+    model: str,
+    x: float,
+    y: float,
+    z: float,
+    color_rgb: tuple[float, float, float],
+    bbox_radius_m: float,
+    bbox_height_m: float,
+) -> str:
+    r, g, b = color_rgb
+    return f'''DEF {def_name} Solid {{
+  translation {x:.6f} {y:.6f} {z:.6f}
+  model "{model}"
+  recognitionColors [
+    {r:.6f} {g:.6f} {b:.6f}
+  ]
+  children [
+    {proto} {{
+    }}
+  ]
+  boundingObject Cylinder {{
+    height {bbox_height_m:.6f}
+    radius {bbox_radius_m:.6f}
+    subdivision 16
+  }}
+}}
+'''.strip()
+
+
+def _plain_proto_node_string(*, def_name: str, proto: str, x: float, y: float, z: float) -> str:
+    return f'DEF {def_name} {proto} {{ translation {x:.6f} {y:.6f} {z:.6f} }}'
+
+def _configured_eval_seeds() -> list[int]:
+    """
+    Default behavior:
+      EVAL_NUM_RUNS = 10 -> use the historical fixed 10 seeds.
+
+    Larger evaluations:
+      EVAL_NUM_RUNS = x > 10 -> use seeds 1..x.
+
+    This preserves comparability with all previous 10-run experiments while
+    making larger evaluations easy to configure.
+    """
+    n = int(EVAL_NUM_RUNS)
+
+    if n == len(FIXED_10_EVAL_SEEDS):
+        return list(FIXED_10_EVAL_SEEDS)
+
+    if n > len(FIXED_10_EVAL_SEEDS):
+        return list(range(1, n + 1))
+
+    raise ValueError(
+        f"EVAL_NUM_RUNS={n} is below the fixed baseline size "
+        f"{len(FIXED_10_EVAL_SEEDS)}. Use 10 or any value above 10."
+    )
+
+def _normalize_detector_limitations(payload: dict | None) -> dict:
+    payload = payload or {}
+    mode = str(payload.get("mode", "unknown")).lower()
+
+    out = {
+        "mode": mode,
+        "frames_interval": None,
+        "time_interval_s": None,
+    }
+
+    if mode == "frames":
+        val = payload.get("frames_interval", None)
+        out["frames_interval"] = None if val is None else int(val)
+    elif mode == "time":
+        val = payload.get("time_interval_s", None)
+        out["time_interval_s"] = None if val is None else float(val)
+    elif mode == "none":
+        pass
+
+    return out
+
+def _normalize_experiment_metadata(payload: dict | None) -> dict:
+    payload = payload or {}
+
+    found_det_threshold = payload.get("found_det_threshold", None)
+    found_streak_steps = payload.get("found_streak_steps", None)
+
+    return {
+        "detector_used": str(payload.get("detector_used", "unknown")),
+        "detector_model_family": None if payload.get("detector_model_family", None) is None else str(payload.get("detector_model_family")),
+        "detector_model_size": None if payload.get("detector_model_size", None) is None else str(payload.get("detector_model_size")),
+        "detector_model_variant": None if payload.get("detector_model_variant", None) is None else str(payload.get("detector_model_variant")),
+        "detector_model_path": None if payload.get("detector_model_path", None) is None else str(payload.get("detector_model_path")),
+        "detector_backend": str(payload.get("detector_backend", "unknown")),
+        "use_ground_truth_detections": bool(payload.get("use_ground_truth_detections", False)),
+        "found_det_threshold": None if found_det_threshold is None else float(found_det_threshold),
+        "found_streak_steps": None if found_streak_steps is None else int(found_streak_steps),
+        "spawn_conditions": str(payload.get("spawn_conditions", "unknown")),
+        "target_setup": str(payload.get("target_setup", "unknown")),
+    }
+
+
+def _normalize_target_distance_stats(payload: dict | None) -> dict:
+    payload = payload or {}
+
+    count = int(payload.get("count", 0) or 0)
+    sum_m = float(payload.get("sum_m", 0.0) or 0.0)
+
+    average_m = payload.get("average_m", None)
+    min_m = payload.get("min_m", None)
+    max_m = payload.get("max_m", None)
+
+    return {
+        "enabled": bool(payload.get("enabled", False)),
+        "policy_supported": bool(payload.get("policy_supported", False)),
+        "tracked": bool(payload.get("tracked", False)),
+        "count": count,
+        "sum_m": sum_m,
+        "average_m": None if average_m is None else float(average_m),
+        "min_m": None if min_m is None else float(min_m),
+        "max_m": None if max_m is None else float(max_m),
+    }
 
 def _cxcy_from_xy(x: float, y: float) -> tuple[int, int] | None:
     min_x = -ARENA_X / 2.0
@@ -416,6 +567,9 @@ def _write_run_report(
     grid_cols: int,
     reason: str,
     classification_stats: dict,
+    detector_limitations: dict,
+    experiment_metadata: dict,
+    target_distance_stats: dict,
 ) -> dict:
     os.makedirs(run_dir, exist_ok=True)
     report_dir = os.path.join(run_dir, REPORT_SUBDIR)
@@ -438,6 +592,16 @@ def _write_run_report(
         "policy": str(policy_name),
         "gt_seed": int(gt_seed),
         "reason": str(reason),
+        "detector_used": str(experiment_metadata.get("detector_used", "unknown")),
+        "detector_model_family": experiment_metadata.get("detector_model_family", None),
+        "detector_model_size": experiment_metadata.get("detector_model_size", None),
+        "detector_model_variant": experiment_metadata.get("detector_model_variant", None),
+        "detector_model_path": experiment_metadata.get("detector_model_path", None),
+        "spawn_conditions": str(experiment_metadata.get("spawn_conditions", "unknown")),
+        "target_setup": str(experiment_metadata.get("target_setup", "unknown")),
+        "found_det_threshold": experiment_metadata.get("found_det_threshold", None),
+        "found_streak_steps": experiment_metadata.get("found_streak_steps", None),
+        "target_distance_stats": dict(target_distance_stats),
         "autonomy_start_time_s": autonomy_start_time_s,
         "now_time_s": float(now_time_s),
         "elapsed_s": float(elapsed),
@@ -452,6 +616,7 @@ def _write_run_report(
             "coverage_ratio": float(coverage_ratio),
         },
         "classification": cls_stats,
+        "detector_limitations": dict(detector_limitations),
     }
 
     out_path = os.path.join(run_dir, REPORT_SUBDIR, "run_report.json")
@@ -466,21 +631,36 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
 
     n = len(runs)
 
+    def _std(vals) -> float:
+        return float(statistics.stdev(vals)) if len(vals) >= 2 else 0.0
+
     if n == 0:
         payload = {
             "policy": policy_name,
             "num_runs": 0,
             "seeds": seeds,
-            "runs": [],
         }
+
+        if INCLUDE_RUN_METRICS_IN_EVAL_REPORT:
+            payload["run_metrics"] = []
+
+        if INCLUDE_RUNS_IN_EVAL_REPORT:
+            payload["runs"] = []
     else:
         elapsed_vals = [float(r["elapsed_s"]) for r in runs]
         found_vals = [int(r["found_count"]) for r in runs]
+        remaining_vals = [int(r.get("remaining_objects", 0)) for r in runs]
+        total_object_vals = [int(f + rem) for f, rem in zip(found_vals, remaining_vals)]
         coverage_vals = [float(r["coverage_ratio"]) for r in runs]
         success_vals = [1 if str(r["reason"]) == "done" else 0 for r in runs]
 
-        cls_precision_vals = [float(r["classification"]["overall_claim_precision"]) for r in runs]
-        cls_acc_vals = [float(r["classification"]["object_cell_class_accuracy"]) for r in runs]
+        total_found = int(sum(found_vals))
+        total_target_objects = int(sum(total_object_vals))
+        detection_rate_percent = (
+            100.0 * float(total_found) / float(total_target_objects)
+            if total_target_objects > 0
+            else 0.0
+        )
 
         total_unique_claims = sum(int(r["classification"]["unique_claims_evaluated"]) for r in runs)
         total_correct = sum(int(r["classification"]["correct_class_claims"]) for r in runs)
@@ -489,15 +669,109 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
         total_duplicates = sum(int(r["classification"]["duplicate_claims_ignored"]) for r in runs)
         total_object_cell_claims = sum(int(r["classification"]["object_cell_claims"]) for r in runs)
 
+        target_stats = [
+            _normalize_target_distance_stats(r.get("target_distance_stats", {}))
+            for r in runs
+        ]
+
+        target_distance_total_count = sum(int(s["count"]) for s in target_stats)
+        target_distance_total_sum_m = sum(float(s["sum_m"]) for s in target_stats)
+
+        target_distance_average_m = (
+            float(target_distance_total_sum_m) / float(target_distance_total_count)
+            if target_distance_total_count > 0
+            else None
+        )
+
+        target_distance_mins = [
+            float(s["min_m"])
+            for s in target_stats
+            if s.get("min_m", None) is not None
+        ]
+
+        target_distance_maxs = [
+            float(s["max_m"])
+            for s in target_stats
+            if s.get("max_m", None) is not None
+        ]
+
+        target_distance_summary = {
+            "enabled": any(bool(s["enabled"]) for s in target_stats),
+            "policy_supported": any(bool(s["policy_supported"]) for s in target_stats),
+            "tracked": any(bool(s["tracked"]) for s in target_stats),
+            "total_target_selections": int(target_distance_total_count),
+            "total_target_distance_m": float(target_distance_total_sum_m),
+            "average_target_distance_m": target_distance_average_m,
+            "min_target_distance_m": min(target_distance_mins) if target_distance_mins else None,
+            "max_target_distance_m": max(target_distance_maxs) if target_distance_maxs else None,
+        }
+
+        run_metrics = []
+        for r, total_objects_for_run in zip(runs, total_object_vals):
+            cls = r.get("classification", {}) or {}
+            td_stats = _normalize_target_distance_stats(r.get("target_distance_stats", {}))
+
+            found_count = int(r.get("found_count", 0))
+            run_detection_rate_percent = (
+                100.0 * float(found_count) / float(total_objects_for_run)
+                if total_objects_for_run > 0
+                else 0.0
+            )
+
+            run_metrics.append(
+                {
+                    "run_index": int(r.get("run_index", len(run_metrics))),
+                    "seed": int(r.get("seed", -1)),
+                    "reason": str(r.get("reason", "unknown")),
+                    "elapsed_s": float(r.get("elapsed_s", 0.0)),
+                    "found_count": found_count,
+                    "total_objects": int(total_objects_for_run),
+                    "detection_rate_percent": float(run_detection_rate_percent),
+                    "coverage_ratio": float(r.get("coverage_ratio", 0.0)),
+                    "target_distance_average_m": td_stats.get("average_m", None),
+                    "overall_claim_precision": float(cls.get("overall_claim_precision", 0.0)),
+                    "object_cell_class_accuracy": float(cls.get("object_cell_class_accuracy", 0.0)),
+                }
+            )
+
+        detector_limitations = dict(runs[0].get("detector_limitations", {})) if runs else {}
+
+        first_run = runs[0] if runs else {}
+
+        detector_used = str(first_run.get("detector_used", "unknown"))
+        detector_model_family = first_run.get("detector_model_family", None)
+        detector_model_size = first_run.get("detector_model_size", None)
+        detector_model_variant = first_run.get("detector_model_variant", None)
+        detector_model_path = first_run.get("detector_model_path", None)
+        spawn_conditions = str(first_run.get("spawn_conditions", "unknown"))
+        target_setup = str(first_run.get("target_setup", "unknown"))
+        found_det_threshold = first_run.get("found_det_threshold", None)
+        found_streak_steps = first_run.get("found_streak_steps", None)
+
         payload = {
             "policy": policy_name,
             "num_runs": n,
             "seeds": seeds,
+            "detector_used": detector_used,
+            "detector_model_family": detector_model_family,
+            "detector_model_size": detector_model_size,
+            "detector_model_variant": detector_model_variant,
+            "detector_model_path": detector_model_path,
+            "spawn_conditions": spawn_conditions,
+            "target_setup": target_setup,
+            "found_det_threshold": found_det_threshold,
+            "found_streak_steps": found_streak_steps,
+            "detector_limitations": detector_limitations,
+            "target_distance_summary": target_distance_summary,
             "summary": {
                 "success_rate": float(sum(success_vals) / n),
                 "average_simulation_time_s": float(sum(elapsed_vals) / n),
+                "std_simulation_time_s": _std(elapsed_vals),
                 "average_found_count": float(sum(found_vals) / n),
+                "std_found_count": _std(found_vals),
+                "detection_rate_percent": float(detection_rate_percent),
                 "average_coverage_ratio": float(sum(coverage_vals) / n),
+                "std_coverage_ratio": _std(coverage_vals),
                 "min_simulation_time_s": float(min(elapsed_vals)),
                 "max_simulation_time_s": float(max(elapsed_vals)),
                 "min_found_count": int(min(found_vals)),
@@ -506,8 +780,6 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
                 "max_coverage_ratio": float(max(coverage_vals)),
             },
             "classification_summary": {
-                "average_overall_claim_precision": float(sum(cls_precision_vals) / n),
-                "average_object_cell_class_accuracy": float(sum(cls_acc_vals) / n),
                 "total_unique_claims_evaluated": int(total_unique_claims),
                 "total_correct_class_claims": int(total_correct),
                 "total_wrong_class_claims": int(total_wrong),
@@ -521,8 +793,13 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
                     float(total_correct) / float(total_object_cell_claims) if total_object_cell_claims > 0 else 0.0
                 ),
             },
-            "runs": runs,
         }
+
+        if INCLUDE_RUN_METRICS_IN_EVAL_REPORT:
+            payload["run_metrics"] = run_metrics
+
+        if INCLUDE_RUNS_IN_EVAL_REPORT:
+            payload["runs"] = runs
 
     out_path = os.path.join(report_dir, "eval_report.json")
     _atomic_write_json(out_path, payload)
@@ -530,7 +807,7 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
     return out_path
 
 
-def _init_or_resume_eval_state(eval_state_path: str, policy_name: str) -> dict:
+def _init_or_resume_eval_state(eval_state_path: str, policy_name: str, seeds: list[int]) -> dict:
     eval_state = _read_json(eval_state_path, None)
 
     if isinstance(eval_state, dict) and not bool(eval_state.get("completed", False)):
@@ -541,10 +818,10 @@ def _init_or_resume_eval_state(eval_state_path: str, policy_name: str) -> dict:
 
     eval_state = {
         "policy_name": policy_name,
-        "seeds": list(EVAL_SEEDS),
-        "total_runs": len(EVAL_SEEDS),
+        "seeds": list(seeds),
+        "total_runs": len(seeds),
         "current_run_index": 0,
-        "current_seed": int(EVAL_SEEDS[0]),
+        "current_seed": int(seeds[0]),
         "eval_dir": eval_dir,
         "aggregate_runs": [],
         "completed": False,
@@ -609,7 +886,8 @@ def main():
 
     print("[EVAL] shared state cleared", flush=True)
 
-    eval_state = _init_or_resume_eval_state(eval_state_path, policy_name)
+    configured_seeds = _configured_eval_seeds()
+    eval_state = _init_or_resume_eval_state(eval_state_path, policy_name, configured_seeds)
 
     seeds = [int(s) for s in eval_state["seeds"]]
     total_runs = int(eval_state["total_runs"])
@@ -645,6 +923,11 @@ def main():
             "visited_cells": [],
             "claimed_found_cells": [],
             "claimed_found_objects": [],
+            "detector_limitations": {
+                "mode": "unknown",
+                "frames_interval": None,
+                "time_interval_s": None,
+            },
             "drone_spawn": None,
         },
     )
@@ -726,23 +1009,49 @@ def main():
             spawned_positions.append((x, y))
 
             def_name = f"{spec['def_prefix']}_{global_index:03d}"
-            node_string = (
-                f"DEF {def_name} {spec['proto']} {{ "
-                f"translation {x:.4f} {y:.4f} 0 "
-                f"}}"
-            )
+            z = float(spec.get("z", 0.0))
+            color_rgb = _instance_color(global_index)
+
+            if USE_RECOGNITION_WRAPPER_SOLIDS:
+                node_string = _recognition_wrapper_node_string(
+                    def_name=def_name,
+                    proto=str(spec["proto"]),
+                    model=str(spec["model"]),
+                    x=float(x),
+                    y=float(y),
+                    z=z,
+                    color_rgb=color_rgb,
+                    bbox_radius_m=float(spec["bbox_radius_m"]),
+                    bbox_height_m=float(spec["bbox_height_m"]),
+                )
+            else:
+                node_string = _plain_proto_node_string(
+                    def_name=def_name,
+                    proto=str(spec["proto"]),
+                    x=float(x),
+                    y=float(y),
+                    z=z,
+                )
 
             spawn_children.importMFNodeFromString(-1, node_string)
+            new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
 
             cxcy = _cxcy_from_xy(x, y)
             spawned_objects.append(
                 {
                     "def": def_name,
+                    "id": _node_id(new_node),
                     "x": float(x),
                     "y": float(y),
+                    "z": float(z),
                     "class_id": int(spec["class_id"]),
                     "class_name": str(spec["class_name"]),
                     "model": str(spec["model"]),
+                    "recognition_color_rgb": [
+                        float(color_rgb[0]),
+                        float(color_rgb[1]),
+                        float(color_rgb[2]),
+                    ],
                     "cx": None if cxcy is None else int(cxcy[0]),
                     "cy": None if cxcy is None else int(cxcy[1]),
                 }
@@ -814,6 +1123,11 @@ def main():
             "visited_cells": [],
             "claimed_found_cells": [],
             "claimed_found_objects": [],
+            "detector_limitations": {
+                "mode": "unknown",
+                "frames_interval": None,
+                "time_interval_s": None,
+            },
             "drone_spawn": {
                 "x": float(drone_xy[0]),
                 "y": float(drone_xy[1]),
@@ -840,7 +1154,24 @@ def main():
                 "visited_cells": [],
                 "claimed_found_cells": [],
                 "claimed_found_objects": [],
+                "detector_limitations": {
+                    "mode": "unknown",
+                    "frames_interval": None,
+                    "time_interval_s": None,
+                },
             },
+        )
+
+        detector_limitations = _normalize_detector_limitations(
+            controller_progress.get("detector_limitations", {})
+        )
+
+        experiment_metadata = _normalize_experiment_metadata(
+            controller_progress.get("experiment_metadata", {})
+        )
+
+        target_distance_stats = _normalize_target_distance_stats(
+            controller_progress.get("target_distance_stats", {})
         )
 
         claims = _extract_claims_from_progress(controller_progress)
@@ -917,6 +1248,9 @@ def main():
                     grid_cols=int(ARENA_X / CELL_SIZE_M),
                     reason=final_reason,
                     classification_stats=classification_stats,
+                    detector_limitations=detector_limitations,
+                    experiment_metadata=experiment_metadata,
+                    target_distance_stats=target_distance_stats,
                 )
             else:
                 print("[RUN REPORT] run_dir not available yet, skipping file write", flush=True)
@@ -928,6 +1262,16 @@ def main():
                     "policy": policy_name,
                     "gt_seed": current_seed,
                     "reason": final_reason,
+                    "detector_used": str(experiment_metadata.get("detector_used", "unknown")),
+                    "detector_model_family": experiment_metadata.get("detector_model_family", None),
+                    "detector_model_size": experiment_metadata.get("detector_model_size", None),
+                    "detector_model_variant": experiment_metadata.get("detector_model_variant", None),
+                    "detector_model_path": experiment_metadata.get("detector_model_path", None),
+                    "spawn_conditions": str(experiment_metadata.get("spawn_conditions", "unknown")),
+                    "target_setup": str(experiment_metadata.get("target_setup", "unknown")),
+                    "found_det_threshold": experiment_metadata.get("found_det_threshold", None),
+                    "found_streak_steps": experiment_metadata.get("found_streak_steps", None),
+                    "target_distance_stats": dict(target_distance_stats),
                     "autonomy_start_time_s": autonomy_start_time_s,
                     "now_time_s": float(final_time_s),
                     "elapsed_s": float(final_time_s - autonomy_start_time_s) if autonomy_start_time_s is not None else float(final_time_s),
@@ -942,6 +1286,7 @@ def main():
                         "coverage_ratio": coverage_ratio,
                     },
                     "classification": cls_stats,
+                    "detector_limitations": dict(detector_limitations),    
                 }
 
             aggregate_runs.append(
@@ -950,11 +1295,22 @@ def main():
                     "seed": current_seed,
                     "policy": policy_name,
                     "reason": str(run_payload["reason"]),
+                    "detector_used": str(run_payload.get("detector_used", "unknown")),
+                    "detector_model_family": run_payload.get("detector_model_family", None),
+                    "detector_model_size": run_payload.get("detector_model_size", None),
+                    "detector_model_variant": run_payload.get("detector_model_variant", None),
+                    "detector_model_path": run_payload.get("detector_model_path", None),
+                    "spawn_conditions": str(run_payload.get("spawn_conditions", "unknown")),
+                    "target_setup": str(run_payload.get("target_setup", "unknown")),
+                    "found_det_threshold": run_payload.get("found_det_threshold", None),
+                    "found_streak_steps": run_payload.get("found_streak_steps", None),
+                    "target_distance_stats": dict(run_payload.get("target_distance_stats", {})),
                     "elapsed_s": float(run_payload["elapsed_s"]),
                     "found_count": int(run_payload["found_count"]),
                     "remaining_objects": int(run_payload["remaining_objects"]),
                     "coverage_ratio": float(run_payload["coverage"]["coverage_ratio"]),
                     "classification": dict(run_payload["classification"]),
+                    "detector_limitations": dict(run_payload["detector_limitations"]),
                     "run_dir": run_dir,
                 }
             )
