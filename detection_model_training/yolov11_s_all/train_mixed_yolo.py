@@ -14,9 +14,6 @@ DATA_YAML = PROJECT_ROOT / "dataset_bottle_can_mixed" / "target_objects.yaml"
 # ---------------------------------------------------------------------
 # Model choice
 # ---------------------------------------------------------------------
-# Suggested start:
-# - yolo11s.pt for a strong baseline
-# - yolo11m.pt later if you want more capacity
 MODEL_WEIGHTS = "yolo11s.pt"
 
 # ---------------------------------------------------------------------
