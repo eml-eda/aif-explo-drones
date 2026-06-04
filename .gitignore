@@ -62,6 +62,7 @@ models/
 *.npy
 bottle_detector_runs/
 mixed_detector_runs/
+mixed_table_detector_runs/
 train_merge_manifest*
 
 # --------------------------------

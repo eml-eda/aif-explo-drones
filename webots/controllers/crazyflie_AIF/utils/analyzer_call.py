@@ -1,2 +1,2 @@
 from snapshot_analyzer import analyze_snapshot_file
-analyze_snapshot_file("webots/controllers/crazyflie_AIF/logs/log_run_aif_saccade_20260507_145621/snapshots/snapshot_step005890_stuck100_20260507_145649.npz", show_heatmap=True)
+analyze_snapshot_file("webots/controllers/crazyflie_AIF/logs/log_run_aif_saccade_20260529_122302/snapshots/snapshot_step005000_periodic_20260529_123012.npz", show_heatmap=True)

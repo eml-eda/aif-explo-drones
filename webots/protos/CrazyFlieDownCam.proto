@@ -88,7 +88,7 @@ PROTO CrazyFlieDownCam [
         height 240
         recognition Recognition {
           maxRange 10
-          occlusion 1
+          occlusion 2
           segmentation FALSE
           frameThickness 0
         }

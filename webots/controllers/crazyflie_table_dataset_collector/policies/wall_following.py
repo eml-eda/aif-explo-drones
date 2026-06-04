@@ -1,0 +1,281 @@
+# policies/wall_following.py
+
+import math
+from enum import Enum
+
+
+class WallFollowing:
+    class StateWallFollowing(Enum):
+        FORWARD = 1
+        HOVER = 2
+        TURN_TO_FIND_WALL = 3
+        TURN_TO_ALIGN_TO_WALL = 4
+        FORWARD_ALONG_WALL = 5
+        ROTATE_AROUND_WALL = 6
+        ROTATE_IN_CORNER = 7
+        FIND_CORNER = 8
+
+    class WallFollowingDirection(Enum):
+        LEFT = 1
+        RIGHT = -1
+
+    def __init__(self, reference_distance_from_wall=0.0,
+                 max_forward_speed=0.5,
+                 max_turn_rate=0.5,
+                 wall_following_direction=WallFollowingDirection.LEFT,
+                 first_run=False,
+                 prev_heading=0.0,
+                 wall_angle=0.0,
+                 around_corner_back_track=False,
+                 state_start_time=0.0,
+                 ranger_value_buffer=0.2,
+                 angle_value_buffer=0.1,
+                 range_lost_threshold=0.3,
+                 in_corner_angle=0.8,
+                 wait_for_measurement_seconds=1.0,
+                 init_state=StateWallFollowing.FORWARD):
+        self.reference_distance_from_wall = reference_distance_from_wall
+        self.max_forward_speed = max_forward_speed
+        self.max_turn_rate = max_turn_rate
+        self.wall_following_direction_value = float(wall_following_direction.value)
+        self.first_run = first_run
+        self.prev_heading = prev_heading
+        self.wall_angle = wall_angle
+        self.around_corner_back_track = around_corner_back_track
+        self.state_start_time = state_start_time
+        self.ranger_value_buffer = ranger_value_buffer
+        self.angle_value_buffer = angle_value_buffer
+        self.range_threshold_lost = range_lost_threshold
+        self.in_corner_angle = in_corner_angle
+        self.wait_for_measurement_seconds = wait_for_measurement_seconds
+
+        self.first_run = True
+        self.state = init_state
+        self.time_now = 0.0
+        self.speed_redux_corner = 3.0
+        self.speed_redux_straight = 2.0
+
+    def value_is_close_to(self, real_value, checked_value, margin):
+        return checked_value - margin < real_value < checked_value + margin
+
+    def wrap_to_pi(self, number):
+        if number > math.pi:
+            return number - 2 * math.pi
+        if number < -math.pi:
+            return number + 2 * math.pi
+        return number
+
+    def command_turn(self, reference_rate):
+        velocity_x = 0.0
+        rate_yaw = self.wall_following_direction_value * reference_rate
+        return velocity_x, rate_yaw
+
+    def command_align_corner(self, reference_rate, side_range, wanted_distance_from_corner):
+        if side_range > wanted_distance_from_corner + self.range_threshold_lost:
+            rate_yaw = self.wall_following_direction_value * reference_rate
+            velocity_y = 0.0
+        else:
+            if side_range > wanted_distance_from_corner:
+                velocity_y = self.wall_following_direction_value * (-1.0 * self.max_forward_speed / self.speed_redux_corner)
+            else:
+                velocity_y = self.wall_following_direction_value * (self.max_forward_speed / self.speed_redux_corner)
+            rate_yaw = 0.0
+        return velocity_y, rate_yaw
+
+    def command_hover(self):
+        return 0.0, 0.0, 0.0
+
+    def command_forward_along_wall(self, side_range):
+        velocity_x = self.max_forward_speed
+        velocity_y = 0.0
+        check_distance_wall = self.value_is_close_to(
+            self.reference_distance_from_wall, side_range, self.ranger_value_buffer
+        )
+        if not check_distance_wall:
+            if side_range > self.reference_distance_from_wall:
+                velocity_y = self.wall_following_direction_value * (-1.0 * self.max_forward_speed / self.speed_redux_straight)
+            else:
+                velocity_y = self.wall_following_direction_value * (self.max_forward_speed / self.speed_redux_straight)
+        return velocity_x, velocity_y
+
+    def command_turn_around_corner_and_adjust(self, radius, side_range):
+        velocity_x = self.max_forward_speed
+        rate_yaw = self.wall_following_direction_value * (-1 * velocity_x / radius)
+        velocity_y = 0.0
+        check_distance_wall = self.value_is_close_to(
+            self.reference_distance_from_wall, side_range, self.ranger_value_buffer
+        )
+        if not check_distance_wall:
+            if side_range > self.reference_distance_from_wall:
+                velocity_y = self.wall_following_direction_value * (-1.0 * self.max_forward_speed / self.speed_redux_corner)
+            else:
+                velocity_y = self.wall_following_direction_value * (self.max_forward_speed / self.speed_redux_corner)
+        return velocity_x, velocity_y, rate_yaw
+
+    def state_transition(self, new_state):
+        self.state_start_time = self.time_now
+        return new_state
+
+    def wall_follower(self, front_range, side_range, current_heading,
+                      wall_following_direction, time_outer_loop):
+        self.wall_following_direction_value = float(wall_following_direction.value)
+        self.time_now = time_outer_loop
+
+        if self.first_run:
+            self.prev_heading = current_heading
+            self.around_corner_back_track = False
+            self.first_run = False
+
+        if self.state == self.StateWallFollowing.FORWARD:
+            if front_range < self.reference_distance_from_wall + self.ranger_value_buffer:
+                self.state = self.state_transition(self.StateWallFollowing.TURN_TO_FIND_WALL)
+        elif self.state == self.StateWallFollowing.TURN_TO_FIND_WALL:
+            side_range_check = side_range < (self.reference_distance_from_wall / math.cos(math.pi/4) + self.ranger_value_buffer)
+            front_range_check = front_range < (self.reference_distance_from_wall / math.cos(math.pi/4) + self.ranger_value_buffer)
+            if side_range_check and front_range_check:
+                self.prev_heading = current_heading
+                self.wall_angle = self.wall_following_direction_value * (
+                    math.pi/2 - math.atan(front_range / side_range) + self.angle_value_buffer
+                )
+                self.state = self.state_transition(self.StateWallFollowing.TURN_TO_ALIGN_TO_WALL)
+            if side_range < self.reference_distance_from_wall + self.ranger_value_buffer and \
+                    front_range > self.reference_distance_from_wall + self.range_threshold_lost:
+                self.around_corner_back_track = False
+                self.prev_heading = current_heading
+                self.state = self.state_transition(self.StateWallFollowing.FIND_CORNER)
+        elif self.state == self.StateWallFollowing.TURN_TO_ALIGN_TO_WALL:
+            align_wall_check = self.value_is_close_to(
+                self.wrap_to_pi(current_heading - self.prev_heading),
+                self.wall_angle,
+                self.angle_value_buffer
+            )
+            if align_wall_check:
+                self.state = self.state_transition(self.StateWallFollowing.FORWARD_ALONG_WALL)
+        elif self.state == self.StateWallFollowing.FORWARD_ALONG_WALL:
+            if side_range > self.reference_distance_from_wall + self.range_threshold_lost:
+                self.state = self.state_transition(self.StateWallFollowing.FIND_CORNER)
+            if front_range < self.reference_distance_from_wall + self.ranger_value_buffer:
+                self.prev_heading = current_heading
+                self.state = self.state_transition(self.StateWallFollowing.ROTATE_IN_CORNER)
+        elif self.state == self.StateWallFollowing.ROTATE_AROUND_WALL:
+            if front_range < self.reference_distance_from_wall + self.ranger_value_buffer:
+                self.state = self.state_transition(self.StateWallFollowing.TURN_TO_FIND_WALL)
+        elif self.state == self.StateWallFollowing.ROTATE_IN_CORNER:
+            check_heading_corner = self.value_is_close_to(
+                math.fabs(self.wrap_to_pi(current_heading - self.prev_heading)),
+                self.in_corner_angle,
+                self.angle_value_buffer
+            )
+            if check_heading_corner:
+                self.state = self.state_transition(self.StateWallFollowing.TURN_TO_FIND_WALL)
+        elif self.state == self.StateWallFollowing.FIND_CORNER:
+            if side_range <= self.reference_distance_from_wall:
+                self.state = self.state_transition(self.StateWallFollowing.ROTATE_AROUND_WALL)
+        else:
+            self.state = self.state_transition(self.StateWallFollowing.HOVER)
+
+        # Commands
+        cmd_vx = 0.0
+        cmd_vy = 0.0
+        cmd_wz = 0.0
+
+        if self.state == self.StateWallFollowing.FORWARD:
+            cmd_vx = self.max_forward_speed
+        elif self.state == self.StateWallFollowing.HOVER:
+            cmd_vx, cmd_vy, cmd_wz = self.command_hover()
+        elif self.state == self.StateWallFollowing.TURN_TO_FIND_WALL:
+            cmd_vx, cmd_wz = self.command_turn(self.max_turn_rate)
+        elif self.state == self.StateWallFollowing.TURN_TO_ALIGN_TO_WALL:
+            if self.time_now - self.state_start_time < self.wait_for_measurement_seconds:
+                cmd_vx, cmd_vy, cmd_wz = self.command_hover()
+            else:
+                cmd_vx, cmd_wz = self.command_turn(self.max_turn_rate)
+        elif self.state == self.StateWallFollowing.FORWARD_ALONG_WALL:
+            cmd_vx, cmd_vy = self.command_forward_along_wall(side_range)
+        elif self.state == self.StateWallFollowing.ROTATE_AROUND_WALL:
+            if side_range > self.reference_distance_from_wall + self.range_threshold_lost:
+                if self.wrap_to_pi(math.fabs(current_heading - self.prev_heading)) > self.in_corner_angle:
+                    self.around_corner_back_track = True
+                if self.around_corner_back_track:
+                    cmd_vy, cmd_wz = self.command_turn(-1 * self.max_turn_rate)
+                    cmd_vx = 0.0
+                else:
+                    cmd_vy, cmd_wz = self.command_turn(self.max_turn_rate)
+                    cmd_vx = 0.0
+            else:
+                self.prev_heading = current_heading
+                self.around_corner_back_track = False
+                cmd_vx, cmd_vy, cmd_wz = self.command_turn_around_corner_and_adjust(
+                    self.reference_distance_from_wall, side_range
+                )
+        elif self.state == self.StateWallFollowing.ROTATE_IN_CORNER:
+            cmd_vx, cmd_wz = self.command_turn(self.max_turn_rate)
+        elif self.state == self.StateWallFollowing.FIND_CORNER:
+            cmd_vy, cmd_wz = self.command_align_corner(-1 * self.max_turn_rate, side_range, self.reference_distance_from_wall)
+            cmd_vx = 0.0
+        else:
+            cmd_vx, cmd_vy, cmd_wz = self.command_hover()
+
+        return cmd_vx, cmd_vy, cmd_wz, self.state
+
+
+class WallFollowingPolicy:
+    def __init__(self, reference_distance_from_wall=0.5, max_forward_speed=0.3, debug=None):
+        self._state_machine = WallFollowing(
+            angle_value_buffer=0.01,
+            reference_distance_from_wall=reference_distance_from_wall,
+            max_forward_speed=max_forward_speed,
+            init_state=WallFollowing.StateWallFollowing.FORWARD,
+        )
+        self.debug = debug or {}
+
+    def compute_action(self, observation):
+        ranges = observation["ranges"]
+        yaw = observation["imu"]["yaw"]
+        time_now = observation["time"]
+        step = observation.get("step", None)
+
+        dbg_policy = bool(self.debug.get("policy_grid", False))
+        dbg_every = int(self.debug.get("every_n", 50))
+        dbg_det = bool(self.debug.get("policy_detections", False))
+
+        detections = observation.get("detections", [])
+        if dbg_det and detections:
+            # print only when non-empty, and only top-1
+            if step is None or (step % dbg_every == 0):
+                print(f"[detections] {detections[0]}", flush=True)
+
+        grid_info = observation.get("grid")
+        if dbg_policy and grid_info is not None and step is not None and (step % dbg_every == 0):
+            cc = grid_info.get("current_cell")
+            thr = grid_info.get("coverage_threshold")
+            cover = grid_info.get("coverages", {})
+            mask = grid_info.get("visible_mask", {})
+            detc = grid_info.get("det_confidence", {})
+
+            num_vis = sum(1 for v in mask.values() if v)
+
+            print(
+                f"[POLICY GRID] step={step} cc={cc} thr={thr} "
+                f"cells: cover={len(cover)} mask={len(mask)} det={len(detc)} visible={num_vis}",
+                flush=True
+            )
+            top = sorted(cover.items(), key=lambda kv: kv[1], reverse=True)[:9]
+            for (cx, cy), frac in top:
+                v = mask.get((cx, cy), None)
+                d = detc.get((cx, cy), 0.0)
+                print(f"  cell=({cx},{cy}) cov={frac*100:5.1f}% vis={v} det={d:.2f}", flush=True)
+
+        direction = WallFollowing.WallFollowingDirection.LEFT
+        side_range_value = ranges["right"]
+
+        cmd_vx, cmd_vy, cmd_wz, state_wf = self._state_machine.wall_follower(
+            ranges["front"], side_range_value, yaw, direction, time_now
+        )
+
+        return {
+            "forward": cmd_vx,
+            "sideways": cmd_vy,
+            "yaw_rate": cmd_wz,
+            "state": state_wf,
+        }

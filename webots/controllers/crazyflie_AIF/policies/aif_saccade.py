@@ -30,6 +30,7 @@ class AIFSaccadePolicy:
         yaw_options: Optional[List[float]] = None,
         planning_p_hit: float = 0.85,
         replan_cooldown_s: float = 0.4,
+        target_exclusion_detection_frames: int = 3,
     ):
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
@@ -43,13 +44,18 @@ class AIFSaccadePolicy:
         self.distance_cost_epsilon = float(distance_cost_epsilon)
         self.planning_p_hit = float(planning_p_hit)
         self.replan_cooldown_s = float(replan_cooldown_s)
+        self.target_exclusion_detection_frames = int(max(1, target_exclusion_detection_frames))
 
         p_det = float(prefer_detect_strength)
         self.C = np.array([1.0 - p_det, p_det], dtype=np.float64)
 
         self.grid_spec: Optional[GridSpec] = None
         self.fov_spec: Optional[FoVSpec] = None
+        self.floor_fov_spec: Optional[FoVSpec] = None
+        self.table_fov_spec: Optional[FoVSpec] = None
         self.env_mgr: Optional[GridEnvManager] = None
+        self.env_mgr_floor: Optional[GridEnvManager] = None
+        self.env_mgr_table: Optional[GridEnvManager] = None
         self.navigator: Optional[Navigator] = None
 
         self.q_s: Optional[np.ndarray] = None  # (rows, cols, 2)
@@ -61,6 +67,23 @@ class AIFSaccadePolicy:
         self._snap_dir: Optional[str] = None
         self._stay_replan_streak: int = 0
         self._last_replan_time_s: float = -1e9
+
+        # Internal exclusion memory. This deliberately does not use supervisor-
+        # validated cells. A cell becomes non-selectable only after the policy
+        # itself has received target detections for that cell in several processed
+        # perception frames. This is less volatile than excluding cells after one
+        # immediate controller claim.
+        self._target_detection_counts: Dict[Cell, int] = {}
+        self._target_detection_last_step: Dict[Cell, int] = {}
+
+        # Candidate FoV coverage cache. The geometry for "stand at cell C
+        # with yaw Y" is fixed after initialization, so recomputing the floor
+        # and table coverages for every candidate on every replan is wasted work.
+        # The cache stores the exact outputs of GridEnvManager.compute_cell_coverages
+        # for every candidate cell and yaw option, separately for floor/table
+        # projections. Runtime table_cells only decide which cached map supplies
+        # each covered cell.
+        self._candidate_coverage_cache: Dict[Tuple[int, int, int], Dict[str, Dict[Tuple[int, int], float]]] = {}
 
     def compute_action(self, observation: dict) -> Dict[str, object]:
         self._ensure_initialized(observation)
@@ -81,8 +104,10 @@ class AIFSaccadePolicy:
         if snap_enabled and (self._snap_dir is None):
             self._snap_dir = self._maybe_init_snapshot_dir(snap_dir)
 
-        found_cells_list = task.get("found_cells", []) or []
-        found_cells = {(int(cx), int(cy)) for (cx, cy) in found_cells_list}
+        # Keep immediate controller claims for debug/snapshots only. Planning
+        # exclusion uses the policy's internal target-detection counter below.
+        claimed_cells_list = task.get("found_cells", []) or []
+        claimed_cells = {(int(cx), int(cy)) for (cx, cy) in claimed_cells_list}
 
         dbg_policy = bool(self.debug.get("policy_grid", False))
         dbg_every = int(self.debug.get("every_n", 50))
@@ -92,6 +117,9 @@ class AIFSaccadePolicy:
         visible_mask: Dict[Cell, bool] = grid.get("visible_mask", {})
         det_conf: Dict[Cell, float] = grid.get("det_confidence", {})
         coverages: Dict[Cell, float] = grid.get("coverages", {})
+        table_cells = self._table_cells_from_grid(grid)
+        self._update_target_detection_counts(grid, step=step)
+        excluded_cells = self._excluded_cells_from_target_detection_counts()
 
         self._update_beliefs(
             visible_mask=visible_mask,
@@ -115,7 +143,8 @@ class AIFSaccadePolicy:
             if current_cell is not None:
                 (next_cell, next_yaw), scored_actions = self._pick_next_action(
                     current_cell=current_cell,
-                    found_cells=found_cells,
+                    excluded_cells=excluded_cells,
+                    table_cells=table_cells,
                     return_scores=True,
                 )
 
@@ -148,7 +177,9 @@ class AIFSaccadePolicy:
                         step=int(step or 0),
                         pose=pose,
                         current_cell=current_cell,
-                        found_cells=found_cells,
+                        found_cells=claimed_cells,
+                        table_cells=table_cells,
+                        excluded_cells=excluded_cells,
                         det_conf=det_conf,
                         visible_mask=visible_mask,
                         coverages=coverages,
@@ -165,7 +196,8 @@ class AIFSaccadePolicy:
             if current_cell is not None:
                 (best_cell, best_yaw), scored = self._pick_next_action(
                     current_cell=current_cell,
-                    found_cells=found_cells,
+                    excluded_cells=excluded_cells,
+                    table_cells=table_cells,
                     return_scores=True,
                 )
                 self._save_snapshot_npz(
@@ -173,7 +205,9 @@ class AIFSaccadePolicy:
                     step=int(step),
                     pose=pose,
                     current_cell=current_cell,
-                    found_cells=found_cells,
+                    found_cells=claimed_cells,
+                    table_cells=table_cells,
+                    excluded_cells=excluded_cells,
                     det_conf=det_conf,
                     visible_mask=visible_mask,
                     coverages=coverages,
@@ -190,7 +224,8 @@ class AIFSaccadePolicy:
 
             print(
                 f"[POLICY GRID] step={step} cc={cc} thr={thr} "
-                f"cells: cover={len(coverages)} mask={len(visible_mask)} det={num_det} visible={num_vis}",
+                f"cells: cover={len(coverages)} mask={len(visible_mask)} det={num_det} "
+                f"visible={num_vis} excluded={len(excluded_cells)}",
                 flush=True
             )
 
@@ -257,10 +292,12 @@ class AIFSaccadePolicy:
 
         found_cells_list = task.get("found_cells", []) or []
         found_cells = {(int(cx), int(cy)) for (cx, cy) in found_cells_list}
+        excluded_cells = self._excluded_cells_from_target_detection_counts()
 
         det_conf = grid.get("det_confidence", {}) or {}
         visible_mask = grid.get("visible_mask", {}) or {}
         coverages = grid.get("coverages", {}) or {}
+        table_cells = self._table_cells_from_grid(grid)
 
         scored_actions = []
         chosen = (current_cell, float(pose.get("yaw", 0.0)))
@@ -268,7 +305,8 @@ class AIFSaccadePolicy:
         if current_cell is not None:
             (best_cell, best_yaw), scored_actions = self._pick_next_action(
                 current_cell=current_cell,
-                found_cells=found_cells,
+                excluded_cells=excluded_cells,
+                table_cells=table_cells,
                 return_scores=True,
             )
             chosen = (best_cell, best_yaw)
@@ -279,6 +317,8 @@ class AIFSaccadePolicy:
             pose={"x": float(pose.get("x", 0.0)), "y": float(pose.get("y", 0.0)), "yaw": float(pose.get("yaw", 0.0))},
             current_cell=current_cell,
             found_cells=found_cells,
+            table_cells=table_cells,
+            excluded_cells=excluded_cells,
             det_conf=det_conf,
             visible_mask=visible_mask,
             coverages=coverages,
@@ -295,6 +335,7 @@ class AIFSaccadePolicy:
 
         gs = obs["grid_spec"]
         fs = obs["fov_spec"]
+        fov_by_surface = obs.get("fov_spec_by_surface", {}) or {}
 
         self.grid_spec = GridSpec(
             min_x=float(gs["min_x"]),
@@ -305,14 +346,13 @@ class AIFSaccadePolicy:
             rows=int(gs["rows"]),
             cols=int(gs["cols"]),
         )
-        self.fov_spec = FoVSpec(
-            half_left=float(fs["half_left"]),
-            half_right=float(fs["half_right"]),
-            forward=float(fs["forward"]),
-            backward=float(fs["backward"]),
-        )
+        self.fov_spec = self._fov_spec_from_dict(fs)
+        self.floor_fov_spec = self._fov_spec_from_dict(fov_by_surface.get("floor", fs))
+        self.table_fov_spec = self._fov_spec_from_dict(fov_by_surface.get("table", fs))
 
-        self.env_mgr = GridEnvManager(self.grid_spec, self.fov_spec)
+        self.env_mgr_floor = GridEnvManager(self.grid_spec, self.floor_fov_spec)
+        self.env_mgr_table = GridEnvManager(self.grid_spec, self.table_fov_spec)
+        self.env_mgr = self.env_mgr_floor
 
         self.navigator = Navigator(
             self.grid_spec,
@@ -331,6 +371,207 @@ class AIFSaccadePolicy:
         self.q_s = np.zeros((self.grid_spec.rows, self.grid_spec.cols, 2), dtype=np.float64)
         self.q_s[:, :, 0] = p0
         self.q_s[:, :, 1] = p1
+
+        self._precompute_candidate_coverages()
+
+    @staticmethod
+    def _fov_spec_from_dict(fs: dict) -> FoVSpec:
+        return FoVSpec(
+            half_left=float(fs["half_left"]),
+            half_right=float(fs["half_right"]),
+            forward=float(fs["forward"]),
+            backward=float(fs["backward"]),
+        )
+
+    @staticmethod
+    def _table_cells_from_grid(grid: dict) -> set[Cell]:
+        """Extract discovered table-height cells from the controller observation.
+
+        The controller sends table cells as (cx, cy) pairs under grid["table_cells"]
+        and also inside grid["surface_height_map"]. Accept both forms so old
+        snapshots/debug payloads remain readable.
+        """
+        out: set[Cell] = set()
+
+        raw_cells = grid.get("table_cells", []) or []
+        for cell in raw_cells:
+            if isinstance(cell, (list, tuple)) and len(cell) == 2:
+                out.add((int(cell[0]), int(cell[1])))
+
+        surface_map = grid.get("surface_height_map", {}) or {}
+        for cell in surface_map.get("table_cells", []) or []:
+            if isinstance(cell, (list, tuple)) and len(cell) == 2:
+                out.add((int(cell[0]), int(cell[1])))
+
+        return out
+
+    @staticmethod
+    def _cell_from_event_or_key(value) -> Optional[Cell]:
+        if isinstance(value, dict):
+            cell = value.get("cell", None)
+            if cell is None and "cx" in value and "cy" in value:
+                cell = (value.get("cx"), value.get("cy"))
+        else:
+            cell = value
+
+        if isinstance(cell, (list, tuple)) and len(cell) == 2:
+            try:
+                return (int(cell[0]), int(cell[1]))
+            except Exception:
+                return None
+        return None
+
+    @staticmethod
+    def _looks_like_target_event(event: dict) -> bool:
+        if not isinstance(event, dict):
+            return False
+        class_name = str(event.get("class_name", event.get("label", "")))
+        if class_name in {"target_bottle", "target_can"}:
+            return True
+        class_id = event.get("class_id", None)
+        try:
+            return int(class_id) in {0, 1}
+        except Exception:
+            return False
+
+    def _target_detection_cells_from_grid(self, grid: dict) -> set[Cell]:
+        cells: set[Cell] = set()
+
+        for event in grid.get("target_detections", []) or []:
+            if not self._looks_like_target_event(event):
+                continue
+            cell = self._cell_from_event_or_key(event)
+            if cell is not None:
+                cells.add(cell)
+
+        # Backwards-compatible fallback for older controller payloads where only
+        # the target-only confidence map is available.
+        if not cells:
+            det_conf = grid.get("det_confidence", {}) or {}
+            for cell in det_conf.keys():
+                parsed = self._cell_from_event_or_key(cell)
+                if parsed is not None:
+                    cells.add(parsed)
+
+        return cells
+
+    def _update_target_detection_counts(self, grid: dict, *, step) -> None:
+        if not bool(grid.get("perception_processed_this_step", False)):
+            return
+
+        step_i = int(step or 0)
+        for cell in self._target_detection_cells_from_grid(grid):
+            # Count at most once per processed perception frame per cell, even if
+            # two detections/classes land in that same cell during this frame.
+            if self._target_detection_last_step.get(cell, None) == step_i:
+                continue
+            self._target_detection_counts[cell] = int(self._target_detection_counts.get(cell, 0)) + 1
+            self._target_detection_last_step[cell] = step_i
+
+    def _excluded_cells_from_target_detection_counts(self) -> set[Cell]:
+        threshold = int(max(1, self.target_exclusion_detection_frames))
+        return {
+            (int(cx), int(cy))
+            for (cx, cy), count in self._target_detection_counts.items()
+            if int(count) >= threshold
+        }
+
+
+    def _precompute_candidate_coverages(self) -> None:
+        """Cache floor/table FoV coverages for every candidate cell/yaw pair.
+
+        This preserves the original planning semantics: each cached entry is
+        produced by the same GridEnvManager.compute_cell_coverages call that
+        _efe_components previously executed inside every scoring loop. The only
+        difference is timing: the geometry is computed once after initialization
+        instead of repeatedly at every replan.
+        """
+        assert self.grid_spec is not None
+        assert self.env_mgr_floor is not None
+        assert self.env_mgr_table is not None
+
+        self._candidate_coverage_cache.clear()
+
+        for cy in range(self.grid_spec.rows):
+            for cx in range(self.grid_spec.cols):
+                target_xy = self._cell_center_xy(cx, cy)
+                for yaw_idx, yaw in enumerate(self.yaw_options):
+                    key = (int(cx), int(cy), int(yaw_idx))
+                    self._candidate_coverage_cache[key] = {
+                        "floor": dict(
+                            self.env_mgr_floor.compute_cell_coverages(
+                                target_xy[0], target_xy[1], float(yaw)
+                            )
+                        ),
+                        "table": dict(
+                            self.env_mgr_table.compute_cell_coverages(
+                                target_xy[0], target_xy[1], float(yaw)
+                            )
+                        ),
+                    }
+
+    def _cached_candidate_coverages_rc(
+        self,
+        *,
+        target_cell: Cell,
+        target_yaw_index: int,
+    ) -> tuple[Dict[Tuple[int, int], float], Dict[Tuple[int, int], float]]:
+        """Return cached (floor_cov, table_cov) for a candidate cell/yaw.
+
+        Falls back to direct computation if a caller ever supplies a yaw index
+        outside the precomputed table, although normal policy planning always
+        uses self.yaw_options and therefore always hits the cache.
+        """
+        assert self.env_mgr_floor is not None
+        assert self.env_mgr_table is not None
+
+        cx, cy = int(target_cell[0]), int(target_cell[1])
+        key = (cx, cy, int(target_yaw_index))
+        cached = self._candidate_coverage_cache.get(key, None)
+        if cached is not None:
+            return cached["floor"], cached["table"]
+
+        # Defensive fallback; should not happen in the normal action loop.
+        target_xy = self._cell_center_xy(cx, cy)
+        yaw = float(self.yaw_options[int(target_yaw_index)])
+        floor_cov = dict(self.env_mgr_floor.compute_cell_coverages(target_xy[0], target_xy[1], yaw))
+        table_cov = dict(self.env_mgr_table.compute_cell_coverages(target_xy[0], target_xy[1], yaw))
+        self._candidate_coverage_cache[key] = {"floor": floor_cov, "table": table_cov}
+        return floor_cov, table_cov
+
+    def _merged_candidate_coverages_rc(
+        self,
+        *,
+        target_cell: Cell,
+        target_yaw_index: int,
+        table_cells: Optional[set[Cell]] = None,
+    ) -> Dict[Tuple[int, int], float]:
+        """Merge cached floor/table future coverages per covered cell.
+
+        Cells currently known as table-height use the cached table-plane
+        coverage; all other cells use the cached floor-plane coverage. This is
+        equivalent to the previous implementation, which recomputed floor_cov
+        and table_cov for the candidate cell/yaw immediately before this merge.
+        """
+        table_cells = table_cells or set()
+        floor_cov, table_cov = self._cached_candidate_coverages_rc(
+            target_cell=target_cell,
+            target_yaw_index=int(target_yaw_index),
+        )
+
+        out: Dict[Tuple[int, int], float] = {}
+        all_rc = set(floor_cov.keys()) | set(table_cov.keys())
+        for (r, c) in all_rc:
+            rc = (int(r), int(c))
+            cxcy = (int(c), int(r))
+            if cxcy in table_cells:
+                val = float(table_cov.get(rc, 0.0))
+            else:
+                val = float(floor_cov.get(rc, 0.0))
+            if val > 0.0:
+                out[rc] = val
+        return out
+
 
     # ---------------- belief update ----------------
 
@@ -452,7 +693,8 @@ class AIFSaccadePolicy:
         self,
         *,
         current_cell: Cell,
-        found_cells: Optional[set] = None,
+        excluded_cells: Optional[set] = None,
+        table_cells: Optional[set[Cell]] = None,
         return_scores: bool = False,
     ):
         assert self.grid_spec is not None
@@ -460,8 +702,9 @@ class AIFSaccadePolicy:
 
         candidates = self._all_cells()
 
-        found_cells = found_cells or set()
-        candidates = [c for c in candidates if c not in found_cells]
+        excluded_cells = excluded_cells or set()
+        table_cells = table_cells or set()
+        candidates = [c for c in candidates if c not in excluded_cells]
         if not candidates:
             candidates = self._all_cells()
 
@@ -478,8 +721,12 @@ class AIFSaccadePolicy:
             dist = math.hypot(tx - x0, ty - y0)
             distance_cost = self.distance_cost_epsilon * dist
 
-            for yaw in self.yaw_options:
-                risk, IG = self._efe_components(target_cell=cell, target_xy=(tx, ty), target_yaw=yaw)
+            for yaw_idx, yaw in enumerate(self.yaw_options):
+                risk, IG = self._efe_components(
+                    target_cell=cell,
+                    target_yaw_index=yaw_idx,
+                    table_cells=table_cells,
+                )
                 G = float(risk - self.beta_info * IG + distance_cost)
 
                 if return_scores:
@@ -499,16 +746,26 @@ class AIFSaccadePolicy:
 
         return (best, scores) if return_scores else best
 
-    def _efe_components(self, *, target_cell: Cell, target_xy: Tuple[float, float], target_yaw: float) -> Tuple[float, float]:
+    def _efe_components(
+        self,
+        *,
+        target_cell: Cell,
+        target_yaw_index: int,
+        table_cells: Optional[set[Cell]] = None,
+    ) -> Tuple[float, float]:
         """
         Returns (risk, IG) used by EFE:
           G = risk - beta_info * IG + distance_cost_epsilon * dist
         """
-        assert self.env_mgr is not None
+        assert self.env_mgr_floor is not None
+        assert self.env_mgr_table is not None
         assert self.q_s is not None
 
-        x, y = target_xy
-        cov_rc = self.env_mgr.compute_cell_coverages(x, y, target_yaw)
+        cov_rc = self._merged_candidate_coverages_rc(
+            target_cell=target_cell,
+            target_yaw_index=int(target_yaw_index),
+            table_cells=table_cells or set(),
+        )
 
         p_hit = self.planning_p_hit
         p_fa = self.p_fa
@@ -571,6 +828,8 @@ class AIFSaccadePolicy:
         pose: dict,
         current_cell: Optional[Cell],
         found_cells: set,
+        table_cells: Optional[set[Cell]],
+        excluded_cells: Optional[set[Cell]],
         det_conf: Dict[Cell, float],
         visible_mask: Dict[Cell, bool],
         coverages: Dict[Cell, float],
@@ -593,6 +852,13 @@ class AIFSaccadePolicy:
             "chosen_cell": [int(chosen[0][0]), int(chosen[0][1])] if chosen[0] is not None else None,
             "chosen_yaw": float(chosen[1]),
             "found_cells": sorted([[int(c[0]), int(c[1])] for c in found_cells]),
+            "table_cells": sorted([[int(c[0]), int(c[1])] for c in (table_cells or set())]),
+            "excluded_cells": sorted([[int(c[0]), int(c[1])] for c in (excluded_cells or set())]),
+            "target_detection_counts": {
+                f"{int(k[0])},{int(k[1])}": int(v)
+                for k, v in sorted(self._target_detection_counts.items())
+            },
+            "target_exclusion_detection_frames": int(self.target_exclusion_detection_frames),
             "det_conf": {f"{k[0]},{k[1]}": float(v) for k, v in det_conf.items()},
             "visible_mask": {f"{k[0]},{k[1]}": bool(v) for k, v in visible_mask.items()},
             "coverages": {f"{k[0]},{k[1]}": float(v) for k, v in coverages.items()},

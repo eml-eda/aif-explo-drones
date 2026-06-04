@@ -4,6 +4,7 @@ import os
 import time
 from datetime import datetime
 import json
+import math
 
 from controller import Keyboard
 from controller import Robot
@@ -15,6 +16,7 @@ from policies.pseudo_random import PseudoRandomPolicy
 from policies.spiral import SpiralPolicy
 from policies.rotate_and_measure import RotateAndMeasurePolicy
 from policies.aif_saccade import AIFSaccadePolicy
+from policies.aif_saccade_table import AIFSaccadeTablePolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
 from vision.ground_truth_detector import GroundTruthDetector
@@ -50,7 +52,7 @@ EVAL_STATE_FILENAME = "eval_state.json"
 
 # ---- Experiment labels for report aggregation - EVAL mode ----
 SPAWN_CONDITIONS = "spawn15"
-TARGET_SETUP = "mixed_easy"  # options: "bottles_only", "mixed_easy", "mixed_hard"
+TARGET_SETUP = "mixed_tables"  # options: "bottles_only", "mixed_easy", "mixed_tables", "mixed_hard"
 
 # ---- Flight preference ----
 FLYING_ATTITUDE = 1.5
@@ -67,9 +69,21 @@ MAX_X = ARENA_WIDTH_M / 2.0
 MAX_Y = ARENA_HEIGHT_M / 2.0
 
 # ---- Camera FoV footprint on floor (meters) at 1.5m altitude ----
-FOV_WIDTH_M = 1.40
-FOV_FORWARD_M = 0.55
-FOV_BACKWARD_M = 0.45
+# Measured from the Webots camera FoV setup. Forward/backward asymmetry comes
+# from the downward camera offset relative to the drone center.
+FOV_WIDTH_M = 1.394
+FOV_FORWARD_M = 0.553
+FOV_BACKWARD_M = 0.493
+
+# ---- Height-aware FoV setup ----
+# The base FoV above is the floor-plane projection at FLYING_ATTITUDE.
+# For raised surfaces, footprint dimensions scale with camera-to-surface distance.
+ENABLE_HEIGHT_AWARE_FOV = True
+FLOOR_HEIGHT_M = 0.0
+TABLE_HEIGHT_M = 0.72
+DESK_CLASS_NAME = "desk"
+DESK_CLASS_ID = 2
+SURFACE_DETECTION_CONF_THRESHOLD = 0.30
 
 # ---- FoV → cell thresholds ----
 COVERAGE_UPDATE_THRESHOLD = 0.05
@@ -119,6 +133,286 @@ AUTONOMY_START_DELAY_S = 15.0
 # ---- Startup file wait ----
 STARTUP_WAIT_TIMEOUT_S = 10.0
 STARTUP_WAIT_POLL_S = 0.05
+
+# Classes that are task targets and can update the old AIF target-belief grid / create found claims.
+# Desk observations are preserved separately in per-frame detection lists, but they are not
+# treated as target evidence until a table-aware policy consumes them explicitly.
+TARGET_OBJECT_CLASS_NAMES = {"target_bottle", "target_can"}
+TARGET_OBJECT_CLASS_IDS = {0, 1}
+DESK_OBJECT_CLASS_NAMES = {DESK_CLASS_NAME}
+DESK_OBJECT_CLASS_IDS = {DESK_CLASS_ID}
+
+AIF_TARGET_DISTANCE_POLICIES = {"aif_saccade", "aif_saccade_table"}
+
+
+def _is_target_object_class(class_name, class_id=None) -> bool:
+    name = "" if class_name is None else str(class_name)
+    if name in TARGET_OBJECT_CLASS_NAMES:
+        return True
+    if class_id is None:
+        return False
+    try:
+        return int(class_id) in TARGET_OBJECT_CLASS_IDS
+    except Exception:
+        return False
+
+
+def _is_desk_object_class(class_name, class_id=None) -> bool:
+    name = "" if class_name is None else str(class_name)
+    if name in DESK_OBJECT_CLASS_NAMES:
+        return True
+    if class_id is None:
+        return False
+    try:
+        return int(class_id) in DESK_OBJECT_CLASS_IDS
+    except Exception:
+        return False
+
+
+def _make_fov_spec(*, width_m: float, forward_m: float, backward_m: float) -> FoVSpec:
+    return FoVSpec(
+        half_left=float(width_m) / 2.0,
+        half_right=float(width_m) / 2.0,
+        forward=float(forward_m),
+        backward=float(backward_m),
+    )
+
+
+def _surface_fov_scale(*, camera_height_m: float, surface_height_m: float, reference_height_m: float) -> float:
+    reference_height_m = max(1e-6, float(reference_height_m))
+    distance_m = max(0.05, float(camera_height_m) - float(surface_height_m))
+    return float(distance_m / reference_height_m)
+
+
+def _scaled_fov_spec_for_surface(surface_height_m: float, *, camera_height_m: float) -> FoVSpec:
+    # The floor FoV constants were measured at FLYING_ATTITUDE above floor.
+    # Scale them by camera-to-surface distance for raised surfaces.
+    scale = _surface_fov_scale(
+        camera_height_m=float(camera_height_m),
+        surface_height_m=float(surface_height_m),
+        reference_height_m=float(FLYING_ATTITUDE),
+    )
+    return _make_fov_spec(
+        width_m=FOV_WIDTH_M * scale,
+        forward_m=FOV_FORWARD_M * scale,
+        backward_m=FOV_BACKWARD_M * scale,
+    )
+
+
+def _merge_coverages_by_surface(
+    *,
+    floor_coverages_rc: dict,
+    table_coverages_rc: dict,
+    table_cells_cxcy: set,
+) -> dict:
+    """Select floor or table coverage per cell based on discovered surface cells.
+
+    Keys are row/col internally. table_cells_cxcy is maintained in policy/report
+    coordinates (cx, cy). If a cell is flagged as table-height, use the smaller
+    table-plane projection coverage for that cell; otherwise use floor coverage.
+    """
+    out = {}
+    all_cells = set(floor_coverages_rc.keys()) | set(table_coverages_rc.keys())
+    for cell_rc in all_cells:
+        r, c = int(cell_rc[0]), int(cell_rc[1])
+        if (c, r) in table_cells_cxcy:
+            val = float(table_coverages_rc.get(cell_rc, 0.0))
+        else:
+            val = float(floor_coverages_rc.get(cell_rc, 0.0))
+        if val > 0.0:
+            out[(r, c)] = val
+    return out
+
+
+def _surface_height_payload(table_cells_cxcy: set) -> dict:
+    return {
+        "enabled": bool(ENABLE_HEIGHT_AWARE_FOV),
+        "floor_height_m": float(FLOOR_HEIGHT_M),
+        "table_height_m": float(TABLE_HEIGHT_M),
+        "table_cells": sorted([[int(cx), int(cy)] for (cx, cy) in table_cells_cxcy]),
+        "height_by_cell": {
+            f"{int(cx)},{int(cy)}": float(TABLE_HEIGHT_M)
+            for (cx, cy) in sorted(table_cells_cxcy)
+        },
+    }
+
+
+def _detection_event_rc_to_cxcy(event: dict) -> dict:
+    """Return a copy of a detection event with explicit (cx, cy) cells.
+
+    Internally the controller/env code uses row/col cells, while policies and
+    reports mostly use cx/cy. Keeping both fields avoids lossy conversion and
+    makes future table-aware policies able to consume all detections.
+    """
+    out = dict(event)
+    cell_rc = out.get("cell_rc", None)
+    if cell_rc is not None:
+        r, c = int(cell_rc[0]), int(cell_rc[1])
+        out["cell_rc"] = (r, c)
+        out["cell"] = (c, r)
+
+    covered_rc = out.get("covered_cells_rc", None)
+    if covered_rc is not None:
+        converted = []
+        for rc in covered_rc:
+            try:
+                r, c = int(rc[0]), int(rc[1])
+                converted.append([int(c), int(r)])
+            except Exception:
+                continue
+        out["covered_cells"] = converted
+
+    floor_rc = out.get("cell_rc_floor", None)
+    if floor_rc is not None:
+        try:
+            r, c = int(floor_rc[0]), int(floor_rc[1])
+            out["cell_floor"] = (c, r)
+        except Exception:
+            pass
+
+    table_rc = out.get("cell_rc_table", None)
+    if table_rc is not None:
+        try:
+            r, c = int(table_rc[0]), int(table_rc[1])
+            out["cell_table"] = (c, r)
+        except Exception:
+            pass
+
+    return out
+
+
+def _clamp_bbox_xyxy(bbox_xyxy, *, img_w: int, img_h: int):
+    if bbox_xyxy is None or len(bbox_xyxy) != 4:
+        return None
+    x1, y1, x2, y2 = [float(v) for v in bbox_xyxy]
+    x1 = max(0.0, min(float(img_w), x1))
+    x2 = max(0.0, min(float(img_w), x2))
+    y1 = max(0.0, min(float(img_h), y1))
+    y2 = max(0.0, min(float(img_h), y2))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return [x1, y1, x2, y2]
+
+
+def _bbox_area(bbox_xyxy) -> float:
+    if bbox_xyxy is None:
+        return 0.0
+    x1, y1, x2, y2 = [float(v) for v in bbox_xyxy]
+    return max(0.0, x2 - x1) * max(0.0, y2 - y1)
+
+
+def _bbox_overlap_area(a, b) -> float:
+    if a is None or b is None:
+        return 0.0
+    ax1, ay1, ax2, ay2 = [float(v) for v in a]
+    bx1, by1, bx2, by2 = [float(v) for v in b]
+    ix1 = max(ax1, bx1)
+    iy1 = max(ay1, by1)
+    ix2 = min(ax2, bx2)
+    iy2 = min(ay2, by2)
+    return max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+
+
+def _bbox_center_inside(inner_bbox, outer_bbox) -> bool:
+    if inner_bbox is None or outer_bbox is None:
+        return False
+    x1, y1, x2, y2 = [float(v) for v in inner_bbox]
+    ox1, oy1, ox2, oy2 = [float(v) for v in outer_bbox]
+    cx = 0.5 * (x1 + x2)
+    cy = 0.5 * (y1 + y2)
+    return (ox1 <= cx <= ox2) and (oy1 <= cy <= oy2)
+
+
+def _bbox_overlaps_any_desk(target_bbox, desk_bboxes, *, min_overlap_frac: float = 0.05) -> bool:
+    target_area = max(1e-6, _bbox_area(target_bbox))
+    for desk_bbox in desk_bboxes:
+        if _bbox_center_inside(target_bbox, desk_bbox):
+            return True
+        if (_bbox_overlap_area(target_bbox, desk_bbox) / target_area) >= float(min_overlap_frac):
+            return True
+    return False
+
+
+def _event_bbox_xyxy(event: dict):
+    bbox = event.get("bbox_xyxy", None)
+    if bbox is not None and len(bbox) == 4:
+        return [float(v) for v in bbox]
+
+    center = event.get("bbox_center_px", None)
+    size = event.get("bbox_size_px", None)
+    if center is not None and size is not None and len(center) >= 2 and len(size) >= 2:
+        cx, cy = float(center[0]), float(center[1])
+        w, h = float(size[0]), float(size[1])
+        return [cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h]
+
+    return None
+
+
+def _sample_bbox_projected_cells_rc(
+    env_mgr_surface,
+    *,
+    bbox_xyxy,
+    img_w: int,
+    img_h: int,
+    drone_x: float,
+    drone_y: float,
+    drone_yaw: float,
+    max_samples_per_axis: int = 5,
+) -> set:
+    """Project a detection bbox to all grid cells hit by sampled bbox slices.
+
+    This is used for desk detections. It is still perception-derived: the
+    controller marks cells based on the detected image-space desk bbox, not from
+    supervisor geometry or arbitrary neighbor propagation.
+    """
+    bbox = _clamp_bbox_xyxy(bbox_xyxy, img_w=img_w, img_h=img_h)
+    if bbox is None:
+        return set()
+
+    x1, y1, x2, y2 = bbox
+    w = max(1.0, x2 - x1)
+    h = max(1.0, y2 - y1)
+
+    # Use a deterministic probe grid, not random points.
+    # Cap at 5x5 = 25 probe points so large desk detections mark several
+    # table-height cells without becoming too aggressive/noisy.
+    # The 32 px step gives roughly:
+    #   small bbox  -> 2x2 / 3x2 probes
+    #   medium bbox -> 3x3 / 4x3 probes
+    #   large bbox  -> at most 5x5 probes
+    nx = int(max(2, min(max_samples_per_axis, round(w / 32.0) + 1)))
+    ny = int(max(2, min(max_samples_per_axis, round(h / 32.0) + 1)))
+
+    cells = set()
+    for ix in range(nx):
+        px = x1 + ((ix + 0.5) / float(nx)) * w
+        for iy in range(ny):
+            py = y1 + ((iy + 0.5) / float(ny)) * h
+            tiny_bbox = [px - 0.5, py - 0.5, px + 0.5, py + 0.5]
+            cell_rc = env_mgr_surface.detection_cell_from_bbox(
+                bbox_xyxy=tiny_bbox,
+                img_w=img_w,
+                img_h=img_h,
+                drone_x=drone_x,
+                drone_y=drone_y,
+                drone_yaw=drone_yaw,
+            )
+            if cell_rc is not None:
+                cells.add((int(cell_rc[0]), int(cell_rc[1])))
+
+    # Always include the projection of the bbox center/whole box too.
+    center_cell = env_mgr_surface.detection_cell_from_bbox(
+        bbox_xyxy=bbox,
+        img_w=img_w,
+        img_h=img_h,
+        drone_x=drone_x,
+        drone_y=drone_y,
+        drone_yaw=drone_yaw,
+    )
+    if center_cell is not None:
+        cells.add((int(center_cell[0]), int(center_cell[1])))
+
+    return cells
 
 
 def rc_to_cxcy(rc):
@@ -201,6 +495,7 @@ def load_policy(name, debug=None):
     registry = {
         "wall_following": WallFollowingPolicy,
         "aif_saccade": AIFSaccadePolicy,
+        "aif_saccade_table": AIFSaccadeTablePolicy,
         "pseudo_random": PseudoRandomPolicy,
         "spiral": SpiralPolicy,
         "rotate_and_measure": RotateAndMeasurePolicy,
@@ -211,8 +506,13 @@ def load_policy(name, debug=None):
 
 def load_detector_class(backend: str):
     backend = str(backend).lower().strip()
+    target_setup = str(TARGET_SETUP).lower().strip()
 
     if backend == "yolo":
+        if target_setup in {"mixed_tables", "mixed_hard"}:
+            from vision.detector_yolo_tables import Detector
+            return Detector
+
         from vision.detector_yolo import Detector
         return Detector
 
@@ -278,6 +578,30 @@ def _should_process_detection(
     raise ValueError(
         f"Unknown DETECTION_THROTTLE_MODE='{mode}'. Use 'none', 'frames', or 'time'."
     )
+
+def _recognition_sampling_period_ms(timestep_ms: int) -> int:
+    """Match Webots recognition/segmentation sampling to detector cadence.
+
+    The controller may run every basic timestep, but GT recognition segmentation
+    only needs to refresh when the detector is actually consumed. Use a sampling
+    period aligned to an integer number of basic timesteps to avoid asking for a
+    recognition frame before Webots has produced a fresh one.
+    """
+    base = max(1, int(timestep_ms))
+    mode = str(DETECTION_THROTTLE_MODE).lower().strip()
+
+    if mode == "none":
+        return base
+
+    if mode == "frames":
+        return max(base, int(DETECTION_EVERY_N_FRAMES) * base)
+
+    if mode == "time":
+        requested_ms = max(base, int(round(float(DETECTION_EVERY_S) * 1000.0)))
+        n_steps = max(1, int(math.ceil(float(requested_ms) / float(base))))
+        return int(n_steps * base)
+
+    return base
 
 def _detector_limitations_payload() -> dict:
     mode = str(DETECTION_THROTTLE_MODE).lower()
@@ -357,9 +681,8 @@ def _experiment_metadata_payload() -> dict:
 def _tracks_aif_target_distance(policy_name: str) -> bool:
     return bool(
         TRACK_AIF_TARGET_DISTANCE
-        and str(policy_name).lower().strip() == "aif_saccade"
+        and str(policy_name).lower().strip() in AIF_TARGET_DISTANCE_POLICIES
     )
-
 
 def _target_distance_stats_payload(
     *,
@@ -370,7 +693,7 @@ def _target_distance_stats_payload(
     max_m,
 ) -> dict:
     enabled = bool(TRACK_AIF_TARGET_DISTANCE)
-    policy_supported = str(policy_name).lower().strip() == "aif_saccade"
+    policy_supported = str(policy_name).lower().strip() in AIF_TARGET_DISTANCE_POLICIES
     tracked = bool(enabled and policy_supported)
 
     count = int(count)
@@ -446,14 +769,21 @@ if __name__ == "__main__":
         cols=GRID_COLS,
     )
 
-    fov_spec = FoVSpec(
-        half_left=FOV_WIDTH_M / 2.0,
-        half_right=FOV_WIDTH_M / 2.0,
-        forward=FOV_FORWARD_M,
-        backward=FOV_BACKWARD_M,
+    floor_fov_spec = _make_fov_spec(
+        width_m=FOV_WIDTH_M,
+        forward_m=FOV_FORWARD_M,
+        backward_m=FOV_BACKWARD_M,
+    )
+    table_fov_spec = _scaled_fov_spec_for_surface(
+        TABLE_HEIGHT_M,
+        camera_height_m=FLYING_ATTITUDE,
     )
 
-    env_mgr = GridEnvManager(grid_spec, fov_spec)
+    # Keep the old variable name as the floor/default FoV for backwards compatibility.
+    fov_spec = floor_fov_spec
+    env_mgr_floor = GridEnvManager(grid_spec, floor_fov_spec)
+    env_mgr_table = GridEnvManager(grid_spec, table_fov_spec)
+    env_mgr = env_mgr_floor
 
     Detector = load_detector_class(DETECTOR_BACKEND)
 
@@ -474,6 +804,7 @@ if __name__ == "__main__":
     supervisor_reason = None
 
     visited_cells = set()
+    table_surface_cells = set()  # discovered table-height cells, stored as (cx, cy)
 
     autonomy_start_time = None
     gt_seed = int(experiment_init.get("seed", -1))
@@ -514,11 +845,12 @@ if __name__ == "__main__":
                 model_to_class={
                     "target_bottle": 0,
                     "target_can": 1,
+                    "desk": 2,
                 },
                 min_box_pixels=2,
                 require_known_id=True,
             )
-            gt_detector.enable(timestep)
+            gt_detector.enable(_recognition_sampling_period_ms(timestep))
 
         else:
             raise ValueError(
@@ -527,13 +859,18 @@ if __name__ == "__main__":
             )
     else:
         print(f"[DETECTOR] backend={DETECTOR_BACKEND}", flush=True)
+        detector_class_names = (
+            ["target_bottle", "target_can", "desk"]
+            if str(TARGET_SETUP).lower().strip() in {"mixed_tables", "mixed_hard"}
+            else ["target_bottle", "target_can"]
+        )
         detector = Detector(
             model_name=None,
             device="cuda:0",
             conf=0.45,
             iou=0.40,
             img_size=320,
-            class_names=["target_bottle", "target_can"],
+            class_names=detector_class_names,
         )
 
     print("\n[FoV setup]")
@@ -542,8 +879,13 @@ if __name__ == "__main__":
         f"x∈[{MIN_X:.2f},{MAX_X:.2f}] y∈[{MIN_Y:.2f},{MAX_Y:.2f}]"
     )
     print(
-        f"  footprint width={FOV_WIDTH_M:.2f}m "
-        f"forward={FOV_FORWARD_M:.2f}m backward={FOV_BACKWARD_M:.2f}m"
+        f"  floor footprint width={FOV_WIDTH_M:.3f}m "
+        f"forward={FOV_FORWARD_M:.3f}m backward={FOV_BACKWARD_M:.3f}m"
+    )
+    print(
+        f"  table footprint height={TABLE_HEIGHT_M:.3f}m "
+        f"width={(table_fov_spec.half_left + table_fov_spec.half_right):.3f}m "
+        f"forward={table_fov_spec.forward:.3f}m backward={table_fov_spec.backward:.3f}m"
     )
 
     base_log_dir = os.path.join(os.path.dirname(__file__), "logs")
@@ -610,6 +952,7 @@ if __name__ == "__main__":
                 "cx": drone_spawn_cx,
                 "cy": drone_spawn_cy,
             },
+            "surface_height_map": _surface_height_payload(table_surface_cells),
         }
         _atomic_write_json(controller_progress_path, progress_payload)
 
@@ -715,9 +1058,27 @@ if __name__ == "__main__":
             y_pos = observation["gps"]["y"]
             yaw = observation["imu"]["yaw"]
 
-            coverages = env_mgr.compute_cell_coverages(x_pos, y_pos, yaw)
-            visible_mask = env_mgr.coverage_to_visible_mask(
+            floor_coverages = env_mgr_floor.compute_cell_coverages(x_pos, y_pos, yaw)
+            table_coverages = env_mgr_table.compute_cell_coverages(x_pos, y_pos, yaw)
+            coverages = (
+                _merge_coverages_by_surface(
+                    floor_coverages_rc=floor_coverages,
+                    table_coverages_rc=table_coverages,
+                    table_cells_cxcy=table_surface_cells,
+                )
+                if ENABLE_HEIGHT_AWARE_FOV
+                else dict(floor_coverages)
+            )
+            visible_mask = env_mgr_floor.coverage_to_visible_mask(
                 coverages,
+                threshold=COVERAGE_UPDATE_THRESHOLD,
+            )
+            floor_visible_mask = env_mgr_floor.coverage_to_visible_mask(
+                floor_coverages,
+                threshold=COVERAGE_UPDATE_THRESHOLD,
+            )
+            table_visible_mask = env_mgr_table.coverage_to_visible_mask(
+                table_coverages,
                 threshold=COVERAGE_UPDATE_THRESHOLD,
             )
 
@@ -727,11 +1088,15 @@ if __name__ == "__main__":
             if current_cell_cxcy is not None:
                 visited_cells.add(current_cell_cxcy)
 
-            coverages_cxcy = dict_rc_to_cxcy(coverages)
-            visible_mask_cxcy = dict_rc_to_cxcy(visible_mask)
-
-            det_conf_rc = {}
-            det_meta_rc = {}
+            # Target-belief evidence remains a max-confidence map per cell because the
+            # old AIF policy expects that shape. The raw/event lists below keep every
+            # detection, including multiple detections in the same cell and non-target
+            # classes such as desks, so claim logic and future table-aware policies do
+            # not lose information.
+            det_conf_rc = {}          # target-only max confidence per cell, for old AIF belief updates
+            det_meta_rc = {}          # metadata for the target event that set det_conf_rc[cell]
+            det_all_events_rc = []    # all accepted detections, including desks
+            det_target_events_rc = [] # all accepted target detections; no per-cell collapse
             detector_output = None
 
             process_detection_this_step = _should_process_detection(
@@ -750,15 +1115,56 @@ if __name__ == "__main__":
                         drone_y=y_pos,
                         drone_yaw=yaw,
                     )
-                    for cell, meta in det_raw.items():
-                        if not visible_mask.get(cell, False):
+
+                    # New GT detectors return a list of detection events. Keep a compatibility
+                    # path for the old dict[(row,col)] = meta format.
+                    if isinstance(det_raw, dict):
+                        raw_events = []
+                        for cell, meta in det_raw.items():
+                            ev = dict(meta)
+                            ev["cell_rc"] = cell
+                            raw_events.append(ev)
+                    else:
+                        raw_events = list(det_raw or [])
+
+                    for raw_event in raw_events:
+                        cell_rc = raw_event.get("cell_rc", None)
+                        if cell_rc is None:
                             continue
-                        det_conf_rc[cell] = float(meta["confidence"])
-                        det_meta_rc[cell] = {
-                            "class_id": int(meta["class_id"]),
-                            "label": str(meta.get("label", meta.get("class_name", "unknown"))),
-                            "class_name": str(meta.get("class_name", meta.get("label", "unknown"))),
+                        cell_rc = (int(cell_rc[0]), int(cell_rc[1]))
+
+                        # Analytic GT still needs the controller FoV mask. Camera-recognition
+                        # GT already means Webots saw the object in the rendered camera frame.
+                        if GT_DETECTOR_BACKEND == "analytic_fov" and not visible_mask.get(cell_rc, False):
+                            continue
+
+                        conf = float(raw_event.get("confidence", 0.0))
+                        class_id = int(raw_event.get("class_id", -1))
+                        class_name = str(raw_event.get("class_name", raw_event.get("label", "unknown")))
+                        label = str(raw_event.get("label", class_name))
+
+                        event = {
+                            **raw_event,
+                            "cell_rc": cell_rc,
+                            "confidence": conf,
+                            "class_id": class_id,
+                            "label": label,
+                            "class_name": class_name,
                         }
+                        det_all_events_rc.append(event)
+
+                        if not _is_target_object_class(class_name, class_id):
+                            continue
+
+                        det_target_events_rc.append(event)
+                        prev = det_conf_rc.get(cell_rc, 0.0)
+                        if conf > prev:
+                            det_conf_rc[cell_rc] = conf
+                            det_meta_rc[cell_rc] = {
+                                "class_id": class_id,
+                                "label": label,
+                                "class_name": class_name,
+                            }
                 else:
                     assert detector is not None
                     detector_output = detector.process(
@@ -768,16 +1174,47 @@ if __name__ == "__main__":
                         timestamp=observation["camera"]["time"],
                     )
 
-                    img_w = observation["camera"]["width"]
-                    img_h = observation["camera"]["height"]
+                    img_w = int(observation["camera"]["width"])
+                    img_h = int(observation["camera"]["height"])
 
+                    raw_detection_events = []
                     for det in detector_output.detections:
-                        bbox = det.get("bbox_xyxy")
+                        bbox = _clamp_bbox_xyxy(det.get("bbox_xyxy"), img_w=img_w, img_h=img_h)
+                        if bbox is None:
+                            continue
+
                         conf = float(det.get("confidence", 0.0))
                         class_id = int(det.get("class_id", -1))
                         label = str(det.get("label", "unknown"))
+                        class_name = str(det.get("class_name", label))
 
-                        cell_rc = env_mgr.detection_cell_from_bbox(
+                        raw_detection_events.append(
+                            {
+                                **det,
+                                "bbox_xyxy": bbox,
+                                "confidence": conf,
+                                "class_id": class_id,
+                                "label": label,
+                                "class_name": class_name,
+                            }
+                        )
+
+                    # First pass: collect desk/table bboxes and use the table-plane
+                    # projection to mark all grid cells covered by the detected desk bbox.
+                    # This is perception-derived surface discovery, not supervisor injection.
+                    desk_bboxes = []
+                    for det in raw_detection_events:
+                        class_id = int(det.get("class_id", -1))
+                        class_name = str(det.get("class_name", det.get("label", "unknown")))
+                        conf = float(det.get("confidence", 0.0))
+                        if not _is_desk_object_class(class_name, class_id):
+                            continue
+
+                        bbox = det.get("bbox_xyxy")
+                        desk_bboxes.append(bbox)
+
+                        covered_cells_rc = _sample_bbox_projected_cells_rc(
+                            env_mgr_table,
                             bbox_xyxy=bbox,
                             img_w=img_w,
                             img_h=img_h,
@@ -785,33 +1222,193 @@ if __name__ == "__main__":
                             drone_y=y_pos,
                             drone_yaw=yaw,
                         )
+                        primary_cell_rc = env_mgr_table.detection_cell_from_bbox(
+                            bbox_xyxy=bbox,
+                            img_w=img_w,
+                            img_h=img_h,
+                            drone_x=x_pos,
+                            drone_y=y_pos,
+                            drone_yaw=yaw,
+                        )
+                        if primary_cell_rc is None and covered_cells_rc:
+                            primary_cell_rc = sorted(covered_cells_rc)[0]
+
+                        if conf >= SURFACE_DETECTION_CONF_THRESHOLD:
+                            for rc in covered_cells_rc:
+                                cell_cxcy = rc_to_cxcy(rc)
+                                if cell_cxcy is not None:
+                                    table_surface_cells.add((int(cell_cxcy[0]), int(cell_cxcy[1])))
+
+                        if primary_cell_rc is not None:
+                            event = {
+                                **det,
+                                "cell_rc": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
+                                "cell_rc_table": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
+                                "covered_cells_rc": sorted([[int(r), int(c)] for (r, c) in covered_cells_rc]),
+                                "surface_assumption": "table",
+                            }
+                            det_all_events_rc.append(event)
+
+                    # Second pass: map target bboxes. For targets, compute both the
+                    # floor-plane and table-plane cell. Use table projection when the
+                    # target overlaps a desk bbox in the same frame, or when the
+                    # table-plane cell is already known as a table-height cell.
+                    for det in raw_detection_events:
+                        class_id = int(det.get("class_id", -1))
+                        class_name = str(det.get("class_name", det.get("label", "unknown")))
+                        if not _is_target_object_class(class_name, class_id):
+                            continue
+
+                        bbox = det.get("bbox_xyxy")
+                        conf = float(det.get("confidence", 0.0))
+                        label = str(det.get("label", class_name))
+
+                        floor_cell_rc = env_mgr_floor.detection_cell_from_bbox(
+                            bbox_xyxy=bbox,
+                            img_w=img_w,
+                            img_h=img_h,
+                            drone_x=x_pos,
+                            drone_y=y_pos,
+                            drone_yaw=yaw,
+                        )
+                        table_cell_rc = env_mgr_table.detection_cell_from_bbox(
+                            bbox_xyxy=bbox,
+                            img_w=img_w,
+                            img_h=img_h,
+                            drone_x=x_pos,
+                            drone_y=y_pos,
+                            drone_yaw=yaw,
+                        )
+
+                        overlaps_desk = _bbox_overlaps_any_desk(bbox, desk_bboxes)
+                        table_cell_cxcy = rc_to_cxcy(table_cell_rc) if table_cell_rc is not None else None
+                        table_cell_is_known = (table_cell_cxcy in table_surface_cells) if table_cell_cxcy is not None else False
+
+                        use_table_projection = bool(overlaps_desk or table_cell_is_known)
+                        cell_rc = table_cell_rc if use_table_projection else floor_cell_rc
+                        if cell_rc is None:
+                            # If the preferred projection failed, use the other one as a
+                            # last-resort mapping for a real image detection.
+                            cell_rc = floor_cell_rc if table_cell_rc is None else table_cell_rc
                         if cell_rc is None:
                             continue
-                        if not visible_mask.get(cell_rc, False):
-                            continue
+                        cell_rc = (int(cell_rc[0]), int(cell_rc[1]))
+
+                        event = {
+                            **det,
+                            "cell_rc": cell_rc,
+                            "cell_rc_floor": None if floor_cell_rc is None else (int(floor_cell_rc[0]), int(floor_cell_rc[1])),
+                            "cell_rc_table": None if table_cell_rc is None else (int(table_cell_rc[0]), int(table_cell_rc[1])),
+                            "bbox_overlaps_desk": bool(overlaps_desk),
+                            "table_cell_is_known": bool(table_cell_is_known),
+                            "surface_assumption": "table" if use_table_projection else "floor",
+                            "confidence": conf,
+                            "class_id": class_id,
+                            "label": label,
+                            "class_name": class_name,
+                        }
+                        det_all_events_rc.append(event)
+                        det_target_events_rc.append(event)
+
                         prev = det_conf_rc.get(cell_rc, 0.0)
                         if conf > prev:
                             det_conf_rc[cell_rc] = conf
                             det_meta_rc[cell_rc] = {
                                 "class_id": class_id,
                                 "label": label,
-                                "class_name": label,
+                                "class_name": class_name,
+                                "surface_assumption": event["surface_assumption"],
                             }
+
+                # Surface discovery: any desk/table detection flags its mapped cells as
+                # table-height. This is intentionally perception-derived, not injected
+                # from supervisor geometry. Real YOLO desk detections may already carry
+                # covered_cells_rc from bbox sampling; GT desk detections can be sampled
+                # here from their bbox_center_px/bbox_size_px if available.
+                for event in det_all_events_rc:
+                    class_id = int(event.get("class_id", -1))
+                    class_name = str(event.get("class_name", event.get("label", "unknown")))
+                    conf = float(event.get("confidence", 0.0))
+                    if conf < SURFACE_DETECTION_CONF_THRESHOLD:
+                        continue
+                    if not _is_desk_object_class(class_name, class_id):
+                        continue
+
+                    cells_to_mark_rc = set()
+                    for rc in event.get("covered_cells_rc", []) or []:
+                        try:
+                            cells_to_mark_rc.add((int(rc[0]), int(rc[1])))
+                        except Exception:
+                            continue
+
+                    if not cells_to_mark_rc:
+                        bbox = _event_bbox_xyxy(event)
+                        if bbox is not None:
+                            try:
+                                img_w_s = int(observation["camera"]["width"])
+                                img_h_s = int(observation["camera"]["height"])
+                                cells_to_mark_rc |= _sample_bbox_projected_cells_rc(
+                                    env_mgr_table,
+                                    bbox_xyxy=bbox,
+                                    img_w=img_w_s,
+                                    img_h=img_h_s,
+                                    drone_x=x_pos,
+                                    drone_y=y_pos,
+                                    drone_yaw=yaw,
+                                )
+                            except Exception:
+                                pass
+
+                    if not cells_to_mark_rc:
+                        cell_rc = event.get("cell_rc", None)
+                        if cell_rc is not None:
+                            try:
+                                cells_to_mark_rc.add((int(cell_rc[0]), int(cell_rc[1])))
+                            except Exception:
+                                pass
+
+                    for rc in cells_to_mark_rc:
+                        cell_cxcy = rc_to_cxcy(rc)
+                        if cell_cxcy is not None:
+                            table_surface_cells.add((int(cell_cxcy[0]), int(cell_cxcy[1])))
+
+                if ENABLE_HEIGHT_AWARE_FOV:
+                    # Recompute the selected coverage map after incorporating desk detections
+                    # from this frame, so current-frame target evidence in table cells is not
+                    # weighted with the over-large floor footprint.
+                    coverages = _merge_coverages_by_surface(
+                        floor_coverages_rc=floor_coverages,
+                        table_coverages_rc=table_coverages,
+                        table_cells_cxcy=table_surface_cells,
+                    )
+                    visible_mask = env_mgr_floor.coverage_to_visible_mask(
+                        coverages,
+                        threshold=COVERAGE_UPDATE_THRESHOLD,
+                    )
 
                 last_detection_step = step_count
                 last_detection_time_s = time_now
 
+            coverages_cxcy = dict_rc_to_cxcy(coverages)
+            visible_mask_cxcy = dict_rc_to_cxcy(visible_mask)
+
             det_conf_cxcy = dict_rc_to_cxcy(det_conf_rc)
             det_meta_cxcy = dict_rc_to_cxcy(det_meta_rc)
+            det_all_events_cxcy = [_detection_event_rc_to_cxcy(e) for e in det_all_events_rc]
+            det_target_events_cxcy = [_detection_event_rc_to_cxcy(e) for e in det_target_events_rc]
 
-            # Generic detection field for AIF
+            # Generic detection field for AIF remains target-only for the old policy.
             det_conf_generic_cxcy = dict(det_conf_cxcy)
 
-            # Policy only receives evidence on processed perception steps
+            # Policy only receives evidence on processed perception steps. The old AIF
+            # policy uses det_confidence; future table-aware policies can read the event lists.
             policy_visible_mask_cxcy = visible_mask_cxcy if process_detection_this_step else {}
             policy_det_conf_generic_cxcy = det_conf_generic_cxcy if process_detection_this_step else {}
             policy_det_conf_cxcy = det_conf_cxcy if process_detection_this_step else {}
             policy_det_meta_cxcy = det_meta_cxcy if process_detection_this_step else {}
+            policy_det_all_events_cxcy = det_all_events_cxcy if process_detection_this_step else []
+            policy_det_target_events_cxcy = det_target_events_cxcy if process_detection_this_step else []
+            surface_height_map_payload = _surface_height_payload(table_surface_cells)
 
             best_obj = None
             if det_conf_cxcy:
@@ -833,9 +1430,19 @@ if __name__ == "__main__":
             if process_detection_this_step:
                 current_seen_keys = set()
 
-                for cell, conf in det_conf_cxcy.items():
-                    meta = det_meta_cxcy.get(cell, {})
-                    class_name = str(meta.get("class_name", meta.get("label", "unknown")))
+                for event in det_target_events_cxcy:
+                    cell = event.get("cell", None)
+                    if cell is None:
+                        continue
+
+                    conf = float(event.get("confidence", 0.0))
+                    class_id = int(event.get("class_id", -1))
+                    class_name = str(event.get("class_name", event.get("label", "unknown")))
+
+                    # Desk and any future context classes are allowed to exist in the
+                    # detection stream, but only target objects can become found claims.
+                    if not _is_target_object_class(class_name, class_id):
+                        continue
 
                     candidate_key = (
                         int(cell[0]),
@@ -846,7 +1453,7 @@ if __name__ == "__main__":
                     if candidate_key in claimed_found_objects:
                         continue
 
-                    if float(conf) < FOUND_DET_THRESHOLD:
+                    if conf < FOUND_DET_THRESHOLD:
                         continue
 
                     current_seen_keys.add(candidate_key)
@@ -858,7 +1465,7 @@ if __name__ == "__main__":
 
                         print(
                             f"[FOUND CLAIM] cell={(int(cell[0]), int(cell[1]))} class={class_name} "
-                            f"conf={float(conf):.2f} streak={_found_streak_counts[candidate_key]}",
+                            f"conf={conf:.2f} streak={_found_streak_counts[candidate_key]}",
                             flush=True,
                         )
 
@@ -868,7 +1475,7 @@ if __name__ == "__main__":
                                 f"{time_now:.6f},{x_pos:.6f},{y_pos:.6f},"
                                 f"{int(cur_cx)},{int(cur_cy)},"
                                 f"{int(cell[0])},{int(cell[1])},"
-                                f"{class_name},{float(conf):.6f}\n"
+                                f"{class_name},{conf:.6f}\n"
                             )
                             claim_log_file.flush()
 
@@ -892,7 +1499,7 @@ if __name__ == "__main__":
                     f"yaw={yaw:.3f} rad ({yaw * 180.0 / 3.14159:.1f} deg)"
                 )
                 print(f"  current_cell(cx,cy)={current_cell_cxcy}")
-                print(f"  coverages: {len(coverages)} cells intersect FoV; {num_vis} >= {COVERAGE_UPDATE_THRESHOLD:.2f}")
+                print(f"  coverages: {len(coverages)} cells intersect FoV; {num_vis} >= {COVERAGE_UPDATE_THRESHOLD:.2f}; table_cells={len(table_surface_cells)}")
                 for (r, c), frac in top_rc:
                     print(f"    cell=(cx={c},cy={r}) coverage={frac*100:5.1f}% visible={visible_mask[(r,c)]}")
 
@@ -934,7 +1541,11 @@ if __name__ == "__main__":
                     "det_confidence": policy_det_conf_generic_cxcy,
                     "det_confidence_multiclass": policy_det_conf_cxcy,
                     "det_metadata_multiclass": policy_det_meta_cxcy,
+                    "detections_all": policy_det_all_events_cxcy,
+                    "target_detections": policy_det_target_events_cxcy,
                     "perception_processed_this_step": bool(process_detection_this_step),
+                    "surface_height_map": surface_height_map_payload,
+                    "table_cells": sorted(list(table_surface_cells)),
                 },
                 "task": {
                     "found_cells": sorted(list(claimed_found_cells)),
@@ -963,6 +1574,22 @@ if __name__ == "__main__":
                     "half_right": fov_spec.half_right,
                     "forward": fov_spec.forward,
                     "backward": fov_spec.backward,
+                },
+                "fov_spec_by_surface": {
+                    "floor": {
+                        "height_m": float(FLOOR_HEIGHT_M),
+                        "half_left": floor_fov_spec.half_left,
+                        "half_right": floor_fov_spec.half_right,
+                        "forward": floor_fov_spec.forward,
+                        "backward": floor_fov_spec.backward,
+                    },
+                    "table": {
+                        "height_m": float(TABLE_HEIGHT_M),
+                        "half_left": table_fov_spec.half_left,
+                        "half_right": table_fov_spec.half_right,
+                        "forward": table_fov_spec.forward,
+                        "backward": table_fov_spec.backward,
+                    },
                 },
             }
 
@@ -1032,9 +1659,9 @@ if __name__ == "__main__":
 
             if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
                 if USE_GROUND_TRUTH_DETECTIONS:
-                    det_count = len(det_conf_rc)
+                    det_count = len(det_all_events_rc)
                 else:
-                    det_count = 0 if detector_output is None else len(detector_output.detections)
+                    det_count = len(det_all_events_rc)
 
                 logger.log_step(
                     time=observation["time"],
