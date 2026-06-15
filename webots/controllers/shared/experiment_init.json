@@ -1,0 +1,30 @@
+{
+  "seed": 100,
+  "scenario": "mixed_tables",
+  "target_setup": "mixed_tables",
+  "drone_spawn": {
+    "x": -1.7716537244793484,
+    "y": -0.2704379729158717,
+    "yaw": 0.0,
+    "cx": 1,
+    "cy": 5
+  },
+  "table_scenario": {
+    "scenario": "mixed_tables",
+    "num_tables": 3,
+    "num_targets": 6,
+    "num_bottles": 3,
+    "num_cans": 3,
+    "p_target_on_table": 0.9,
+    "target_spawn_counts": {
+      "on_table": 5,
+      "off_table": 1
+    },
+    "empty_table_ids": [],
+    "forced_empty_table_id": null,
+    "force_empty_this_run": false,
+    "desk_spawn_edge_margin_m": 0.05,
+    "desk_floor_exclusion_margin_m": 0.5,
+    "spawn_center_disc_radius_m": 0.15
+  }
+}

@@ -30,7 +30,7 @@ class AIFSaccadePolicy:
         yaw_options: Optional[List[float]] = None,
         planning_p_hit: float = 0.85,
         replan_cooldown_s: float = 0.4,
-        target_exclusion_detection_frames: int = 3,
+        target_exclusion_detection_frames: int = 2,
     ):
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))

@@ -34,6 +34,7 @@ experiments/outputs/
 runs/
 eval_runs*/
 logs*/
+logs/
 # logs_GT_*/
 *.log
 

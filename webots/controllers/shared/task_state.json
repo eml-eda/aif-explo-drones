@@ -1,0 +1,76 @@
+{
+  "status": "done",
+  "reason": "done",
+  "seed": 100,
+  "total_objects": 6,
+  "remaining_objects": 0,
+  "validated_found_cells": [
+    [
+      1,
+      8
+    ],
+    [
+      4,
+      10
+    ],
+    [
+      7,
+      3
+    ],
+    [
+      7,
+      8
+    ],
+    [
+      8,
+      2
+    ],
+    [
+      8,
+      3
+    ]
+  ],
+  "validated_found_objects": [
+    {
+      "cx": 8,
+      "cy": 2,
+      "class_name": "target_can",
+      "class_id": 1
+    },
+    {
+      "cx": 7,
+      "cy": 3,
+      "class_name": "target_bottle",
+      "class_id": 0
+    },
+    {
+      "cx": 8,
+      "cy": 3,
+      "class_name": "target_can",
+      "class_id": 1
+    },
+    {
+      "cx": 1,
+      "cy": 8,
+      "class_name": "target_bottle",
+      "class_id": 0
+    },
+    {
+      "cx": 7,
+      "cy": 8,
+      "class_name": "target_can",
+      "class_id": 1
+    },
+    {
+      "cx": 4,
+      "cy": 10,
+      "class_name": "target_bottle",
+      "class_id": 0
+    }
+  ],
+  "timeout_s": 195.0,
+  "warmup_s": 15.0,
+  "episode_s": 180.0,
+  "now_time_s": 137.024,
+  "report_written": true
+}

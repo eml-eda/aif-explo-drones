@@ -41,8 +41,12 @@ class AIFSaccadeTablePolicy:
 
     This policy keeps the controller-facing structure of AIFSaccadePolicy but
     replaces the old binary target belief with a categorical belief over
-    {empty, unknown target, bottle, can}. It also uses the perception-derived
-    table-cell map as a contextual prior for target presence.
+    {empty, unknown target, bottle, can}. It also maintains a table-belief map
+    q_table from per-frame desk/table observations and uses q_table to condition
+    the target prior. Target/table no-detection evidence is coverage-dependent
+    inside the likelihood; positive detections use detector confidence directly.
+    The persistent perception-derived table-cell map remains available for
+    height-aware planning/FoV selection.
 
     The policy intentionally does not contain the old "exclude a detected target
     after N frames" mechanism. Already-classified cells become less attractive
@@ -57,16 +61,20 @@ class AIFSaccadeTablePolicy:
         # Contextual target priors. These are per-cell priors, not the global
         # probability that a target is on some table. Keep them tunable because
         # they depend on table size and number of spawned objects.
-        prior_target_floor: float = 0.035,
-        prior_target_table: float = 0.30,
+        prior_target_floor: float = 1.0 / 125.0,
+        prior_target_table: float = 5.0 / 18.0,
         prior_unknown_fraction: float = 0.70,
-        # Table context handling. New table cells are raised toward the table
-        # contextual prior once, when they first appear in grid["table_cells"].
-        table_context_blend_on_discovery: float = 0.65,
-        # Observation model.
+        # Explicit table-belief model. The persistent grid["table_cells"] map is
+        # still used as a certain height/context map for floor/table FoV selection,
+        # but q_table is updated from per-frame desk/table observations and is used
+        # to condition the target prior.
+        table_belief_prior: float = 18.0 / 143.0,
+        table_p_fa: float = 0.04,
+        table_no_detection_sensitivity: float = 0.50,
+        # Target observation model.
         p_fa: float = 0.04,
-        no_detection_sensitivity: float = 0.40,
-        class_report_prob: float = 0.88,
+        no_detection_sensitivity: float = 0.50,
+        class_report_prob: float = 1.00,
         class_accuracy: float = 0.92,
         unknown_class_report_prob: float = 0.25,
         peripheral_class_weight: float = 0.0,
@@ -74,15 +82,15 @@ class AIFSaccadeTablePolicy:
         # Action scoring.
         beta_info: float = 1.0,
         classification_preference_strength: float = 2.0,
-        generic_target_preference_strength: float = 0.45,
-        table_exploration_weight: float = 0.35,
+        generic_target_preference_strength: float = 0.0,
+        table_exploration_weight: float = 0.0,
         distance_cost_epsilon: float = 0.04,
-        planning_p_hit: float = 0.85,
+        planning_p_hit: float = 0.80,
         min_coverage_for_ig: float = 0.05,
         # Replanning/nav.
         yaw_options: Optional[List[float]] = None,
         replan_cooldown_s: float = 0.4,
-        classified_confidence_threshold: float = 0.85,
+        classified_confidence_threshold: float = 0.80,
     ):
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
@@ -90,7 +98,9 @@ class AIFSaccadeTablePolicy:
         self.prior_target_floor = float(np.clip(prior_target_floor, 1e-6, 1.0 - 1e-6))
         self.prior_target_table = float(np.clip(prior_target_table, 1e-6, 1.0 - 1e-6))
         self.prior_unknown_fraction = float(np.clip(prior_unknown_fraction, 0.0, 1.0))
-        self.table_context_blend_on_discovery = float(np.clip(table_context_blend_on_discovery, 0.0, 1.0))
+        self.table_belief_prior = float(np.clip(table_belief_prior, 1e-6, 1.0 - 1e-6))
+        self.table_p_fa = float(np.clip(table_p_fa, 1e-6, 1.0 - 1e-6))
+        self.table_no_detection_sensitivity = float(np.clip(table_no_detection_sensitivity, 1e-6, 1.0 - 1e-6))
 
         self.p_fa = float(np.clip(p_fa, 1e-6, 1.0 - 1e-6))
         self.no_detection_sensitivity = float(np.clip(no_detection_sensitivity, 1e-6, 1.0 - 1e-6))
@@ -124,12 +134,15 @@ class AIFSaccadeTablePolicy:
         self.env_mgr_table: Optional[GridEnvManager] = None
         self.navigator: Optional[Navigator] = None
 
-        # q_s[cy, cx, :] is Cat(empty, unknown_target, bottle, can)
+        # q_s[cy, cx, :] is Cat(empty, unknown_target, bottle, can).
         self.q_s: Optional[np.ndarray] = None
 
-        # Direct, perception-derived table context. This stores only cells that
-        # the controller has flagged from desk detections / surface map payloads.
-        self._known_table_cells: set[Cell] = set()
+        # q_table[cy, cx] is the policy's belief that the cell is table-height.
+        # It is distinct from grid["table_cells"], which remains the persistent
+        # certain context map used for height-aware FoV projection/planning.
+        self.q_table: Optional[np.ndarray] = None
+        self._applied_table_context_prob: Optional[np.ndarray] = None
+        self._seeded_persistent_table_cells: set[Cell] = set()
 
         self._snap_dir: Optional[str] = None
         self._stay_replan_streak: int = 0
@@ -172,12 +185,20 @@ class AIFSaccadeTablePolicy:
         visible_mask: Dict[Cell, bool] = self._normalize_bool_cell_map(grid.get("visible_mask", {}) or {})
         coverages: Dict[Cell, float] = self._normalize_float_cell_map(grid.get("coverages", {}) or {})
         table_cells = self._table_cells_from_grid(grid)
+        perception_step = bool(grid.get("perception_processed_this_step", False))
 
-        self._apply_table_context(table_cells)
+        # Reconstruct table belief from any persistent table-confidence map already
+        # accumulated by the controller before the policy first runs, then update
+        # q_table from this processed perception frame. q_table then conditions
+        # the target prior before target observations are assimilated.
+        self._seed_table_beliefs_from_persistent_confidence(grid)
+        if perception_step:
+            self._update_table_beliefs_from_observation(grid=grid)
+        self._apply_table_context_from_beliefs()
 
-        # Only updates on processed perception steps because the controller sends
-        # empty visible/evidence fields on throttled frames.
-        if bool(grid.get("perception_processed_this_step", False)):
+        # Only target-belief updates on processed perception steps because the
+        # controller sends empty visible/evidence fields on throttled frames.
+        if perception_step:
             self._update_beliefs_from_observation(
                 grid=grid,
                 current_cell=current_cell,
@@ -388,8 +409,20 @@ class AIFSaccadeTablePolicy:
         )
 
         self.q_s = np.zeros((self.grid_spec.rows, self.grid_spec.cols, 4), dtype=np.float64)
-        floor_prior = self._context_prior(is_table=False)
-        self.q_s[:, :, :] = floor_prior.reshape(1, 1, 4)
+        initial_table_prob = self.table_belief_prior
+        initial_target_prior = self._context_prior(table_prob=initial_table_prob)
+        self.q_s[:, :, :] = initial_target_prior.reshape(1, 1, 4)
+
+        self.q_table = np.full(
+            (self.grid_spec.rows, self.grid_spec.cols),
+            fill_value=initial_table_prob,
+            dtype=np.float64,
+        )
+        self._applied_table_context_prob = np.full(
+            (self.grid_spec.rows, self.grid_spec.cols),
+            fill_value=initial_table_prob,
+            dtype=np.float64,
+        )
 
         self._precompute_candidate_coverages()
 
@@ -467,8 +500,20 @@ class AIFSaccadeTablePolicy:
     # Belief model
     # ---------------------------------------------------------------------
 
-    def _context_prior(self, *, is_table: bool) -> np.ndarray:
-        p_present = self.prior_target_table if is_table else self.prior_target_floor
+    def _context_prior(self, *, table_prob: float = 0.0) -> np.ndarray:
+        """Target prior conditioned on table belief.
+
+        table_prob is q_T(i) = P(table at cell i). The target-present prior is
+        the mixture
+
+            P(target_i) = q_T(i) P(target_i | table)
+                        + (1-q_T(i)) P(target_i | floor).
+
+        The split of target-present mass into unknown/bottle/can follows the
+        same prior_unknown_fraction convention used by the previous policy.
+        """
+        q_t = float(np.clip(table_prob, 0.0, 1.0))
+        p_present = (1.0 - q_t) * self.prior_target_floor + q_t * self.prior_target_table
         p_present = float(np.clip(p_present, 1e-6, 1.0 - 1e-6))
 
         p_unknown = p_present * self.prior_unknown_fraction
@@ -476,41 +521,163 @@ class AIFSaccadeTablePolicy:
         prior = np.array([1.0 - p_present, p_unknown, p_known_each, p_known_each], dtype=np.float64)
         return self._normalize(prior)
 
-    def _apply_table_context(self, table_cells: set[Cell]) -> None:
-        """Apply P(target | table) context to newly discovered table cells.
+    def _seed_table_beliefs_from_persistent_confidence(self, grid: dict) -> None:
+        """Seed q_table from controller-persistent table confidence once per cell.
 
-        The controller's table_cells are already perception-derived from desk
-        detections and bbox probing, so this policy treats them as a direct
-        context variable instead of maintaining a separate q_table map. The
-        update is intentionally one-shot per newly discovered cell so table
-        context raises the prior without repeatedly erasing later no-detection
-        evidence.
+        The controller keeps grid["table_cells"] as the certain height map for
+        planning/FoV selection. For the probabilistic table belief, it also sends
+        the maximum desk-detection confidence that originally mapped each table
+        cell. This method prevents the policy from losing table context when the
+        controller discovered a desk before autonomous policy execution began.
         """
-        assert self.q_s is not None
-        if not table_cells:
+        if self.q_table is None:
             return
 
-        new_cells = set(table_cells) - set(self._known_table_cells)
-        if not new_cells:
+        raw = grid.get("table_confidence_persistent", None)
+        if raw is None:
+            raw = (grid.get("surface_height_map", {}) or {}).get("table_confidence_by_cell", {}) or {}
+
+        conf_map = self._normalize_float_cell_map(raw or {})
+        if not conf_map:
             return
 
-        rows, cols = self.q_s.shape[0], self.q_s.shape[1]
-        table_prior = self._context_prior(is_table=True)
-        alpha = self.table_context_blend_on_discovery
+        # If this same processed frame already carries fresh positive table
+        # evidence for a cell, let the normal Bayesian table update consume it
+        # instead of seeding and updating from the same bbox twice.
+        current_positive = set(self._normalize_float_cell_map(grid.get("table_confidence", {}) or {}).keys())
 
-        for cell in new_cells:
-            cx, cy = int(cell[0]), int(cell[1])
+        rows, cols = self.q_table.shape
+        for (cx, cy), conf in conf_map.items():
+            cx, cy = int(cx), int(cy)
             if not (0 <= cx < cols and 0 <= cy < rows):
                 continue
+            cell = (cx, cy)
+            if cell in self._seeded_persistent_table_cells or cell in current_positive:
+                continue
+            self.q_table[cy, cx] = max(float(self.q_table[cy, cx]), float(np.clip(conf, 0.0, 1.0)))
+            self._seeded_persistent_table_cells.add(cell)
 
-            q = self.q_s[cy, cx, :].copy()
-            # Do not weaken already strong evidence. Context can raise target
-            # plausibility, but it should not reduce a high present/class belief.
-            if self._present_prob(q) < self.prior_target_table:
-                q_new = (1.0 - alpha) * q + alpha * table_prior
-                self.q_s[cy, cx, :] = self._normalize(q_new)
+    def _update_table_beliefs_from_observation(self, *, grid: dict) -> None:
+        """Update q_table from per-frame table observations.
 
-        self._known_table_cells |= {(int(cx), int(cy)) for (cx, cy) in new_cells}
+        Positive evidence is grid["table_confidence"], produced by desk bbox
+        probing in the controller. Every cell hit by the same desk bbox receives
+        that bbox confidence. Negative evidence is available for cells in
+        grid["table_visible_mask"] that did not receive table_confidence in the
+        current processed perception frame.
+        """
+        if self.q_table is None:
+            return
+
+        table_conf = self._normalize_float_cell_map(grid.get("table_confidence", {}) or {})
+        table_visible = self._normalize_bool_cell_map(grid.get("table_visible_mask", {}) or {})
+        table_cov = self._normalize_float_cell_map(grid.get("table_coverages", {}) or {})
+
+        positive_cells = set(table_conf.keys())
+
+        # Positive table observations.
+        for cell, conf in table_conf.items():
+            coverage = float(table_cov.get(cell, 1.0))
+            self._update_table_cell_with_observation(
+                cell=cell,
+                table_detected=True,
+                confidence=float(conf),
+                coverage=coverage,
+            )
+
+        # Negative table observations for visible cells that did not receive a
+        # desk/table bbox projection in this processed perception frame.
+        for cell, vis in table_visible.items():
+            if not vis or cell in positive_cells:
+                continue
+            coverage = float(table_cov.get(cell, 0.0))
+            if coverage <= 0.0:
+                continue
+            self._update_table_cell_with_observation(
+                cell=cell,
+                table_detected=False,
+                confidence=0.0,
+                coverage=coverage,
+            )
+
+    def _update_table_cell_with_observation(
+        self,
+        *,
+        cell: Cell,
+        table_detected: bool,
+        confidence: float,
+        coverage: float,
+    ) -> None:
+        """Binary Bayesian update for q_table(cell)."""
+        assert self.q_table is not None
+        cx, cy = int(cell[0]), int(cell[1])
+        rows, cols = self.q_table.shape
+        if not (0 <= cx < cols and 0 <= cy < rows):
+            return
+
+        q_prior_table = float(self.q_table[cy, cx])
+
+        # Positive table observations use the desk detector confidence directly.
+        # For no-table observations, coverage weakens only the negative evidence:
+        # with low coverage, absence of a desk bbox is weak evidence against table
+        # presence. False-alarm probability remains coverage-independent because
+        # the main practical failure mode is cell/bbox misassignment, not random
+        # hallucination proportional to visible area.
+        coverage = float(np.clip(coverage, 0.0, 1.0))
+        p_fa = self.table_p_fa
+
+        if table_detected:
+            q_prior_table = max(q_prior_table, self.table_belief_prior)
+            p_hit = float(confidence)
+        else:
+            p_hit = max(p_fa, coverage * self.table_no_detection_sensitivity)
+
+        p_hit = float(np.clip(p_hit, 1e-6, 1.0 - 1e-6))
+
+        prior = np.array([1.0 - q_prior_table, q_prior_table], dtype=np.float64)
+        likelihood = (
+            np.array([p_fa, p_hit], dtype=np.float64)
+            if table_detected
+            else np.array([1.0 - p_fa, 1.0 - p_hit], dtype=np.float64)
+        )
+
+        post_unnorm = likelihood * prior
+        z = float(post_unnorm.sum())
+        if z <= 1e-12:
+            return
+        full_post = post_unnorm / z
+        self.q_table[cy, cx] = float(np.clip(float(full_post[1]), 0.0, 1.0))
+
+    def _apply_table_context_from_beliefs(self) -> None:
+        """Condition target beliefs on q_table without overwriting evidence.
+
+        If the context prior changes from P_old(S) to P_new(S), and the current
+        target posterior is q(S) ∝ L_target(S) P_old(S), then the corresponding
+        posterior under the new context prior is
+
+            q_new(S) ∝ q(S) · P_new(S) / P_old(S).
+
+        This is the principled replacement for the previous one-shot blend:
+        q_table itself determines the strength of the table prior effect.
+        """
+        assert self.q_s is not None
+        if self.q_table is None or self._applied_table_context_prob is None:
+            return
+
+        rows, cols = self.q_table.shape
+        for cy in range(rows):
+            for cx in range(cols):
+                old_t = float(self._applied_table_context_prob[cy, cx])
+                new_t = float(self.q_table[cy, cx])
+                if abs(new_t - old_t) <= 1e-6:
+                    continue
+
+                prior_old = self._context_prior(table_prob=old_t)
+                prior_new = self._context_prior(table_prob=new_t)
+                q = self.q_s[cy, cx, :].copy()
+                adjusted = q * (prior_new / np.maximum(prior_old, 1e-12))
+                self.q_s[cy, cx, :] = self._normalize(adjusted)
+                self._applied_table_context_prob[cy, cx] = new_t
 
     def _update_beliefs_from_observation(
         self,
@@ -555,9 +722,9 @@ class AIFSaccadeTablePolicy:
                 continue
 
             # Multiple detector events in a cell are handled sequentially rather
-            # than collapsed to one max-confidence class. This keeps conflicting
-            # bottle/can evidence visible to the posterior, while coverage still
-            # bounds total update strength.
+            # than collapsed to one max-confidence class. With the coverage-dependent
+            # likelihood, coverage is only relevant for no-detection evidence, so
+            # positive detections use detector confidence directly.
             per_event_coverage = coverage / float(max(1, len(events)))
             for event in sorted(events, key=lambda e: float(e.get("confidence", 0.0)), reverse=True):
                 class_name = self._event_class_name(event)
@@ -611,15 +778,22 @@ class AIFSaccadeTablePolicy:
         assert self.q_s is not None
         cx, cy = int(cell[0]), int(cell[1])
 
-        # If a target detection exists, trust the detector confidence directly as
-        # the hit probability. If there is no detection, use the configured
-        # no-detection sensitivity: the assumed probability that the detector
-        # would have fired if a target had actually been present in this visible
-        # cell. Higher values make no-detection evidence more aggressive.
+        # Coverage is now part of the observation likelihood rather than an
+        # ex-post interpolation between prior and posterior. Positive target
+        # detections use the detector confidence directly: once a bbox exists, it
+        # is already positive evidence. For no-detection observations, coverage
+        # weakens only the negative evidence by lowering the assumed probability
+        # that the detector would have fired if a target had actually been present.
+        # p_fa remains fixed because false detections in this setup are mainly
+        # caused by bbox/cell misassignment near boundaries, not by a false-alarm
+        # rate proportional to visible cell area.
+        coverage = float(np.clip(coverage, 0.0, 1.0))
+
         if int(obs_index) == O_NO_TARGET:
-            p_hit = self.no_detection_sensitivity
+            p_hit = max(self.p_fa, coverage * self.no_detection_sensitivity)
         else:
             p_hit = float(confidence)
+
         p_hit = float(np.clip(p_hit, 1e-6, 1.0 - 1e-6))
 
         A = self._A_center(p_hit) if use_center_likelihood else self._A_visible(p_hit)
@@ -631,9 +805,7 @@ class AIFSaccadeTablePolicy:
             return
 
         full_post = post_unnorm / z
-        w = float(np.clip(coverage, 0.0, 1.0))
-        new_post = (1.0 - w) * prior + w * full_post
-        self.q_s[cy, cx, :] = self._normalize(new_post)
+        self.q_s[cy, cx, :] = self._normalize(full_post)
 
     def _A_visible(self, p_hit: float) -> np.ndarray:
         """Peripheral/no-fixation likelihood: target evidence is generic."""
@@ -878,11 +1050,6 @@ class AIFSaccadeTablePolicy:
         utility += self.classification_preference_strength * need * p_class_obs
         utility += self.generic_target_preference_strength * unknown_mass * p_generic_obs
 
-        # Mild boost for choosing a table cell as fixation while its target state
-        # is uncertain. The main table effect is still the contextual prior.
-        # if is_table:
-        #     utility *= 1.10
-
         return float(utility)
 
     @staticmethod
@@ -1028,6 +1195,12 @@ class AIFSaccadeTablePolicy:
                 value = value.get("cell")
             elif "cx" in value and "cy" in value:
                 value = (value.get("cx"), value.get("cy"))
+        if isinstance(value, str) and "," in value:
+            parts = value.split(",", 1)
+            try:
+                return (int(parts[0]), int(parts[1]))
+            except Exception:
+                return None
         if isinstance(value, (list, tuple)) and len(value) == 2:
             try:
                 return (int(value[0]), int(value[1]))
@@ -1201,6 +1374,19 @@ class AIFSaccadeTablePolicy:
                 })
         return out
 
+    def _q_table_cells_payload(self, threshold: float = 0.05) -> List[dict]:
+        if self.q_table is None:
+            return []
+        rows, cols = self.q_table.shape
+        out = []
+        for cy in range(rows):
+            for cx in range(cols):
+                q = float(self.q_table[cy, cx])
+                if q < float(threshold):
+                    continue
+                out.append({"cell": [int(cx), int(cy)], "p_table": q})
+        return out
+
     def _save_snapshot_npz(
         self,
         *,
@@ -1244,7 +1430,7 @@ class AIFSaccadeTablePolicy:
             "chosen_yaw": float(chosen[1]),
             "found_cells_debug_only": sorted([[int(c[0]), int(c[1])] for c in found_cells]),
             "table_cells": sorted([[int(c[0]), int(c[1])] for c in (table_cells or set())]),
-            "known_table_cells_internal": sorted([[int(c[0]), int(c[1])] for c in self._known_table_cells]),
+            "q_table_cells": self._q_table_cells_payload(),
             "classified_confidence_threshold": float(self.classified_confidence_threshold),
             "classified_cells": self._classified_cells_payload(),
             "visible_mask": {f"{k[0]},{k[1]}": bool(v) for k, v in visible_mask.items()},
@@ -1252,6 +1438,9 @@ class AIFSaccadeTablePolicy:
             "params": {
                 "prior_target_floor": float(self.prior_target_floor),
                 "prior_target_table": float(self.prior_target_table),
+                "table_belief_prior": float(self.table_belief_prior),
+                "table_p_fa": float(self.table_p_fa),
+                "table_no_detection_sensitivity": float(self.table_no_detection_sensitivity),
                 "p_fa": float(self.p_fa),
                 "no_detection_sensitivity": float(self.no_detection_sensitivity),
                 "beta_info": float(self.beta_info),
@@ -1266,6 +1455,7 @@ class AIFSaccadeTablePolicy:
         np.savez_compressed(
             path,
             q_s=self.q_s.astype(np.float32),
+            q_table=(self.q_table if self.q_table is not None else np.zeros_like(q_present)).astype(np.float32),
             q_present=q_present.astype(np.float32),
             q_class_confidence=q_class_conf.astype(np.float32),
             q_classification_need=q_need.astype(np.float32),

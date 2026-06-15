@@ -85,6 +85,17 @@ DESK_CLASS_NAME = "desk"
 DESK_CLASS_ID = 2
 SURFACE_DETECTION_CONF_THRESHOLD = 0.30
 
+# ---- Table-height shadow projection ----
+# Current-frame geometry correction: if a detected/persistent table-height cell
+# lies in the hypothetical floor FoV, cells behind it along the same camera ray
+# should use table-height coverage rather than floor-height coverage. This avoids
+# giving no-target/no-table evidence to floor cells that are actually occluded or
+# truncated by the raised table surface. These shadow cells are NOT persisted as
+# confirmed table cells and do NOT create positive table evidence.
+ENABLE_TABLE_SHADOW_PROJECTION = True
+TABLE_SHADOW_LATERAL_TOLERANCE_M = CELL_SIZE_M * 0.75
+TABLE_SHADOW_MAX_DEPTH_M = FOV_FORWARD_M + CELL_SIZE_M
+
 # ---- FoV → cell thresholds ----
 COVERAGE_UPDATE_THRESHOLD = 0.05
 
@@ -104,7 +115,7 @@ SNAPSHOT_ON_STUCK = True
 STUCK_REPLAN_LIMIT = 100
 
 # ---- Detection mode ----
-USE_GROUND_TRUTH_DETECTIONS = False
+USE_GROUND_TRUTH_DETECTIONS = True
 GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
@@ -224,7 +235,120 @@ def _merge_coverages_by_surface(
     return out
 
 
-def _surface_height_payload(table_cells_cxcy: set) -> dict:
+def _cell_center_xy_from_cxcy(grid_spec: GridSpec, cell_cxcy) -> tuple:
+    """Return metric center of a policy/report cell (cx, cy)."""
+    cx, cy = int(cell_cxcy[0]), int(cell_cxcy[1])
+    x0 = float(grid_spec.min_x) + cx * float(grid_spec.cell_size)
+    y0 = float(grid_spec.min_y) + cy * float(grid_spec.cell_size)
+    cs = float(grid_spec.cell_size)
+    return (x0 + 0.5 * cs, y0 + 0.5 * cs)
+
+
+def _cell_camera_forward_lateral(
+    *,
+    grid_spec: GridSpec,
+    cell_cxcy,
+    drone_x: float,
+    drone_y: float,
+    drone_yaw: float,
+) -> tuple:
+    """Cell-center coordinates in the drone/camera frame.
+
+    forward is positive in the drone yaw direction. lateral is the signed
+    sideways offset. Only relative forward and absolute lateral differences are
+    used by the table-shadow projection logic.
+    """
+    x, y = _cell_center_xy_from_cxcy(grid_spec, cell_cxcy)
+    dx = float(x) - float(drone_x)
+    dy = float(y) - float(drone_y)
+    cyaw = math.cos(float(drone_yaw))
+    syaw = math.sin(float(drone_yaw))
+    forward = dx * cyaw + dy * syaw
+    lateral = -dx * syaw + dy * cyaw
+    return (float(forward), float(lateral))
+
+
+def _effective_table_projection_cells(
+    *,
+    table_cells_cxcy: set,
+    floor_coverages_rc: dict,
+    drone_x: float,
+    drone_y: float,
+    drone_yaw: float,
+    grid_spec: GridSpec,
+    lateral_tolerance_m: float = TABLE_SHADOW_LATERAL_TOLERANCE_M,
+    max_shadow_depth_m: float = TABLE_SHADOW_MAX_DEPTH_M,
+) -> set:
+    """Return current-frame cells that should use table-height FoV projection.
+
+    This is a geometry/visibility correction, not table-belief propagation. The
+    returned set includes persistent perception-derived table cells plus transient
+    current-view shadow cells lying behind such table cells along the drone/camera
+    ray. Shadow cells are recomputed every control step and are not added to
+    table_surface_cells or table_confidence.
+    """
+    effective = {
+        (int(cx), int(cy))
+        for (cx, cy) in (table_cells_cxcy or set())
+    }
+
+    if not ENABLE_TABLE_SHADOW_PROJECTION or not table_cells_cxcy or not floor_coverages_rc:
+        return effective
+
+    floor_cells_cxcy = {
+        (int(c), int(r))
+        for (r, c) in floor_coverages_rc.keys()
+    }
+
+    lateral_tol = max(0.0, float(lateral_tolerance_m))
+    max_depth = max(0.0, float(max_shadow_depth_m))
+
+    table_cells_in_current_floor_fov = [
+        cell for cell in effective
+        if cell in floor_cells_cxcy
+    ]
+    if not table_cells_in_current_floor_fov:
+        return effective
+
+    table_coords = [
+        (
+            cell,
+            *_cell_camera_forward_lateral(
+                grid_spec=grid_spec,
+                cell_cxcy=cell,
+                drone_x=drone_x,
+                drone_y=drone_y,
+                drone_yaw=drone_yaw,
+            ),
+        )
+        for cell in table_cells_in_current_floor_fov
+    ]
+
+    for candidate in floor_cells_cxcy:
+        cand_forward, cand_lateral = _cell_camera_forward_lateral(
+            grid_spec=grid_spec,
+            cell_cxcy=candidate,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+
+        for _table_cell, table_forward, table_lateral in table_coords:
+            depth = cand_forward - table_forward
+            if depth <= 1e-9:
+                continue
+            if depth > max_depth:
+                continue
+            if abs(cand_lateral - table_lateral) > lateral_tol:
+                continue
+            effective.add(candidate)
+            break
+
+    return effective
+
+
+def _surface_height_payload(table_cells_cxcy: set, table_confidence_cxcy=None) -> dict:
+    table_confidence_cxcy = table_confidence_cxcy or {}
     return {
         "enabled": bool(ENABLE_HEIGHT_AWARE_FOV),
         "floor_height_m": float(FLOOR_HEIGHT_M),
@@ -233,6 +357,13 @@ def _surface_height_payload(table_cells_cxcy: set) -> dict:
         "height_by_cell": {
             f"{int(cx)},{int(cy)}": float(TABLE_HEIGHT_M)
             for (cx, cy) in sorted(table_cells_cxcy)
+        },
+        # Persistent max confidence with which each cell has been mapped as table-height.
+        # This lets table-belief policies seed q_table if the controller discovered
+        # a desk before the first autonomous policy update.
+        "table_confidence_by_cell": {
+            f"{int(cx)},{int(cy)}": float(conf)
+            for (cx, cy), conf in sorted(table_confidence_cxcy.items())
         },
     }
 
@@ -805,6 +936,7 @@ if __name__ == "__main__":
 
     visited_cells = set()
     table_surface_cells = set()  # discovered table-height cells, stored as (cx, cy)
+    table_surface_confidence = {}  # persistent max desk confidence by discovered table cell (cx, cy)
 
     autonomy_start_time = None
     gt_seed = int(experiment_init.get("seed", -1))
@@ -952,7 +1084,7 @@ if __name__ == "__main__":
                 "cx": drone_spawn_cx,
                 "cy": drone_spawn_cy,
             },
-            "surface_height_map": _surface_height_payload(table_surface_cells),
+            "surface_height_map": _surface_height_payload(table_surface_cells, table_surface_confidence),
         }
         _atomic_write_json(controller_progress_path, progress_payload)
 
@@ -1060,11 +1192,23 @@ if __name__ == "__main__":
 
             floor_coverages = env_mgr_floor.compute_cell_coverages(x_pos, y_pos, yaw)
             table_coverages = env_mgr_table.compute_cell_coverages(x_pos, y_pos, yaw)
+            effective_table_projection_cells = (
+                _effective_table_projection_cells(
+                    table_cells_cxcy=table_surface_cells,
+                    floor_coverages_rc=floor_coverages,
+                    drone_x=x_pos,
+                    drone_y=y_pos,
+                    drone_yaw=yaw,
+                    grid_spec=grid_spec,
+                )
+                if ENABLE_HEIGHT_AWARE_FOV
+                else set(table_surface_cells)
+            )
             coverages = (
                 _merge_coverages_by_surface(
                     floor_coverages_rc=floor_coverages,
                     table_coverages_rc=table_coverages,
-                    table_cells_cxcy=table_surface_cells,
+                    table_cells_cxcy=effective_table_projection_cells,
                 )
                 if ENABLE_HEIGHT_AWARE_FOV
                 else dict(floor_coverages)
@@ -1073,15 +1217,6 @@ if __name__ == "__main__":
                 coverages,
                 threshold=COVERAGE_UPDATE_THRESHOLD,
             )
-            floor_visible_mask = env_mgr_floor.coverage_to_visible_mask(
-                floor_coverages,
-                threshold=COVERAGE_UPDATE_THRESHOLD,
-            )
-            table_visible_mask = env_mgr_table.coverage_to_visible_mask(
-                table_coverages,
-                threshold=COVERAGE_UPDATE_THRESHOLD,
-            )
-
             current_cell_rc = grid_spec.rowcol_from_xy(x_pos, y_pos)
             current_cell_cxcy = rc_to_cxcy(current_cell_rc)
 
@@ -1097,6 +1232,7 @@ if __name__ == "__main__":
             det_meta_rc = {}          # metadata for the target event that set det_conf_rc[cell]
             det_all_events_rc = []    # all accepted detections, including desks
             det_target_events_rc = [] # all accepted target detections; no per-cell collapse
+            table_conf_rc = {}        # per-frame positive table evidence: max desk confidence per mapped cell
             detector_output = None
 
             process_detection_this_step = _should_process_detection(
@@ -1237,7 +1373,17 @@ if __name__ == "__main__":
                             for rc in covered_cells_rc:
                                 cell_cxcy = rc_to_cxcy(rc)
                                 if cell_cxcy is not None:
-                                    table_surface_cells.add((int(cell_cxcy[0]), int(cell_cxcy[1])))
+                                    cell_cxcy = (int(cell_cxcy[0]), int(cell_cxcy[1]))
+                                    rc_key = (int(rc[0]), int(rc[1]))
+                                    table_surface_cells.add(cell_cxcy)
+                                    table_surface_confidence[cell_cxcy] = max(
+                                        float(conf),
+                                        float(table_surface_confidence.get(cell_cxcy, 0.0)),
+                                    )
+                                    table_conf_rc[rc_key] = max(
+                                        float(conf),
+                                        float(table_conf_rc.get(rc_key, 0.0)),
+                                    )
 
                         if primary_cell_rc is not None:
                             event = {
@@ -1370,16 +1516,35 @@ if __name__ == "__main__":
                     for rc in cells_to_mark_rc:
                         cell_cxcy = rc_to_cxcy(rc)
                         if cell_cxcy is not None:
-                            table_surface_cells.add((int(cell_cxcy[0]), int(cell_cxcy[1])))
+                            cell_cxcy = (int(cell_cxcy[0]), int(cell_cxcy[1]))
+                            rc_key = (int(rc[0]), int(rc[1]))
+                            table_surface_cells.add(cell_cxcy)
+                            table_surface_confidence[cell_cxcy] = max(
+                                float(conf),
+                                float(table_surface_confidence.get(cell_cxcy, 0.0)),
+                            )
+                            table_conf_rc[rc_key] = max(
+                                float(conf),
+                                float(table_conf_rc.get(rc_key, 0.0)),
+                            )
 
                 if ENABLE_HEIGHT_AWARE_FOV:
                     # Recompute the selected coverage map after incorporating desk detections
-                    # from this frame, so current-frame target evidence in table cells is not
-                    # weighted with the over-large floor footprint.
+                    # from this frame, so current-frame target/table evidence uses table-height
+                    # geometry for both directly detected table cells and transient cells
+                    # geometrically behind them from the current viewpoint.
+                    effective_table_projection_cells = _effective_table_projection_cells(
+                        table_cells_cxcy=table_surface_cells,
+                        floor_coverages_rc=floor_coverages,
+                        drone_x=x_pos,
+                        drone_y=y_pos,
+                        drone_yaw=yaw,
+                        grid_spec=grid_spec,
+                    )
                     coverages = _merge_coverages_by_surface(
                         floor_coverages_rc=floor_coverages,
                         table_coverages_rc=table_coverages,
-                        table_cells_cxcy=table_surface_cells,
+                        table_cells_cxcy=effective_table_projection_cells,
                     )
                     visible_mask = env_mgr_floor.coverage_to_visible_mask(
                         coverages,
@@ -1396,6 +1561,14 @@ if __name__ == "__main__":
             det_meta_cxcy = dict_rc_to_cxcy(det_meta_rc)
             det_all_events_cxcy = [_detection_event_rc_to_cxcy(e) for e in det_all_events_rc]
             det_target_events_cxcy = [_detection_event_rc_to_cxcy(e) for e in det_target_events_rc]
+            table_conf_cxcy = dict_rc_to_cxcy(table_conf_rc)
+
+            # q_table positive evidence comes from per-frame desk bbox projections.
+            # q_table negative evidence must use the same surface-selected visibility
+            # and coverage as target belief updates: floor coverage for normal cells,
+            # table-height coverage for known/effective table-projection cells.
+            table_visible_mask_cxcy = visible_mask_cxcy
+            table_coverages_cxcy = coverages_cxcy
 
             # Generic detection field for AIF remains target-only for the old policy.
             det_conf_generic_cxcy = dict(det_conf_cxcy)
@@ -1408,7 +1581,10 @@ if __name__ == "__main__":
             policy_det_meta_cxcy = det_meta_cxcy if process_detection_this_step else {}
             policy_det_all_events_cxcy = det_all_events_cxcy if process_detection_this_step else []
             policy_det_target_events_cxcy = det_target_events_cxcy if process_detection_this_step else []
-            surface_height_map_payload = _surface_height_payload(table_surface_cells)
+            policy_table_confidence_cxcy = table_conf_cxcy if process_detection_this_step else {}
+            policy_table_visible_mask_cxcy = table_visible_mask_cxcy if process_detection_this_step else {}
+            policy_table_coverages_cxcy = table_coverages_cxcy if process_detection_this_step else {}
+            surface_height_map_payload = _surface_height_payload(table_surface_cells, table_surface_confidence)
 
             best_obj = None
             if det_conf_cxcy:
@@ -1499,7 +1675,10 @@ if __name__ == "__main__":
                     f"yaw={yaw:.3f} rad ({yaw * 180.0 / 3.14159:.1f} deg)"
                 )
                 print(f"  current_cell(cx,cy)={current_cell_cxcy}")
-                print(f"  coverages: {len(coverages)} cells intersect FoV; {num_vis} >= {COVERAGE_UPDATE_THRESHOLD:.2f}; table_cells={len(table_surface_cells)}")
+                print(
+                    f"  coverages: {len(coverages)} cells intersect FoV; {num_vis} >= {COVERAGE_UPDATE_THRESHOLD:.2f}; "
+                    f"table_cells={len(table_surface_cells)} effective_table_projection_cells={len(effective_table_projection_cells)}"
+                )
                 for (r, c), frac in top_rc:
                     print(f"    cell=(cx={c},cy={r}) coverage={frac*100:5.1f}% visible={visible_mask[(r,c)]}")
 
@@ -1543,9 +1722,22 @@ if __name__ == "__main__":
                     "det_metadata_multiclass": policy_det_meta_cxcy,
                     "detections_all": policy_det_all_events_cxcy,
                     "target_detections": policy_det_target_events_cxcy,
+                    # Per-frame table-observation fields for policies that maintain q_table.
+                    # table_confidence is positive desk/table evidence for cells hit by
+                    # bbox probing. table_visible_mask/table_coverages provide negative
+                    # no-table evidence using the already surface-selected coverage map.
+                    "table_confidence": policy_table_confidence_cxcy,
+                    "table_visible_mask": policy_table_visible_mask_cxcy,
+                    "table_coverages": policy_table_coverages_cxcy,
+                    "table_confidence_persistent": dict(table_surface_confidence),
                     "perception_processed_this_step": bool(process_detection_this_step),
                     "surface_height_map": surface_height_map_payload,
                     "table_cells": sorted(list(table_surface_cells)),
+                    # Current-frame geometry-only projection mask. Includes table_cells plus
+                    # transient cells behind perceived table cells that use table-height
+                    # coverage for this observation. It is diagnostic only; policy logic
+                    # consumes the already merged coverages/visible masks above.
+                    "effective_table_projection_cells": sorted(list(effective_table_projection_cells)),
                 },
                 "task": {
                     "found_cells": sorted(list(claimed_found_cells)),

@@ -25,7 +25,7 @@ RectangleArena {
   floorAppearance PBRAppearance {
     baseColorMap ImageTexture {
       url [
-        "world_resources/white_square_plain_512.png"
+        "world_resources/white_square_border_512.png"
       ]
       filtering 1
     }
@@ -47,7 +47,7 @@ DEF CRAZYFLIE CrazyFlieDownCam {
 Robot {
   name "supervisor"
   supervisor TRUE
-  controller "worldgen_table_supervisor"
+  controller "worldgen_table_eval_supervisor"
   children [
   ]
 }
