@@ -52,7 +52,7 @@ EVAL_STATE_FILENAME = "eval_state.json"
 
 # ---- Experiment labels for report aggregation - EVAL mode ----
 SPAWN_CONDITIONS = "spawn15"
-TARGET_SETUP = "mixed_tables"  # options: "bottles_only", "mixed_easy", "mixed_tables", "mixed_hard"
+TARGET_SETUP = "mixed_easy"  # options: "bottles_only", "mixed_easy", "mixed_tables", "mixed_hard"
 
 # ---- Flight preference ----
 FLYING_ATTITUDE = 1.5
@@ -86,15 +86,20 @@ DESK_CLASS_ID = 2
 SURFACE_DETECTION_CONF_THRESHOLD = 0.30
 
 # ---- Table-height shadow projection ----
-# Current-frame geometry correction: if a detected/persistent table-height cell
-# lies in the hypothetical floor FoV, cells behind it along the same camera ray
-# should use table-height coverage rather than floor-height coverage. This avoids
-# giving no-target/no-table evidence to floor cells that are actually occluded or
-# truncated by the raised table surface. These shadow cells are NOT persisted as
-# confirmed table cells and do NOT create positive table evidence.
+# Current-frame geometry correction for detected desk/table bboxes. Every
+# deterministic image-space probe of a desk bbox is projected onto both the
+# table plane and the floor plane. The table-plane cells remain persistent
+# perception-derived table cells; a floor-plane counterpart is retained only
+# when the same probe intersects the table plane in front of the drone and its
+# floor-plane intersection lies farther forward along the viewing direction.
+# This excludes the camera's rear strip from the transient correction while
+# preserving forward table-shadow protection. Transient cells are not persisted
+# and do not create positive table evidence.
 ENABLE_TABLE_SHADOW_PROJECTION = True
-TABLE_SHADOW_LATERAL_TOLERANCE_M = CELL_SIZE_M * 0.75
-TABLE_SHADOW_MAX_DEPTH_M = FOV_FORWARD_M + CELL_SIZE_M
+
+# Allows for 0.5 m grid-cell quantisation and approximate yaw values when
+# comparing paired table/floor cell centres along the camera forward axis.
+TABLE_SHADOW_FORWARD_TOLERANCE_M = 0.10
 
 # ---- FoV → cell thresholds ----
 COVERAGE_UPDATE_THRESHOLD = 0.05
@@ -235,117 +240,32 @@ def _merge_coverages_by_surface(
     return out
 
 
-def _cell_center_xy_from_cxcy(grid_spec: GridSpec, cell_cxcy) -> tuple:
-    """Return metric center of a policy/report cell (cx, cy)."""
-    cx, cy = int(cell_cxcy[0]), int(cell_cxcy[1])
-    x0 = float(grid_spec.min_x) + cx * float(grid_spec.cell_size)
-    y0 = float(grid_spec.min_y) + cy * float(grid_spec.cell_size)
-    cs = float(grid_spec.cell_size)
-    return (x0 + 0.5 * cs, y0 + 0.5 * cs)
-
-
-def _cell_camera_forward_lateral(
-    *,
-    grid_spec: GridSpec,
-    cell_cxcy,
-    drone_x: float,
-    drone_y: float,
-    drone_yaw: float,
-) -> tuple:
-    """Cell-center coordinates in the drone/camera frame.
-
-    forward is positive in the drone yaw direction. lateral is the signed
-    sideways offset. Only relative forward and absolute lateral differences are
-    used by the table-shadow projection logic.
-    """
-    x, y = _cell_center_xy_from_cxcy(grid_spec, cell_cxcy)
-    dx = float(x) - float(drone_x)
-    dy = float(y) - float(drone_y)
-    cyaw = math.cos(float(drone_yaw))
-    syaw = math.sin(float(drone_yaw))
-    forward = dx * cyaw + dy * syaw
-    lateral = -dx * syaw + dy * cyaw
-    return (float(forward), float(lateral))
-
-
 def _effective_table_projection_cells(
     *,
     table_cells_cxcy: set,
-    floor_coverages_rc: dict,
-    drone_x: float,
-    drone_y: float,
-    drone_yaw: float,
-    grid_spec: GridSpec,
-    lateral_tolerance_m: float = TABLE_SHADOW_LATERAL_TOLERANCE_M,
-    max_shadow_depth_m: float = TABLE_SHADOW_MAX_DEPTH_M,
+    current_frame_bbox_shadow_cells_cxcy: set | None = None,
 ) -> set:
-    """Return current-frame cells that should use table-height FoV projection.
+    """Return cells that use table-height coverage in the current frame.
 
-    This is a geometry/visibility correction, not table-belief propagation. The
-    returned set includes persistent perception-derived table cells plus transient
-    current-view shadow cells lying behind such table cells along the drone/camera
-    ray. Shadow cells are recomputed every control step and are not added to
-    table_surface_cells or table_confidence.
+    Persistent table cells come from table-plane projection of detected desk
+    bboxes. When enabled, current_frame_bbox_shadow_cells_cxcy adds only the
+    floor-plane counterparts of the same deterministic desk-bbox probes from
+    the current processed perception frame. These counterparts are geometry
+    corrections only: they are not written into table_surface_cells or table
+    confidence and disappear on the next controller step.
     """
     effective = {
         (int(cx), int(cy))
         for (cx, cy) in (table_cells_cxcy or set())
     }
 
-    if not ENABLE_TABLE_SHADOW_PROJECTION or not table_cells_cxcy or not floor_coverages_rc:
-        return effective
-
-    floor_cells_cxcy = {
-        (int(c), int(r))
-        for (r, c) in floor_coverages_rc.keys()
-    }
-
-    lateral_tol = max(0.0, float(lateral_tolerance_m))
-    max_depth = max(0.0, float(max_shadow_depth_m))
-
-    table_cells_in_current_floor_fov = [
-        cell for cell in effective
-        if cell in floor_cells_cxcy
-    ]
-    if not table_cells_in_current_floor_fov:
-        return effective
-
-    table_coords = [
-        (
-            cell,
-            *_cell_camera_forward_lateral(
-                grid_spec=grid_spec,
-                cell_cxcy=cell,
-                drone_x=drone_x,
-                drone_y=drone_y,
-                drone_yaw=drone_yaw,
-            ),
+    if ENABLE_TABLE_SHADOW_PROJECTION:
+        effective.update(
+            (int(cx), int(cy))
+            for (cx, cy) in (current_frame_bbox_shadow_cells_cxcy or set())
         )
-        for cell in table_cells_in_current_floor_fov
-    ]
-
-    for candidate in floor_cells_cxcy:
-        cand_forward, cand_lateral = _cell_camera_forward_lateral(
-            grid_spec=grid_spec,
-            cell_cxcy=candidate,
-            drone_x=drone_x,
-            drone_y=drone_y,
-            drone_yaw=drone_yaw,
-        )
-
-        for _table_cell, table_forward, table_lateral in table_coords:
-            depth = cand_forward - table_forward
-            if depth <= 1e-9:
-                continue
-            if depth > max_depth:
-                continue
-            if abs(cand_lateral - table_lateral) > lateral_tol:
-                continue
-            effective.add(candidate)
-            break
 
     return effective
-
 
 def _surface_height_payload(table_cells_cxcy: set, table_confidence_cxcy=None) -> dict:
     table_confidence_cxcy = table_confidence_cxcy or {}
@@ -544,6 +464,129 @@ def _sample_bbox_projected_cells_rc(
         cells.add((int(center_cell[0]), int(center_cell[1])))
 
     return cells
+
+
+def _cell_center_xy_from_rc(cell_rc) -> tuple[float, float]:
+    """Return the world-space centre of a GridEnvManager (row, col) cell."""
+    row, col = int(cell_rc[0]), int(cell_rc[1])
+    return (
+        float(MIN_X) + (float(col) + 0.5) * float(CELL_SIZE_M),
+        float(MIN_Y) + (float(row) + 0.5) * float(CELL_SIZE_M),
+    )
+
+
+def _forward_distance_m_for_cell_rc(
+    cell_rc,
+    *,
+    drone_x: float,
+    drone_y: float,
+    drone_yaw: float,
+) -> float:
+    """Signed cell-centre distance along the current camera forward direction."""
+    cell_x, cell_y = _cell_center_xy_from_rc(cell_rc)
+    dx = float(cell_x) - float(drone_x)
+    dy = float(cell_y) - float(drone_y)
+    return float(dx * math.cos(float(drone_yaw)) + dy * math.sin(float(drone_yaw)))
+
+
+def _sample_front_only_bbox_floor_counterparts_rc(
+    env_mgr_table,
+    env_mgr_floor,
+    *,
+    bbox_xyxy,
+    img_w: int,
+    img_h: int,
+    drone_x: float,
+    drone_y: float,
+    drone_yaw: float,
+    max_samples_per_axis: int = 5,
+) -> set:
+    """Return forward-only floor counterparts for a detected desk bbox.
+
+    Each deterministic image-space desk-bbox probe is mapped with both surface
+    assumptions. A floor counterpart is retained only if the matched table-plane
+    cell lies in front of the drone and the matched floor-plane cell lies farther
+    forward along the same viewing direction. This removes the rear FoV strip
+    while retaining only the forward shadow extension induced by the tabletop.
+    """
+    bbox = _clamp_bbox_xyxy(bbox_xyxy, img_w=img_w, img_h=img_h)
+    if bbox is None:
+        return set()
+
+    x1, y1, x2, y2 = bbox
+    w = max(1.0, x2 - x1)
+    h = max(1.0, y2 - y1)
+    nx = int(max(2, min(max_samples_per_axis, round(w / 32.0) + 1)))
+    ny = int(max(2, min(max_samples_per_axis, round(h / 32.0) + 1)))
+
+    counterparts = set()
+
+    def _try_add_pair(probe_bbox) -> None:
+        table_rc = env_mgr_table.detection_cell_from_bbox(
+            bbox_xyxy=probe_bbox,
+            img_w=img_w,
+            img_h=img_h,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+        floor_rc = env_mgr_floor.detection_cell_from_bbox(
+            bbox_xyxy=probe_bbox,
+            img_w=img_w,
+            img_h=img_h,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+
+        if table_rc is None or floor_rc is None:
+            return
+
+        table_rc = (int(table_rc[0]), int(table_rc[1]))
+        floor_rc = (int(floor_rc[0]), int(floor_rc[1]))
+
+        table_forward_m = _forward_distance_m_for_cell_rc(
+            table_rc,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+        floor_forward_m = _forward_distance_m_for_cell_rc(
+            floor_rc,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+
+        # Keep only paired projections in the forward half of the view, allowing a
+        # small tolerance because table/floor intersections are quantised to 0.5 m
+        # grid-cell centres before this comparison.
+        if table_forward_m < -TABLE_SHADOW_FORWARD_TOLERANCE_M:
+            return
+
+        if floor_forward_m < -TABLE_SHADOW_FORWARD_TOLERANCE_M:
+            return
+
+        # The floor counterpart should be at least as far forward as its paired
+        # table-plane cell. Allow a small deficit caused by grid quantisation.
+        if floor_forward_m < (
+            table_forward_m - TABLE_SHADOW_FORWARD_TOLERANCE_M
+        ):
+            return
+
+        counterparts.add(floor_rc)
+
+    for ix in range(nx):
+        px = x1 + ((ix + 0.5) / float(nx)) * w
+        for iy in range(ny):
+            py = y1 + ((iy + 0.5) / float(ny)) * h
+            _try_add_pair([px - 0.5, py - 0.5, px + 0.5, py + 0.5])
+
+    # Preserve the controller's whole-bbox/centre mapping as one additional
+    # paired probe, subject to the same front-only gate.
+    _try_add_pair(bbox)
+
+    return counterparts
 
 
 def rc_to_cxcy(rc):
@@ -1192,14 +1235,16 @@ if __name__ == "__main__":
 
             floor_coverages = env_mgr_floor.compute_cell_coverages(x_pos, y_pos, yaw)
             table_coverages = env_mgr_table.compute_cell_coverages(x_pos, y_pos, yaw)
+
+            # Reset every controller step. Populated only from desk detections
+            # processed in this frame, then used below to select table-height
+            # coverage for their paired floor-plane probe cells.
+            current_frame_bbox_shadow_cells = set()
+
             effective_table_projection_cells = (
                 _effective_table_projection_cells(
                     table_cells_cxcy=table_surface_cells,
-                    floor_coverages_rc=floor_coverages,
-                    drone_x=x_pos,
-                    drone_y=y_pos,
-                    drone_yaw=yaw,
-                    grid_spec=grid_spec,
+                    current_frame_bbox_shadow_cells_cxcy=current_frame_bbox_shadow_cells,
                 )
                 if ENABLE_HEIGHT_AWARE_FOV
                 else set(table_surface_cells)
@@ -1224,7 +1269,7 @@ if __name__ == "__main__":
                 visited_cells.add(current_cell_cxcy)
 
             # Target-belief evidence remains a max-confidence map per cell because the
-            # old AIF policy expects that shape. The raw/event lists below keep every
+            # old AIF policy expects that shape. The raw/eveeval_aif_saccade_table_20260627_121245nt lists below keep every
             # detection, including multiple detections in the same cell and non-target
             # classes such as desks, so claim logic and future table-aware policies do
             # not lose information.
@@ -1480,6 +1525,42 @@ if __name__ == "__main__":
                     if not _is_desk_object_class(class_name, class_id):
                         continue
 
+                    # Project the same deterministic desk-bbox probes with both
+                    # surface assumptions. Only front-of-drone floor counterparts
+                    # farther forward than their table-plane match are retained.
+                    # These corrections are transient and are deliberately not
+                    # added to table_surface_cells or table_conf_rc.
+                    if ENABLE_TABLE_SHADOW_PROJECTION:
+                        bbox = _event_bbox_xyxy(event)
+                        if bbox is not None:
+                            try:
+                                img_w_s = int(observation["camera"]["width"])
+                                img_h_s = int(observation["camera"]["height"])
+                                floor_counterpart_cells_rc = _sample_front_only_bbox_floor_counterparts_rc(
+                                    env_mgr_table,
+                                    env_mgr_floor,
+                                    bbox_xyxy=bbox,
+                                    img_w=img_w_s,
+                                    img_h=img_h_s,
+                                    drone_x=x_pos,
+                                    drone_y=y_pos,
+                                    drone_yaw=yaw,
+                                )
+                                for rc in floor_counterpart_cells_rc:
+                                    rc_key = (int(rc[0]), int(rc[1]))
+                                    # Mirror the old shadow mechanism's scope:
+                                    # only cells in the current floor projection
+                                    # can need a surface-coverage substitution.
+                                    if rc_key not in floor_coverages:
+                                        continue
+                                    cell_cxcy = rc_to_cxcy(rc_key)
+                                    if cell_cxcy is not None:
+                                        current_frame_bbox_shadow_cells.add(
+                                            (int(cell_cxcy[0]), int(cell_cxcy[1]))
+                                        )
+                            except Exception:
+                                pass
+
                     cells_to_mark_rc = set()
                     for rc in event.get("covered_cells_rc", []) or []:
                         try:
@@ -1529,17 +1610,12 @@ if __name__ == "__main__":
                             )
 
                 if ENABLE_HEIGHT_AWARE_FOV:
-                    # Recompute the selected coverage map after incorporating desk detections
-                    # from this frame, so current-frame target/table evidence uses table-height
-                    # geometry for both directly detected table cells and transient cells
-                    # geometrically behind them from the current viewpoint.
+                    # Recompute after incorporating this frame's desk detections.
+                    # Direct table-plane cells remain persistent; only the paired
+                    # floor-plane probe cells are transient table-height corrections.
                     effective_table_projection_cells = _effective_table_projection_cells(
                         table_cells_cxcy=table_surface_cells,
-                        floor_coverages_rc=floor_coverages,
-                        drone_x=x_pos,
-                        drone_y=y_pos,
-                        drone_yaw=yaw,
-                        grid_spec=grid_spec,
+                        current_frame_bbox_shadow_cells_cxcy=current_frame_bbox_shadow_cells,
                     )
                     coverages = _merge_coverages_by_surface(
                         floor_coverages_rc=floor_coverages,
@@ -1733,10 +1809,11 @@ if __name__ == "__main__":
                     "perception_processed_this_step": bool(process_detection_this_step),
                     "surface_height_map": surface_height_map_payload,
                     "table_cells": sorted(list(table_surface_cells)),
-                    # Current-frame geometry-only projection mask. Includes table_cells plus
-                    # transient cells behind perceived table cells that use table-height
-                    # coverage for this observation. It is diagnostic only; policy logic
-                    # consumes the already merged coverages/visible masks above.
+                    # Current-frame geometry-only projection mask. Includes persistent
+                    # table cells plus transient floor-plane counterparts of the current
+                    # desk-bbox probes that use table-height coverage for this observation.
+                    # It is diagnostic only; policy logic consumes the already merged
+                    # coverages/visible masks above.
                     "effective_table_projection_cells": sorted(list(effective_table_projection_cells)),
                 },
                 "task": {

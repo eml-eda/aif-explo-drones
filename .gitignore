@@ -102,3 +102,6 @@ webots/controllers/crazyflie_py_wallfollowing/
 papers/
 
 self-utils/
+
+capture_visuals_thesis/
+results_comp_single_figures/

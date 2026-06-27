@@ -36,32 +36,35 @@ FINALIZATION_GRACE_SECONDS = 1.0
 N_BOTTLES = 3
 N_CANS = 3
 
+# Match the single-run supervisor: custom target PROTOs expose `model` and
+# `recognitionColors` at their root Solid, so they can be spawned directly.
+BOTTLE_PROTO_NODE = os.environ.get("BASE_SCENARIO_BOTTLE_PROTO", "DatasetBeerBottle")
+CAN_PROTO_NODE = os.environ.get("BASE_SCENARIO_CAN_PROTO", "DatasetCan")
+
+# Match the single-run supervisor's direct-PROTO placement.
+BOTTLE_SPAWN_Z = 0.0
+CAN_SPAWN_Z = 0.0611
+
 OBJECT_SPECS = [
     {
         "count": N_BOTTLES,
-        "proto": "BeerBottle",
+        "proto": BOTTLE_PROTO_NODE,
         "class_id": 0,
         "class_name": "target_bottle",
         "model": "target_bottle",
         "def_prefix": "BOTTLE",
-        "bbox_radius_m": 0.035,
-        "bbox_height_m": 0.245,
+        "z": BOTTLE_SPAWN_Z,
     },
     {
         "count": N_CANS,
-        "proto": "Can",
+        "proto": CAN_PROTO_NODE,
         "class_id": 1,
         "class_name": "target_can",
         "model": "target_can",
         "def_prefix": "CAN",
-        "bbox_radius_m": 0.018,
-        "bbox_height_m": 0.125,
+        "z": CAN_SPAWN_Z,
     },
 ]
-
-# Recognition-aware object spawning. Keep this enabled: YOLO/MobileNet and
-# analytic GT still work with these wrapped objects. Camera-recognition GT needs it.
-USE_RECOGNITION_WRAPPER_SOLIDS = True
 
 # Arena
 ARENA_X = 5.5
@@ -165,7 +168,7 @@ def _instance_color(index: int) -> tuple[float, float, float]:
     return (max(0.1, r), max(0.1, g), max(0.1, b))
 
 
-def _recognition_wrapper_node_string(
+def _target_node_string(
     *,
     def_name: str,
     proto: str,
@@ -174,31 +177,19 @@ def _recognition_wrapper_node_string(
     y: float,
     z: float,
     color_rgb: tuple[float, float, float],
-    bbox_radius_m: float,
-    bbox_height_m: float,
 ) -> str:
+    """Match direct custom-PROTO spawning used by worldgen_supervisor.py."""
     r, g, b = color_rgb
-    return f'''DEF {def_name} Solid {{
+    return f'''
+DEF {def_name} {proto} {{
   translation {x:.6f} {y:.6f} {z:.6f}
+  name "{def_name}"
   model "{model}"
   recognitionColors [
     {r:.6f} {g:.6f} {b:.6f}
   ]
-  children [
-    {proto} {{
-    }}
-  ]
-  boundingObject Cylinder {{
-    height {bbox_height_m:.6f}
-    radius {bbox_radius_m:.6f}
-    subdivision 16
-  }}
 }}
 '''.strip()
-
-
-def _plain_proto_node_string(*, def_name: str, proto: str, x: float, y: float, z: float) -> str:
-    return f'DEF {def_name} {proto} {{ translation {x:.6f} {y:.6f} {z:.6f} }}'
 
 def _configured_eval_seeds() -> list[int]:
     """
@@ -1012,26 +1003,15 @@ def main():
             z = float(spec.get("z", 0.0))
             color_rgb = _instance_color(global_index)
 
-            if USE_RECOGNITION_WRAPPER_SOLIDS:
-                node_string = _recognition_wrapper_node_string(
-                    def_name=def_name,
-                    proto=str(spec["proto"]),
-                    model=str(spec["model"]),
-                    x=float(x),
-                    y=float(y),
-                    z=z,
-                    color_rgb=color_rgb,
-                    bbox_radius_m=float(spec["bbox_radius_m"]),
-                    bbox_height_m=float(spec["bbox_height_m"]),
-                )
-            else:
-                node_string = _plain_proto_node_string(
-                    def_name=def_name,
-                    proto=str(spec["proto"]),
-                    x=float(x),
-                    y=float(y),
-                    z=z,
-                )
+            node_string = _target_node_string(
+                def_name=def_name,
+                proto=str(spec["proto"]),
+                model=str(spec["model"]),
+                x=float(x),
+                y=float(y),
+                z=z,
+                color_rgb=color_rgb,
+            )
 
             spawn_children.importMFNodeFromString(-1, node_string)
             new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)

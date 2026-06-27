@@ -35,11 +35,6 @@ MIN_SEPARATION = 0.70
 # ---- In-cell spawn restriction ----
 SPAWN_CENTER_DISC_RADIUS_M = 0.20
 
-# ---- Recognition-aware spawning ----
-# Leave this True. It keeps the visual BeerBottle/Can children, while adding
-# Webots recognition metadata needed by the camera-recognition GT detector.
-USE_RECOGNITION_WRAPPER_SOLIDS = True
-
 # Approximate bounding cylinders used only for Webots recognition/size estimation.
 BOTTLE_BBOX_RADIUS_M = 0.035
 BOTTLE_BBOX_HEIGHT_M = 0.245
@@ -55,8 +50,10 @@ CLASS_NAME_TO_ID = {
     CLASS_CAN: 1,
 }
 
-BOTTLE_PROTO_NODE = "BeerBottle"
-CAN_PROTO_NODE = "Can"
+# These custom PROTOs should expose model and recognitionColors and forward them
+# into the root Solid. They keep the same visuals/textures as the original objects.
+BOTTLE_PROTO_NODE = os.environ.get("BASE_SCENARIO_BOTTLE_PROTO", "DatasetBeerBottle")
+CAN_PROTO_NODE = os.environ.get("BASE_SCENARIO_CAN_PROTO", "DatasetCan")
 
 # Proto/world z placement for non-wrapper legacy spawning.
 BOTTLE_SPAWN_Z = 0.0
@@ -131,46 +128,27 @@ def _instance_color(index: int) -> tuple[float, float, float]:
     r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 1.0)
     return (max(0.1, r), max(0.1, g), max(0.1, b))
 
-
-def _bbox_dims_for_class(class_name: str) -> tuple[float, float]:
-    if class_name == CLASS_BOTTLE:
-        return BOTTLE_BBOX_HEIGHT_M, BOTTLE_BBOX_RADIUS_M
-    if class_name == CLASS_CAN:
-        return CAN_BBOX_HEIGHT_M, CAN_BBOX_RADIUS_M
-    raise ValueError(f"Unknown class_name={class_name}")
-
-
-def _recognition_wrapper_node_string(
+def _target_node_string(
     *,
     def_name: str,
     proto: str,
     model: str,
     x: float,
     y: float,
+    z: float,
     color_rgb,
-    bbox_height: float,
-    bbox_radius: float,
 ) -> str:
     r, g, b = color_rgb
     return f'''
-DEF {def_name} Solid {{
-  translation {x:.6f} {y:.6f} 0
+DEF {def_name} {proto} {{
+  translation {x:.6f} {y:.6f} {z:.6f}
+  name "{def_name}"
   model "{model}"
   recognitionColors [
     {r:.6f} {g:.6f} {b:.6f}
   ]
-  children [
-    {proto} {{
-    }}
-  ]
-  boundingObject Cylinder {{
-    height {bbox_height:.6f}
-    radius {bbox_radius:.6f}
-    subdivision 16
-  }}
 }}
 '''.strip()
-
 
 def _cxcy_from_xy(x: float, y: float) -> tuple[int, int] | None:
     min_x = -ARENA_X / 2.0
@@ -503,28 +481,17 @@ def main():
         class_name = str(spec["class_name"])
         proto = str(spec["proto"])
 
-        if USE_RECOGNITION_WRAPPER_SOLIDS:
-            def_name = f"TARGET_{class_name.upper()}_{i:03d}"
-            color_rgb = _instance_color(i)
-            bbox_height, bbox_radius = _bbox_dims_for_class(class_name)
-            node_string = _recognition_wrapper_node_string(
-                def_name=def_name,
-                proto=proto,
-                model=class_name,
-                x=float(x),
-                y=float(y),
-                color_rgb=color_rgb,
-                bbox_height=bbox_height,
-                bbox_radius=bbox_radius,
-            )
-        else:
-            def_name = f"OBJ_{i:03d}"
-            color_rgb = None
-            node_string = (
-                f'DEF {def_name} {proto} {{ '
-                f'  translation {x:.4f} {y:.4f} {float(spec["z"]):.4f} '
-                f'}}'
-            )
+        def_name = f"TARGET_{class_name.upper()}_{i:03d}"
+        color_rgb = _instance_color(i)
+        node_string = _target_node_string(
+            def_name=def_name,
+            proto=proto,
+            model=class_name,
+            x=float(x),
+            y=float(y),
+            z=float(spec["z"]),
+            color_rgb=color_rgb,
+        )
 
         spawn_children.importMFNodeFromString(-1, node_string)
         new_node = spawn_children.getMFNode(spawn_children.getCount() - 1)
@@ -540,7 +507,7 @@ def main():
                 "class_id": int(spec["class_id"]),
                 "proto": proto,
                 "model": class_name,
-                "recognition_color_rgb": None if color_rgb is None else [float(color_rgb[0]), float(color_rgb[1]), float(color_rgb[2])],
+                "recognition_color_rgb": [float(color_rgb[0]), float(color_rgb[1]), float(color_rgb[2])],
             }
         )
 

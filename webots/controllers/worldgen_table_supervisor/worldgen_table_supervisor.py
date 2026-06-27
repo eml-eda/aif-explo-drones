@@ -27,7 +27,7 @@ from controller import Supervisor
 #     but they are not counted as objects that need to be "found".
 
 # ---- Experiment settings ----
-SEED = int(os.environ.get("TABLE_SCENARIO_SEED", "29"))
+SEED = int(os.environ.get("TABLE_SCENARIO_SEED", "34"))
 
 WARMUP_SECONDS = float(os.environ.get("TABLE_SCENARIO_WARMUP_SECONDS", "15.0"))
 EPISODE_SECONDS = float(os.environ.get("TABLE_SCENARIO_EPISODE_SECONDS", "180.0"))
