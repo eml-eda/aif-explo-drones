@@ -47,7 +47,7 @@ DEF CRAZYFLIE CrazyFlieDownCam {
 Robot {
   name "supervisor"
   supervisor TRUE
-  controller "worldgen_eval_supervisor"
+  controller "worldgen_table_supervisor"
   children [
   ]
 }

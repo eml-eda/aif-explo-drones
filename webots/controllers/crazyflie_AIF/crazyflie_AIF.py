@@ -36,7 +36,7 @@ ENABLE_CSV_LOGGING = False
 
 ENABLE_OCCUPANCY_HEATMAP = True
 ENABLE_TRAJECTORY_PLOT = True
-TRACK_AIF_TARGET_DISTANCE = True
+TRACK_AIF_TARGET_DISTANCE = False
 
 ENABLE_LOGGING = ENABLE_CSV_LOGGING or ENABLE_OCCUPANCY_HEATMAP or ENABLE_TRAJECTORY_PLOT
 
@@ -52,7 +52,7 @@ EVAL_STATE_FILENAME = "eval_state.json"
 
 # ---- Experiment labels for report aggregation - EVAL mode ----
 SPAWN_CONDITIONS = "spawn15"
-TARGET_SETUP = "mixed_easy"  # options: "bottles_only", "mixed_easy", "mixed_tables", "mixed_hard"
+TARGET_SETUP = "mixed_hard"  # options: "bottles_only", "mixed_easy", "mixed_tables", "mixed_hard"
 
 # ---- Flight preference ----
 FLYING_ATTITUDE = 1.5
@@ -88,13 +88,12 @@ SURFACE_DETECTION_CONF_THRESHOLD = 0.30
 # ---- Table-height shadow projection ----
 # Current-frame geometry correction for detected desk/table bboxes. Every
 # deterministic image-space probe of a desk bbox is projected onto both the
-# table plane and the floor plane. The table-plane cells remain persistent
-# perception-derived table cells; a floor-plane counterpart is retained only
-# when the same probe intersects the table plane in front of the drone and its
-# floor-plane intersection lies farther forward along the viewing direction.
-# This excludes the camera's rear strip from the transient correction while
-# preserving forward table-shadow protection. Transient cells are not persisted
-# and do not create positive table evidence.
+# table plane and the floor plane. Table-plane cells remain persistent,
+# perception-derived table cells. A floor-plane counterpart is retained only
+# when the paired cell centres satisfy the tolerance-aware forward-direction
+# tests below. This excludes the rear FoV strip from the transient correction
+# while preserving forward tabletop-occlusion protection. Transient cells are
+# not persisted and do not create positive table evidence.
 ENABLE_TABLE_SHADOW_PROJECTION = True
 
 # Allows for 0.5 m grid-cell quantisation and approximate yaw values when
@@ -120,7 +119,7 @@ SNAPSHOT_ON_STUCK = True
 STUCK_REPLAN_LIMIT = 100
 
 # ---- Detection mode ----
-USE_GROUND_TRUTH_DETECTIONS = True
+USE_GROUND_TRUTH_DETECTIONS = False
 GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
@@ -501,13 +500,14 @@ def _sample_front_only_bbox_floor_counterparts_rc(
     drone_yaw: float,
     max_samples_per_axis: int = 5,
 ) -> set:
-    """Return forward-only floor counterparts for a detected desk bbox.
+    """Return forward-oriented floor counterparts for a detected desk bbox.
 
-    Each deterministic image-space desk-bbox probe is mapped with both surface
-    assumptions. A floor counterpart is retained only if the matched table-plane
-    cell lies in front of the drone and the matched floor-plane cell lies farther
-    forward along the same viewing direction. This removes the rear FoV strip
-    while retaining only the forward shadow extension induced by the tabletop.
+    Each deterministic image-space desk-bbox probe is mapped through both
+    surface assumptions. Its floor-plane counterpart is retained only when the
+    paired table-plane and floor-plane cell centres satisfy the forward tests,
+    allowing TABLE_SHADOW_FORWARD_TOLERANCE_M for cell quantisation and small
+    yaw approximation errors. This excludes the rear FoV strip while retaining
+    the forward tabletop-occlusion correction.
     """
     bbox = _clamp_bbox_xyxy(bbox_xyxy, img_w=img_w, img_h=img_h)
     if bbox is None:
@@ -558,17 +558,16 @@ def _sample_front_only_bbox_floor_counterparts_rc(
             drone_yaw=drone_yaw,
         )
 
-        # Keep only paired projections in the forward half of the view, allowing a
-        # small tolerance because table/floor intersections are quantised to 0.5 m
-        # grid-cell centres before this comparison.
+        # Reject pairs meaningfully behind the drone. The tolerance accounts for
+        # 0.5 m grid-cell quantisation and minor yaw approximation effects.
         if table_forward_m < -TABLE_SHADOW_FORWARD_TOLERANCE_M:
             return
 
         if floor_forward_m < -TABLE_SHADOW_FORWARD_TOLERANCE_M:
             return
 
-        # The floor counterpart should be at least as far forward as its paired
-        # table-plane cell. Allow a small deficit caused by grid quantisation.
+        # The floor counterpart should not be meaningfully behind its paired
+        # table-plane cell after grid-cell quantisation.
         if floor_forward_m < (
             table_forward_m - TABLE_SHADOW_FORWARD_TOLERANCE_M
         ):
@@ -648,14 +647,6 @@ def load_gt_objects(json_path: str):
         data = json.load(f)
     return list(data.get("objects", []))
 
-
-def load_gt_seed(json_path: str) -> int:
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return int(data.get("seed", -1))
-    except Exception:
-        return -1
 
 
 def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
@@ -957,9 +948,6 @@ if __name__ == "__main__":
     fov_spec = floor_fov_spec
     env_mgr_floor = GridEnvManager(grid_spec, floor_fov_spec)
     env_mgr_table = GridEnvManager(grid_spec, table_fov_spec)
-    env_mgr = env_mgr_floor
-
-    Detector = load_detector_class(DETECTOR_BACKEND)
 
     detector = None
     gt_detector = None
@@ -982,7 +970,6 @@ if __name__ == "__main__":
     table_surface_confidence = {}  # persistent max desk confidence by discovered table cell (cx, cy)
 
     autonomy_start_time = None
-    gt_seed = int(experiment_init.get("seed", -1))
     final_snapshot_written = False
 
     if USE_GROUND_TRUTH_DETECTIONS:
@@ -995,7 +982,6 @@ if __name__ == "__main__":
         if gt_json is None:
             raise FileNotFoundError(f"Required GT file not found or invalid: {gt_path}")
 
-        gt_seed = int(gt_json.get("seed", gt_seed))
         gt_objects = load_gt_objects(gt_path)
 
         print(f"[GT] Loaded {len(gt_objects)} objects from {gt_path}")
@@ -1034,13 +1020,22 @@ if __name__ == "__main__":
             )
     else:
         print(f"[DETECTOR] backend={DETECTOR_BACKEND}", flush=True)
+        Detector = load_detector_class(DETECTOR_BACKEND)
         detector_class_names = (
             ["target_bottle", "target_can", "desk"]
             if str(TARGET_SETUP).lower().strip() in {"mixed_tables", "mixed_hard"}
             else ["target_bottle", "target_can"]
         )
+
+        detector_model_name = None
+        if str(DETECTOR_BACKEND).lower().strip() == "mobilenet_ssd":
+            detector_model_name = os.environ.get(
+                "AIF_MBV2SSD_MODEL",
+                getattr(aif_config, "AIF_MOBILENET_MODEL", None),
+            )
+
         detector = Detector(
-            model_name=None,
+            model_name=detector_model_name,
             device="cuda:0",
             conf=0.45,
             iou=0.40,
@@ -1269,10 +1264,10 @@ if __name__ == "__main__":
                 visited_cells.add(current_cell_cxcy)
 
             # Target-belief evidence remains a max-confidence map per cell because the
-            # old AIF policy expects that shape. The raw/eveeval_aif_saccade_table_20260627_121245nt lists below keep every
+            # old AIF policy expects that shape. The raw event lists below retain every
             # detection, including multiple detections in the same cell and non-target
-            # classes such as desks, so claim logic and future table-aware policies do
-            # not lose information.
+            # classes such as desks, so claim logic and table-aware policies do not lose
+            # information.
             det_conf_rc = {}          # target-only max confidence per cell, for old AIF belief updates
             det_meta_rc = {}          # metadata for the target event that set det_conf_rc[cell]
             det_all_events_rc = []    # all accepted detections, including desks
@@ -1380,9 +1375,11 @@ if __name__ == "__main__":
                             }
                         )
 
-                    # First pass: collect desk/table bboxes and use the table-plane
-                    # projection to mark all grid cells covered by the detected desk bbox.
-                    # This is perception-derived surface discovery, not supervisor injection.
+                    # First pass: collect desk bboxes and immediately persist their
+                    # table-plane cells. This makes the current desk evidence available
+                    # before target bboxes are mapped later in the same detector frame.
+                    # The unified desk-event pass below applies transient floor-plane
+                    # corrections and handles GT desk events.
                     desk_bboxes = []
                     for det in raw_detection_events:
                         class_id = int(det.get("class_id", -1))
@@ -1436,6 +1433,9 @@ if __name__ == "__main__":
                                 "cell_rc": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
                                 "cell_rc_table": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
                                 "covered_cells_rc": sorted([[int(r), int(c)] for (r, c) in covered_cells_rc]),
+                                # These cells were persisted in the first pass above;
+                                # skip only the duplicate persistence later.
+                                "surface_cells_already_persisted": True,
                                 "surface_assumption": "table",
                             }
                             det_all_events_rc.append(event)
@@ -1511,11 +1511,10 @@ if __name__ == "__main__":
                                 "surface_assumption": event["surface_assumption"],
                             }
 
-                # Surface discovery: any desk/table detection flags its mapped cells as
-                # table-height. This is intentionally perception-derived, not injected
-                # from supervisor geometry. Real YOLO desk detections may already carry
-                # covered_cells_rc from bbox sampling; GT desk detections can be sampled
-                # here from their bbox_center_px/bbox_size_px if available.
+                # Unified desk-event pass. It applies transient floor-plane corrections
+                # for every desk detection and persists table-plane cells only for desk
+                # events not already handled by the YOLO first pass. All surface evidence
+                # remains perception-derived rather than supervisor-injected.
                 for event in det_all_events_rc:
                     class_id = int(event.get("class_id", -1))
                     class_name = str(event.get("class_name", event.get("label", "unknown")))
@@ -1525,11 +1524,10 @@ if __name__ == "__main__":
                     if not _is_desk_object_class(class_name, class_id):
                         continue
 
-                    # Project the same deterministic desk-bbox probes with both
-                    # surface assumptions. Only front-of-drone floor counterparts
-                    # farther forward than their table-plane match are retained.
-                    # These corrections are transient and are deliberately not
-                    # added to table_surface_cells or table_conf_rc.
+                    # Project the same deterministic desk-bbox probes through both
+                    # surface assumptions. The helper applies the tolerance-aware
+                    # forward-direction gate. These floor-plane counterparts are
+                    # transient and are not added to table_surface_cells or table_conf_rc.
                     if ENABLE_TABLE_SHADOW_PROJECTION:
                         bbox = _event_bbox_xyxy(event)
                         if bbox is not None:
@@ -1560,6 +1558,12 @@ if __name__ == "__main__":
                                         )
                             except Exception:
                                 pass
+
+                    # YOLO desk cells are already persisted in its first pass so that
+                    # target mapping can use them immediately. GT desk events reach this
+                    # block and are persisted here exactly once.
+                    if event.get("surface_cells_already_persisted", False):
+                        continue
 
                     cells_to_mark_rc = set()
                     for rc in event.get("covered_cells_rc", []) or []:
@@ -1927,10 +1931,7 @@ if __name__ == "__main__":
             devices.set_motor_speeds(motor_power)
 
             if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
-                if USE_GROUND_TRUTH_DETECTIONS:
-                    det_count = len(det_all_events_rc)
-                else:
-                    det_count = len(det_all_events_rc)
+                det_count = len(det_all_events_rc)
 
                 logger.log_step(
                     time=observation["time"],

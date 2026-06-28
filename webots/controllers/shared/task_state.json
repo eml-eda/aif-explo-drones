@@ -3,24 +3,60 @@
   "reason": "timeout",
   "seed": 100,
   "total_objects": 6,
-  "remaining_objects": 2,
+  "remaining_objects": 1,
   "validated_found_cells": [
     [
-      1,
-      3
+      3,
+      10
     ],
     [
-      9,
-      3
+      4,
+      10
     ],
     [
-      9,
-      5
-    ],
-    [
-      9,
+      4,
       11
+    ],
+    [
+      7,
+      8
+    ],
+    [
+      7,
+      9
     ]
+  ],
+  "validated_found_objects": [
+    {
+      "cx": 7,
+      "cy": 8,
+      "class_name": "target_bottle",
+      "class_id": 0
+    },
+    {
+      "cx": 7,
+      "cy": 9,
+      "class_name": "target_bottle",
+      "class_id": 0
+    },
+    {
+      "cx": 3,
+      "cy": 10,
+      "class_name": "target_can",
+      "class_id": 1
+    },
+    {
+      "cx": 4,
+      "cy": 10,
+      "class_name": "target_can",
+      "class_id": 1
+    },
+    {
+      "cx": 4,
+      "cy": 11,
+      "class_name": "target_bottle",
+      "class_id": 0
+    }
   ],
   "timeout_s": 195.0,
   "warmup_s": 15.0,
