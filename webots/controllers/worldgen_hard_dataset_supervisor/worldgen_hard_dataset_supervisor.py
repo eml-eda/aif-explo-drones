@@ -14,38 +14,81 @@ from typing import Dict, List, Optional, Tuple
 from controller import Supervisor
 
 HERE = os.path.dirname(__file__)
-SHARED_DIR = os.path.abspath(os.path.join(HERE, "..", "shared"))
-if SHARED_DIR not in sys.path:
-    sys.path.insert(0, SHARED_DIR)
+CONTROLLERS_DIR = os.path.abspath(os.path.join(HERE, ".."))
+SHARED_DIR = os.path.join(CONTROLLERS_DIR, "shared")
+for path in (CONTROLLERS_DIR, SHARED_DIR):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
-from hard_dataset_classes import CLASS_ID_TO_NAME, CLASS_NAME_TO_ID, MODEL_TO_CLASS_ID
+from dataset_collection.class_config import get_dataset_class_config
+
+_CLASS_CONFIG = get_dataset_class_config("hard")
+CLASS_ID_TO_NAME = _CLASS_CONFIG.class_id_to_name
+CLASS_NAME_TO_ID = _CLASS_CONFIG.class_name_to_id
+MODEL_TO_CLASS_ID = _CLASS_CONFIG.model_to_class_id
 
 # ---------- Dataset run configuration ----------
+# ``hard_dataset`` preserves the existing reference collection scene. The two
+# collection-only variants are used to train the final hard detector on visual
+# domains that are deliberately different from the hard evaluation world.
+SCENE_VARIANT = str(os.environ.get("HARD_DATASET_SCENE_VARIANT", "hard_dataset")).strip().lower()
+_VALID_SCENE_VARIANTS = {"hard_dataset", "hard_collection_a", "hard_collection_b"}
+if SCENE_VARIANT not in _VALID_SCENE_VARIANTS:
+    raise ValueError(
+        f"Unsupported HARD_DATASET_SCENE_VARIANT={SCENE_VARIANT!r}; "
+        f"expected one of {sorted(_VALID_SCENE_VARIANTS)}"
+    )
+
 BASE_SEED = int(os.environ.get("HARD_DATASET_BASE_SEED", "1"))
 NUM_RUNS = int(os.environ.get("HARD_DATASET_NUM_RUNS", "6"))
-SAMPLES_PER_RUN = int(os.environ.get("HARD_DATASET_SAMPLES_PER_RUN", "400"))
+_DEFAULT_SAMPLES_PER_RUN = 200 if SCENE_VARIANT in {"hard_collection_a", "hard_collection_b"} else 400
+SAMPLES_PER_RUN = int(os.environ.get("HARD_DATASET_SAMPLES_PER_RUN", str(_DEFAULT_SAMPLES_PER_RUN)))
 DEFAULT_POLICY = os.environ.get(
     "HARD_DATASET_POLICY",
     os.environ.get("DATASET_POLICY", "pseudo_random"),
 )
+
+_COLLECTION_PREFIX = {
+    "hard_dataset": "collection_hard",
+    "hard_collection_a": "collection_hard_a",
+    "hard_collection_b": "collection_hard_b",
+}[SCENE_VARIANT]
+_LOG_TAG = {
+    "hard_dataset": "HARD DATASET",
+    "hard_collection_a": "HARD A DATASET",
+    "hard_collection_b": "HARD B DATASET",
+}[SCENE_VARIANT]
 
 WARMUP_SECONDS = 15.0
 RUN_TIMEOUT_SECONDS = float(os.environ.get("HARD_DATASET_RUN_TIMEOUT_SECONDS", "12000"))
 FINALIZATION_GRACE_SECONDS = 1.0
 
 # ---------- Hard-dataset scene density ----------
-# The evaluation scene has 3 bottles, 3 cans, 3 desks, and 8 distractors.
-# Dataset collection uses more targets and desks to obtain more labelled views,
-# while retaining the same classes, placement model, tabletop geometry, hard
-# floor texture, and distractor types/counts.
+# All hard collection variants use the same labelled classes, target/desk
+# density, placement model, and tabletop geometry. The A/B collection-only
+# variants deliberately change floor appearance and distractor identities while
+# leaving the search geometry unchanged.
 N_BOTTLES = int(os.environ.get("HARD_DATASET_N_BOTTLES", "10"))
 N_CANS = int(os.environ.get("HARD_DATASET_N_CANS", "10"))
-N_DESKS = int(os.environ.get("HARD_DATASET_N_DESKS", "5"))
+N_DESKS = int(os.environ.get("HARD_DATASET_N_DESKS", "4"))
 
+# Reference-scene distractors.
 N_SOCCER_BALLS = int(os.environ.get("HARD_DATASET_N_SOCCER_BALLS", "1"))
 N_CEREAL_BOXES = int(os.environ.get("HARD_DATASET_N_CEREAL_BOXES", "2"))
 N_PLATES = int(os.environ.get("HARD_DATASET_N_PLATES", "3"))
 N_FLOWER_POTS = int(os.environ.get("HARD_DATASET_N_FLOWER_POTS", "2"))
+
+# Hard collection A distractors.
+N_RUBBER_DUCKS = int(os.environ.get("HARD_DATASET_N_RUBBER_DUCKS", "3"))
+N_GLASSES = int(os.environ.get("HARD_DATASET_N_GLASSES", "3"))
+N_APPLES = int(os.environ.get("HARD_DATASET_N_APPLES", "3"))
+N_BISCUIT_BOXES = int(os.environ.get("HARD_DATASET_N_BISCUIT_BOXES", "3"))
+
+# Hard collection B distractors.
+N_CARAFES = int(os.environ.get("HARD_DATASET_N_CARAFES", "3"))
+N_HONEY_JARS = int(os.environ.get("HARD_DATASET_N_HONEY_JARS", "3"))
+N_ORANGES = int(os.environ.get("HARD_DATASET_N_ORANGES", "3"))
+N_WOODEN_SPOONS = int(os.environ.get("HARD_DATASET_N_WOODEN_SPOONS", "3"))
 
 P_TARGET_ON_DESK = float(os.environ.get("HARD_DATASET_P_TARGET_ON_DESK", "0.90"))
 P_OPTIONAL_DISTRACTOR_ON_DESK = float(
@@ -116,50 +159,138 @@ OBJECT_SPECS = [
 ]
 
 # Standard imported Webots PROTOs. They are visually present in the collected
-# images but intentionally absent from hard_dataset_classes.py, so they never
+# images but intentionally absent from the shared hard class schema, so they never
 # become YOLO annotations.
-DISTRACTOR_SPECS = [
-    {
-        "count": N_SOCCER_BALLS,
-        "proto": "SoccerBall",
-        "class_name": "distractor_soccer_ball",
-        "model": "soccer ball",
-        "def_prefix": "HARD_DATASET_SOCCER_BALL",
-        "z_floor_m": 0.113,
-        "z_table_offset_m": 0.113,
-        "placement": "optional_desk",
-    },
-    {
-        "count": N_CEREAL_BOXES,
-        "proto": "CerealBox",
-        "class_name": "distractor_cereal_box",
-        "model": "cereal box",
-        "def_prefix": "HARD_DATASET_CEREAL_BOX",
-        "z_floor_m": 0.0,
-        "z_table_offset_m": 0.0,
-        "placement": "optional_desk",
-    },
-    {
-        "count": N_PLATES,
-        "proto": "Plate",
-        "class_name": "distractor_plate",
-        "model": "plate",
-        "def_prefix": "HARD_DATASET_PLATE",
-        "z_floor_m": 0.0,
-        "z_table_offset_m": 0.0,
-        "placement": "desk_only",
-    },
-    {
-        "count": N_FLOWER_POTS,
-        "proto": "FlowerPot",
-        "class_name": "distractor_flower_pot",
-        "model": "flower pot",
-        "def_prefix": "HARD_DATASET_FLOWER_POT",
-        "z_floor_m": 0.0,
-        "z_table_offset_m": 0.0,
-        "placement": "optional_desk",
-    },
-]
+DISTRACTOR_SPECS_BY_VARIANT = {
+    "hard_dataset": [
+        {
+            "count": N_SOCCER_BALLS,
+            "proto": "SoccerBall",
+            "class_name": "distractor_soccer_ball",
+            "model": "soccer ball",
+            "def_prefix": "HARD_DATASET_SOCCER_BALL",
+            "z_floor_m": 0.113,
+            "z_table_offset_m": 0.113,
+            "placement": "optional_desk",
+        },
+        {
+            "count": N_CEREAL_BOXES,
+            "proto": "CerealBox",
+            "class_name": "distractor_cereal_box",
+            "model": "cereal box",
+            "def_prefix": "HARD_DATASET_CEREAL_BOX",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "optional_desk",
+        },
+        {
+            "count": N_PLATES,
+            "proto": "Plate",
+            "class_name": "distractor_plate",
+            "model": "plate",
+            "def_prefix": "HARD_DATASET_PLATE",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "desk_only",
+        },
+        {
+            "count": N_FLOWER_POTS,
+            "proto": "FlowerPot",
+            "class_name": "distractor_flower_pot",
+            "model": "flower pot",
+            "def_prefix": "HARD_DATASET_FLOWER_POT",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "optional_desk",
+        },
+    ],
+    "hard_collection_a": [
+        {
+            "count": N_RUBBER_DUCKS,
+            "proto": "RubberDuck",
+            "class_name": "distractor_rubber_duck",
+            "model": "rubber duck",
+            "def_prefix": "HARD_A_RUBBER_DUCK",
+            "z_floor_m": 0.02,
+            "z_table_offset_m": 0.02,
+            "placement": "optional_desk",
+        },
+        {
+            "count": N_GLASSES,
+            "proto": "Glass",
+            "class_name": "distractor_glass",
+            "model": "glass",
+            "def_prefix": "HARD_A_GLASS",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "desk_only",
+        },
+        {
+            "count": N_APPLES,
+            "proto": "Apple",
+            "class_name": "distractor_apple",
+            "model": "apple",
+            "def_prefix": "HARD_A_APPLE",
+            "z_floor_m": 0.05,
+            "z_table_offset_m": 0.05,
+            "placement": "optional_desk",
+        },
+        {
+            "count": N_BISCUIT_BOXES,
+            "proto": "BiscuitBox",
+            "class_name": "distractor_biscuit_box",
+            "model": "biscuit box",
+            "def_prefix": "HARD_A_BISCUIT_BOX",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "optional_desk",
+        },
+    ],
+    "hard_collection_b": [
+        {
+            "count": N_CARAFES,
+            "proto": "Carafe",
+            "class_name": "distractor_carafe",
+            "model": "carafe",
+            "def_prefix": "HARD_B_CARAFE",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "optional_desk",
+        },
+        {
+            "count": N_HONEY_JARS,
+            "proto": "HoneyJar",
+            "class_name": "distractor_honey_jar",
+            "model": "honey jar",
+            "def_prefix": "HARD_B_HONEY_JAR",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "desk_only",
+        },
+        {
+            "count": N_ORANGES,
+            "proto": "Orange",
+            "class_name": "distractor_orange",
+            "model": "orange",
+            "def_prefix": "HARD_B_ORANGE",
+            "z_floor_m": 0.05,
+            "z_table_offset_m": 0.05,
+            "placement": "optional_desk",
+        },
+        {
+            "count": N_WOODEN_SPOONS,
+            "proto": "WoodenSpoon",
+            "class_name": "distractor_wooden_spoon",
+            "model": "wooden spoon",
+            "def_prefix": "HARD_B_WOODEN_SPOON",
+            "z_floor_m": 0.0,
+            "z_table_offset_m": 0.0,
+            "placement": "optional_desk",
+        },
+    ],
+}
+
+DISTRACTOR_SPECS = DISTRACTOR_SPECS_BY_VARIANT[SCENE_VARIANT]
 
 # ---------- Drone ----------
 DRONE_DEF = "CRAZYFLIE"
@@ -174,7 +305,11 @@ EXPERIMENT_INIT_FILENAME = "hard_dataset_experiment_init.json"
 DATASET_OBJECTS_FILENAME = "hard_dataset_objects.json"
 TASK_STATE_FILENAME = "hard_dataset_task_state.json"
 COLLECTION_STATE_FILENAME = "hard_dataset_collection_state.json"
-RUN_STATE_FILENAME = "hard_dataset_run_state.json"
+RUN_STATE_FILENAME = {
+    "hard_dataset": "hard_dataset_run_state.json",
+    "hard_collection_a": "hard_a_dataset_run_state.json",
+    "hard_collection_b": "hard_b_dataset_run_state.json",
+}[SCENE_VARIANT]
 
 Point = Tuple[float, float]
 Cell = Tuple[int, int]
@@ -598,17 +733,27 @@ def _cleanup_spawned_nodes(spawn_children) -> None:
         spawn_children.getMFNode(idx).remove()
 
 
-def _init_or_resume_run_state(path: str, seeds: List[int], policy_name: str) -> Dict[str, object]:
+def _init_or_resume_run_state(
+    path: str,
+    seeds: List[int],
+    policy_name: str,
+    scene_variant: str,
+) -> Dict[str, object]:
     existing = _read_json(path, None)
     if isinstance(existing, dict) and existing.get("completed") is not True:
-        if existing.get("seeds") == seeds and existing.get("policy_name") == policy_name:
+        if (
+            existing.get("seeds") == seeds
+            and existing.get("policy_name") == policy_name
+            and existing.get("scene_variant") == scene_variant
+        ):
             return existing
 
     collection_start_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     return {
         "policy_name": policy_name,
+        "scene_variant": scene_variant,
         "collection_start_time": collection_start_time,
-        "collection_name": f"collection_hard_{policy_name}_{collection_start_time}",
+        "collection_name": f"{_COLLECTION_PREFIX}_{policy_name}_{collection_start_time}",
         "seeds": seeds,
         "total_runs": len(seeds),
         "current_run_index": 0,
@@ -747,7 +892,7 @@ def _spawn_hard_dataset_scene(
             "spawn_center_disc_radius_m": float(SPAWN_CENTER_DISC_RADIUS_M),
         }
 
-    # Table-only plates are placed first so they can never lose table capacity
+    # Desk-only distractors are placed first so they can never lose table capacity
     # to the denser target set.
     for spec in DISTRACTOR_SPECS:
         if str(spec["placement"]) == "desk_only":
@@ -865,7 +1010,8 @@ def _spawn_hard_dataset_scene(
         for spec in DISTRACTOR_SPECS
     }
     scene_metadata: Dict[str, object] = {
-        "scenario": "mixed_hard_dataset",
+        "scenario": SCENE_VARIANT,
+        "scene_variant": SCENE_VARIANT,
         "num_desks": int(len(desks)),
         "num_targets": int(len(target_records)),
         "num_bottles": int(target_counts["target_bottle"]),
@@ -884,7 +1030,11 @@ def _spawn_hard_dataset_scene(
                 "off_desk": int(sum(1 for r in distractor_records if r["spawn_mode"] == "off_desk")),
             },
             "class_counts": distractor_counts,
-            "table_only_class_names": ["distractor_plate"],
+            "table_only_class_names": sorted(
+                str(spec["class_name"])
+                for spec in DISTRACTOR_SPECS
+                if str(spec["placement"]) == "desk_only"
+            ),
         },
     }
     return objects_manifest, target_records, desks, scene_metadata
@@ -914,7 +1064,7 @@ def main() -> None:
     _safe_remove(task_state_path)
     _safe_remove(collection_state_path)
 
-    run_state = _init_or_resume_run_state(run_state_path, seeds, policy_name)
+    run_state = _init_or_resume_run_state(run_state_path, seeds, policy_name, SCENE_VARIANT)
     run_index = int(run_state["current_run_index"])
     current_seed = int(run_state["current_seed"])
     total_runs = int(run_state["total_runs"])
@@ -949,7 +1099,7 @@ def main() -> None:
     }
 
     print(
-        f"[HARD DATASET] run {run_index + 1}/{total_runs} seed={current_seed} "
+        f"[{_LOG_TAG}] run {run_index + 1}/{total_runs} seed={current_seed} "
         f"desks={len(desks)} targets={len(target_records)} "
         f"distractors={scene_metadata['distractor_scenario']['num_distractors']} "
         f"on_desk={scene_metadata['target_spawn_counts']['on_desk']} "
@@ -966,7 +1116,10 @@ def main() -> None:
         "collection_start_time": run_state["collection_start_time"],
         "policy_name": policy_name,
         "samples_per_run": int(SAMPLES_PER_RUN),
-        "target_setup": "mixed_hard",
+        "environment": "hard",
+        "run_mode": "dataset_collection",
+        "target_setup": "hard",
+        "scene_variant": SCENE_VARIANT,
         "drone_spawn": {
             "x": float(drone_xy[0]),
             "y": float(drone_xy[1]),
@@ -980,7 +1133,10 @@ def main() -> None:
     metadata = {
         "seed": int(current_seed),
         "run_index": int(run_index),
-        "target_setup": "mixed_hard",
+        "environment": "hard",
+        "run_mode": "dataset_collection",
+        "target_setup": "hard",
+        "scene_variant": SCENE_VARIANT,
         "room_dimensions_m": {"x": ARENA_X, "y": ARENA_Y},
         "grid": {"cols": GRID_COLS, "rows": GRID_ROWS, "cell_size_m": CELL_SIZE_M},
         "drone_spawn": experiment_init["drone_spawn"],
@@ -1061,6 +1217,7 @@ def main() -> None:
             "time_s": float(final_time_s),
             "num_examples_collected": int(collection_state.get("num_examples_collected", 0)),
             "dataset_folder": collection_state.get("dataset_folder"),
+            "scene_variant": SCENE_VARIANT,
             "target_counts": target_counts,
             "scene": scene_metadata,
         }
@@ -1070,7 +1227,7 @@ def main() -> None:
         if is_last:
             run_state["completed"] = True
             _atomic_write_json(run_state_path, run_state)
-            print(f"[HARD DATASET] completed all {total_runs} runs.", flush=True)
+            print(f"[{_LOG_TAG}] completed all {total_runs} runs.", flush=True)
             grace_start = supervisor.getTime()
             while supervisor.step(timestep) != -1:
                 if supervisor.getTime() - grace_start >= FINALIZATION_GRACE_SECONDS:
@@ -1085,7 +1242,7 @@ def main() -> None:
         run_state["completed"] = False
         _atomic_write_json(run_state_path, run_state)
         print(
-            f"[HARD DATASET] finished run {run_index + 1}/{total_runs}; "
+            f"[{_LOG_TAG}] finished run {run_index + 1}/{total_runs}; "
             f"reloading for seed={seeds[next_run_index]}",
             flush=True,
         )

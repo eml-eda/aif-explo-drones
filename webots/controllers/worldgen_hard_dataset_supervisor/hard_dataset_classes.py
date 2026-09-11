@@ -1,4 +1,4 @@
-"""Class mapping for the mixed_hard dataset collection stack.
+"""Class mapping for the hard-environment dataset collection stack.
 
 The hard scene contains additional non-target distractors, but the detector is
 trained only on bottle, can, and desk. Distractors therefore deliberately do

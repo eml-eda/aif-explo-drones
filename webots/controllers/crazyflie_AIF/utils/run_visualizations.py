@@ -22,10 +22,20 @@ OCCUPANCY_CMAP = LinearSegmentedColormap.from_list(
     ["#2166ac", "#f7f7f7", "#b2182b"],
 )
 
-TARGET_CLASS_COLORS = {
-    "target_bottle": "tab:green",
-    "target_can": "tab:blue",
+TARGET_OBJECT_STYLES = {
+    "target_bottle": {
+        "label": "target bottle",
+        "marker": "X",
+        "color": "tab:green",
+    },
+    "target_can": {
+        "label": "target can",
+        "marker": "X",
+        "color": "tab:blue",
+    },
 }
+
+DESK_CLASS_NAMES = {"desk", "table", "tabletop"}
 
 
 def _latest_file(directory: Path, pattern: str) -> Path | None:
@@ -44,9 +54,9 @@ def _policy_name_from_run_dir(run_dir: Path) -> str:
     body = name[len("log_run_"):]
 
     # Single run:
-    #   aif_saccade_20260507_151252
+    #   aif_binary_20260507_151252
     # Eval run:
-    #   aif_saccade_run00_seed28_20260507_151252
+    #   aif_binary_run00_seed28_20260507_151252
     m = re.search(r"_(?:run\d+_seed[^_]+_)?\d{8}_\d{6}$", body)
     if m:
         return body[:m.start()]
@@ -252,34 +262,80 @@ def _configure_cell_axis(ax, meta: dict):
 
 
 def _plot_spawned_objects(ax, objects, meta: dict):
-    seen_labels = set()
+    """Plot spawned objects without per-object text labels.
+
+    Targets keep class-specific symbols/colors, desks/tables use one shared
+    symbol, and every other spawned object is grouped into one generic
+    distractor category. This keeps the plot readable even when many
+    distractor classes are present.
+    """
+    grouped = {
+        "target_bottle": [],
+        "target_can": [],
+        "desk": [],
+        "distractor": [],
+    }
 
     for obj in objects:
-        label = obj["class_name"]
-        legend_label = label if label not in seen_labels else None
-        seen_labels.add(label)
+        class_name = str(obj.get("class_name", "object")).strip().lower()
 
-        gx, gy = _world_to_grid_xy(obj["x"], obj["y"], meta)
-        color = TARGET_CLASS_COLORS.get(label, "tab:gray")
+        if class_name in TARGET_OBJECT_STYLES:
+            category = class_name
+        elif class_name in DESK_CLASS_NAMES:
+            category = "desk"
+        else:
+            category = "distractor"
 
+        try:
+            gx, gy = _world_to_grid_xy(float(obj["x"]), float(obj["y"]), meta)
+            grouped[category].append((float(gx), float(gy)))
+        except Exception:
+            continue
+
+    for class_name in ("target_bottle", "target_can"):
+        points = grouped[class_name]
+        if not points:
+            continue
+
+        style = TARGET_OBJECT_STYLES[class_name]
+        xs, ys = zip(*points)
         ax.scatter(
-            [float(gx)],
-            [float(gy)],
-            marker="x",
-            s=72,
-            linewidths=2.0,
-            color=color,
-            label=legend_label,
+            xs,
+            ys,
+            marker=style["marker"],
+            s=185,
+            linewidths=2.6,
+            color=style["color"],
+            edgecolors="black",
+            label=style["label"],
+            zorder=7,
+        )
+
+    if grouped["desk"]:
+        xs, ys = zip(*grouped["desk"])
+        ax.scatter(
+            xs,
+            ys,
+            marker="s",
+            s=145,
+            facecolors="none",
+            edgecolors="tab:gray",
+            linewidths=2.7,
+            label="desk / table",
             zorder=6,
         )
-        ax.text(
-            float(gx) + 0.08,
-            float(gy),
-            label,
-            fontsize=7,
-            va="center",
-            color=color,
-            zorder=7,
+
+    if grouped["distractor"]:
+        xs, ys = zip(*grouped["distractor"])
+        ax.scatter(
+            xs,
+            ys,
+            marker="x",
+            s=145,
+            linewidths=2.8,
+            color="tab:gray",
+            label="distractor",
+            zorder=6,
         )
 
 
@@ -295,12 +351,12 @@ def _plot_claim_events(ax, claim_events, meta: dict):
         gx,
         gy,
         marker="o",
-        s=72,
+        s=145,
         color="red",
         edgecolors="black",
-        linewidths=0.5,
+        linewidths=1.2,
         label="detection claim",
-        zorder=8,
+        zorder=9,
     )
 
 
@@ -428,32 +484,77 @@ def plot_trajectory(
     y = log["y_m"][inside]
     gx, gy = _world_to_grid_xy(x, y, meta)
 
-    fig, ax = plt.subplots(figsize=(8, 9))
+    # Slightly wider canvas leaves room for a compact legend outside the grid.
+    fig, ax = plt.subplots(figsize=(9.5, 9))
 
     _configure_cell_axis(ax, meta)
 
-    ax.plot(gx, gy, linewidth=1.1, color="black", alpha=0.45, zorder=2)
-    ax.scatter(gx, gy, marker="o", s=12, color="black", alpha=0.75, label="trajectory", zorder=3)
+    # Make the trajectory readable at normal figure size: one solid line, no
+    # per-sample dots. Detection claims remain as explicit red event markers.
+    ax.plot(
+        gx,
+        gy,
+        linewidth=2.8,
+        color="black",
+        alpha=0.72,
+        solid_capstyle="round",
+        solid_joinstyle="round",
+        label="trajectory",
+        zorder=3,
+    )
 
     _plot_claim_events(ax, claim_events, meta)
 
-    ax.scatter([gx[0]], [gy[0]], marker="o", s=90, color="tab:green", label="start", zorder=9)
-    ax.scatter([gx[-1]], [gy[-1]], marker="X", s=95, color="tab:orange", label="end", zorder=9)
+    ax.scatter(
+        [gx[0]],
+        [gy[0]],
+        marker="o",
+        s=175,
+        color="tab:green",
+        edgecolors="black",
+        linewidths=1.2,
+        label="start",
+        zorder=10,
+    )
+    ax.scatter(
+        [gx[-1]],
+        [gy[-1]],
+        marker="*",
+        s=260,
+        color="tab:orange",
+        edgecolors="black",
+        linewidths=1.0,
+        label="end",
+        zorder=10,
+    )
 
     if objects:
         _plot_spawned_objects(ax, objects, meta)
 
-    ax.set_title(
-        f"Drone trajectory — {policy_name}\n"
-        f"{meta['rows']}×{meta['cols']} grid, cell={meta['cell_size_m']:.2f}m"
+    # No plot title: the grid itself is the focus and the legend carries the
+    # semantic information. Keep only the coordinate-axis labels.
+    ax.xaxis.label.set_size(12)
+    ax.yaxis.label.set_size(12)
+    ax.tick_params(axis="both", which="major", labelsize=11)
+    ax.grid(which="minor", color="black", linewidth=0.60, alpha=0.22)
+
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0.0,
+        fontsize=9,
+        frameon=True,
+        framealpha=0.92,
+        handlelength=2.0,
+        handletextpad=0.7,
+        labelspacing=0.65,
+        borderpad=0.65,
     )
 
-    ax.legend(loc="upper right", fontsize=8)
-
-    fig.tight_layout()
+    fig.subplots_adjust(right=0.78)
 
     out_path = output_dir / output_name
-    fig.savefig(out_path, dpi=300)
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return out_path

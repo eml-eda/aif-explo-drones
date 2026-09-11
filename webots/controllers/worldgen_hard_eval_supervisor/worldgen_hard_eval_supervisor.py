@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import colorsys
-import json
 import math
 import os
 import random
@@ -14,16 +13,37 @@ from typing import Dict, List, Optional, Tuple
 
 from controller import Supervisor
 
+ENVIRONMENT_ID = "hard"
+RUN_MODE = "evaluation"
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONTROLLERS_DIR = os.path.dirname(CURRENT_DIR)
 
 if CONTROLLERS_DIR not in sys.path:
     sys.path.insert(0, CONTROLLERS_DIR)
 
-from crazyflie_AIF.config import AIF_POLICY as DEFAULT_POLICY
+from common.shared_state import (
+    CONTROLLER_READY_FILENAME,
+    IPC_SESSION_FILENAME,
+    SharedStateStore,
+    atomic_write_json,
+    establish_supervisor_session,
+    read_json,
+)
+
+SHARED_STATE = SharedStateStore.from_controller_file(__file__)
+
+from crazyflie_AIF.config import (
+    AIF_DETECTOR as CONFIGURED_DETECTOR,
+    AIF_POLICY as DEFAULT_POLICY,
+    DETECTOR_SELECTION as CONFIGURED_DETECTOR_SELECTION,
+    normalize_policy_id,
+)
+
+CONFIGURED_DETECTOR_SIGNATURE = CONFIGURED_DETECTOR_SELECTION.metadata()
 
 # -----------------------------------------------------------------------------
-# Multi-run evaluation supervisor for the mixed_hard scenario
+# Multi-run evaluation supervisor for the hard scenario
 # -----------------------------------------------------------------------------
 # Keeps the mixed-table shared-file/reporting lifecycle while spawning the
 # hard scenario: the same task targets and desks plus non-target visual
@@ -211,46 +231,11 @@ def dist2(a: Point, b: Point) -> float:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
 
-def _shared_dir() -> str:
-    here = os.path.dirname(__file__)
-    shared_dir = os.path.abspath(os.path.join(here, "..", "shared"))
-    os.makedirs(shared_dir, exist_ok=True)
-    return shared_dir
-
-
-def _shared_path(filename: str) -> str:
-    return os.path.join(_shared_dir(), filename)
-
-
 def _controller_logs_dir() -> str:
     here = os.path.dirname(__file__)
     logs_dir = os.path.abspath(os.path.join(here, "..", "crazyflie_AIF", "logs"))
     os.makedirs(logs_dir, exist_ok=True)
     return logs_dir
-
-
-def _read_json(path: str, default):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-
-def _atomic_write_json(path: str, payload) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-    os.replace(tmp_path, path)
-
-
-def _safe_remove(path: str) -> None:
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception:
-        pass
 
 
 def _node_id(node) -> Optional[int]:
@@ -294,20 +279,24 @@ def _normalize_detector_limitations(payload: dict | None) -> dict:
 
 def _normalize_experiment_metadata(payload: dict | None) -> dict:
     payload = payload or {}
-    found_det_threshold = payload.get("found_det_threshold", None)
-    found_streak_steps = payload.get("found_streak_steps", None)
+    claim_confidence_threshold = payload.get("claim_confidence_threshold", payload.get("found_det_threshold", None))
     return {
+        "environment": str(payload.get("environment", payload.get("target_setup", ENVIRONMENT_ID))),
+        "run_mode": str(payload.get("run_mode", RUN_MODE)),
         "detector_used": str(payload.get("detector_used", "unknown")),
         "detector_model_family": None if payload.get("detector_model_family", None) is None else str(payload.get("detector_model_family")),
         "detector_model_size": None if payload.get("detector_model_size", None) is None else str(payload.get("detector_model_size")),
         "detector_model_variant": None if payload.get("detector_model_variant", None) is None else str(payload.get("detector_model_variant")),
         "detector_model_path": None if payload.get("detector_model_path", None) is None else str(payload.get("detector_model_path")),
+        "detector_confidence_threshold": None if payload.get("detector_confidence_threshold", None) is None else float(payload.get("detector_confidence_threshold")),
+        "detector_iou_threshold": None if payload.get("detector_iou_threshold", None) is None else float(payload.get("detector_iou_threshold")),
+        "detector_image_size": None if payload.get("detector_image_size", None) is None else int(payload.get("detector_image_size")),
+        "detector_device": None if payload.get("detector_device", None) is None else str(payload.get("detector_device")),
         "detector_backend": str(payload.get("detector_backend", "unknown")),
         "use_ground_truth_detections": bool(payload.get("use_ground_truth_detections", False)),
-        "found_det_threshold": None if found_det_threshold is None else float(found_det_threshold),
-        "found_streak_steps": None if found_streak_steps is None else int(found_streak_steps),
+        "claim_confidence_threshold": None if claim_confidence_threshold is None else float(claim_confidence_threshold),
         "spawn_conditions": str(payload.get("spawn_conditions", "unknown")),
-        "target_setup": str(payload.get("target_setup", "unknown")),
+        "target_setup": str(payload.get("target_setup", ENVIRONMENT_ID)),
     }
 
 
@@ -647,7 +636,6 @@ DEF {def_name} {proto} {{
 '''.strip()
 
 
-
 def _distractor_node_string(
     *,
     def_name: str,
@@ -675,7 +663,7 @@ def _write_spawned_objects_json(path: str, *, seed: int, objects: List[dict], ta
         "target_class_names": sorted(TARGET_CLASS_NAMES),
         "table_scenario": table_scenario,
     }
-    _atomic_write_json(path, payload)
+    atomic_write_json(path, payload)
 
 
 def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy: Point, drone_spawn_yaw: float, table_scenario: dict):
@@ -683,8 +671,10 @@ def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy: Point, 
     cxcy = _cxcy_from_xy(float(x), float(y))
     payload = {
         "seed": int(seed),
-        "scenario": "mixed_hard",
-        "target_setup": "mixed_hard",
+        "environment": ENVIRONMENT_ID,
+        "run_mode": RUN_MODE,
+        "scenario": ENVIRONMENT_ID,
+        "target_setup": ENVIRONMENT_ID,
         "drone_spawn": {
             "x": float(x),
             "y": float(y),
@@ -694,7 +684,7 @@ def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy: Point, 
         },
         "table_scenario": table_scenario,
     }
-    _atomic_write_json(path, payload)
+    atomic_write_json(path, payload)
 
 
 def _write_task_state(path: str, *, status: str, reason: str | None, seed: int, total_objects: int, remaining_objects: int, validated_found_objects: set[tuple[int, int, str]], timeout_s: float, warmup_s: float, episode_s: float, now_time_s: float, report_written: bool) -> None:
@@ -719,7 +709,7 @@ def _write_task_state(path: str, *, status: str, reason: str | None, seed: int, 
         "now_time_s": float(now_time_s),
         "report_written": bool(report_written),
     }
-    _atomic_write_json(path, payload)
+    atomic_write_json(path, payload)
 
 
 def _empty_classification_stats() -> dict:
@@ -728,7 +718,6 @@ def _empty_classification_stats() -> dict:
         "correct_class_claims": 0,
         "wrong_class_claims": 0,
         "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 0,
         "object_cell_claims": 0,
         "object_cell_class_accuracy": 0.0,
         "overall_claim_precision": 0.0,
@@ -793,7 +782,6 @@ def _evaluate_new_claims(*, claims: list[dict], seen_claim_keys: set, true_objec
     for claim in claims:
         key = _claim_key(claim)
         if key in seen_claim_keys:
-            classification_stats["duplicate_claims_ignored"] = int(classification_stats["duplicate_claims_ignored"]) + 1
             continue
         seen_claim_keys.add(key)
         classification_stats["unique_claims_evaluated"] = int(classification_stats["unique_claims_evaluated"]) + 1
@@ -840,10 +828,17 @@ def _write_run_report(*, run_dir: str, policy_name: str, gt_seed: int, total_obj
         "detector_model_size": experiment_metadata.get("detector_model_size", None),
         "detector_model_variant": experiment_metadata.get("detector_model_variant", None),
         "detector_model_path": experiment_metadata.get("detector_model_path", None),
+        "detector_confidence_threshold": experiment_metadata.get("detector_confidence_threshold", None),
+        "detector_iou_threshold": experiment_metadata.get("detector_iou_threshold", None),
+        "detector_image_size": experiment_metadata.get("detector_image_size", None),
+        "detector_device": experiment_metadata.get("detector_device", None),
         "spawn_conditions": str(experiment_metadata.get("spawn_conditions", "unknown")),
-        "target_setup": str(experiment_metadata.get("target_setup", "mixed_hard")),
-        "found_det_threshold": experiment_metadata.get("found_det_threshold", None),
-        "found_streak_steps": experiment_metadata.get("found_streak_steps", None),
+        "environment": ENVIRONMENT_ID,
+
+        "run_mode": RUN_MODE,
+
+        "target_setup": str(experiment_metadata.get("target_setup", "hard")),
+        "claim_confidence_threshold": experiment_metadata.get("claim_confidence_threshold", None),
         "target_distance_stats": dict(target_distance_stats),
         "autonomy_start_time_s": autonomy_start_time_s,
         "now_time_s": float(now_time_s),
@@ -863,7 +858,7 @@ def _write_run_report(*, run_dir: str, policy_name: str, gt_seed: int, total_obj
         "table_scenario": dict(table_scenario),
     }
     out_path = os.path.join(report_dir, "run_report.json")
-    _atomic_write_json(out_path, payload)
+    atomic_write_json(out_path, payload)
     print(f"[RUN REPORT] wrote {out_path}", flush=True)
     return payload
 
@@ -896,7 +891,6 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
         total_correct = sum(int(r["classification"]["correct_class_claims"]) for r in runs)
         total_wrong = sum(int(r["classification"]["wrong_class_claims"]) for r in runs)
         total_empty = sum(int(r["classification"]["empty_cell_claims"]) for r in runs)
-        total_duplicates = sum(int(r["classification"]["duplicate_claims_ignored"]) for r in runs)
         total_object_cell_claims = sum(int(r["classification"]["object_cell_claims"]) for r in runs)
         target_stats = [_normalize_target_distance_stats(r.get("target_distance_stats", {})) for r in runs]
         target_distance_total_count = sum(int(s["count"]) for s in target_stats)
@@ -953,10 +947,17 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
             "detector_model_size": first_run.get("detector_model_size", None),
             "detector_model_variant": first_run.get("detector_model_variant", None),
             "detector_model_path": first_run.get("detector_model_path", None),
+            "detector_confidence_threshold": first_run.get("detector_confidence_threshold", None),
+            "detector_iou_threshold": first_run.get("detector_iou_threshold", None),
+            "detector_image_size": first_run.get("detector_image_size", None),
+            "detector_device": first_run.get("detector_device", None),
             "spawn_conditions": str(first_run.get("spawn_conditions", "unknown")),
-            "target_setup": str(first_run.get("target_setup", "mixed_hard")),
-            "found_det_threshold": first_run.get("found_det_threshold", None),
-            "found_streak_steps": first_run.get("found_streak_steps", None),
+            "environment": ENVIRONMENT_ID,
+
+            "run_mode": RUN_MODE,
+
+            "target_setup": str(first_run.get("target_setup", "hard")),
+            "claim_confidence_threshold": first_run.get("claim_confidence_threshold", first_run.get("found_det_threshold", None)),
             "detector_limitations": detector_limitations,
             "target_distance_summary": target_distance_summary,
             "table_scenario_summary": {
@@ -997,7 +998,6 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
                 "total_correct_class_claims": int(total_correct),
                 "total_wrong_class_claims": int(total_wrong),
                 "total_empty_cell_claims": int(total_empty),
-                "total_duplicate_claims_ignored": int(total_duplicates),
                 "total_object_cell_claims": int(total_object_cell_claims),
                 "global_overall_claim_precision": float(total_correct) / float(total_unique_claims) if total_unique_claims > 0 else 0.0,
                 "global_object_cell_class_accuracy": float(total_correct) / float(total_object_cell_claims) if total_object_cell_claims > 0 else 0.0,
@@ -1008,25 +1008,53 @@ def _write_eval_report(eval_dir: str, policy_name: str, seeds: list[int], runs: 
         if INCLUDE_RUNS_IN_EVAL_REPORT:
             payload["runs"] = runs
     out_path = os.path.join(report_dir, "eval_report.json")
-    _atomic_write_json(out_path, payload)
+    atomic_write_json(out_path, payload)
     print(f"[EVAL REPORT] wrote {out_path}", flush=True)
     return out_path
 
 
-def _init_or_resume_eval_state(eval_state_path: str, policy_name: str, seeds: list[int]) -> dict:
-    eval_state = _read_json(eval_state_path, None)
-    if (
-        isinstance(eval_state, dict)
-        and not bool(eval_state.get("completed", False))
-        and str(eval_state.get("scenario", "")) == "mixed_hard"
-        and str(eval_state.get("policy_name", "")) == str(policy_name)
-    ):
-        return eval_state
+def _init_or_resume_eval_state(
+    eval_state_path: str,
+    policy_name: str,
+    seeds: list[int],
+    *,
+    detector_id: str,
+    detector_signature: dict,
+) -> dict:
+    eval_state = read_json(eval_state_path, None)
+
+    if isinstance(eval_state, dict) and not bool(eval_state.get("completed", False)):
+        state_environment = str(
+            eval_state.get("environment", eval_state.get("scenario", ""))
+        )
+        environment_matches = state_environment == ENVIRONMENT_ID
+        policy_matches = str(eval_state.get("policy_name", "")) == str(policy_name)
+        detector_matches = str(eval_state.get("detector_id", "")) == str(detector_id)
+        detector_signature_matches = dict(eval_state.get("detector_signature", {}) or {}) == dict(detector_signature)
+        seeds_match = [int(v) for v in eval_state.get("seeds", [])] == [int(v) for v in seeds]
+
+        if (
+            environment_matches
+            and policy_matches
+            and detector_matches
+            and detector_signature_matches
+            and seeds_match
+        ):
+            return eval_state
+
+        print(
+            "[HARD EVAL] existing incomplete eval_state does not match the requested "
+            "environment/policy/detector/seeds; starting a new evaluation.",
+            flush=True,
+        )
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    eval_dir = os.path.join(_controller_logs_dir(), f"eval_{policy_name}_mixed_hard_{ts}")
+    eval_dir = os.path.join(_controller_logs_dir(), f"eval_{policy_name}_hard_{ts}")
+
     eval_state = {
         "policy_name": policy_name,
+        "detector_id": str(detector_id),
+        "detector_signature": dict(detector_signature),
         "seeds": list(seeds),
         "total_runs": len(seeds),
         "current_run_index": 0,
@@ -1034,11 +1062,12 @@ def _init_or_resume_eval_state(eval_state_path: str, policy_name: str, seeds: li
         "eval_dir": eval_dir,
         "aggregate_runs": [],
         "completed": False,
-        "scenario": "mixed_hard",
+        "scenario": ENVIRONMENT_ID,
+        "environment": ENVIRONMENT_ID,
+        "run_mode": RUN_MODE,
     }
-    _atomic_write_json(eval_state_path, eval_state)
+    atomic_write_json(eval_state_path, eval_state)
     return eval_state
-
 
 def _place_drone(supervisor: Supervisor, drone_node, *, x: float, y: float, yaw: float) -> None:
     if drone_node is None:
@@ -1403,7 +1432,9 @@ def _spawn_scene(
         [int(d["desk_id"]) for d in desks if bool(d.get("is_empty", False))]
     )
     table_scenario = {
-        "scenario": "mixed_hard",
+        "scenario": ENVIRONMENT_ID,
+        "environment": ENVIRONMENT_ID,
+        "run_mode": RUN_MODE,
         "num_tables": int(len(desks)),
         "num_targets": int(len(target_records)),
         "num_bottles": int(target_counts[CLASS_BOTTLE]),
@@ -1446,22 +1477,40 @@ def main():
 
     supervisor = Supervisor()
     timestep = int(supervisor.getBasicTimeStep())
-    policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
+    policy_name = normalize_policy_id(os.environ.get("AIF_POLICY", DEFAULT_POLICY))
 
-    spawned_objects_path = _shared_path(SPAWNED_OBJECTS_FILENAME)
-    experiment_init_path = _shared_path(EXPERIMENT_INIT_FILENAME)
-    task_state_path = _shared_path(TASK_STATE_FILENAME)
-    controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
-    eval_state_path = _shared_path(EVAL_STATE_FILENAME)
+    spawned_objects_path = SHARED_STATE.path(SPAWNED_OBJECTS_FILENAME)
+    experiment_init_path = SHARED_STATE.path(EXPERIMENT_INIT_FILENAME)
+    task_state_path = SHARED_STATE.path(TASK_STATE_FILENAME)
+    controller_progress_path = SHARED_STATE.path(CONTROLLER_PROGRESS_FILENAME)
+    eval_state_path = SHARED_STATE.path(EVAL_STATE_FILENAME)
 
-    _safe_remove(spawned_objects_path)
-    _safe_remove(experiment_init_path)
-    _safe_remove(task_state_path)
-    _safe_remove(controller_progress_path)
+    SHARED_STATE.clear(
+        CONTROLLER_READY_FILENAME,
+        IPC_SESSION_FILENAME,
+        SPAWNED_OBJECTS_FILENAME,
+        EXPERIMENT_INIT_FILENAME,
+        TASK_STATE_FILENAME,
+        CONTROLLER_PROGRESS_FILENAME,
+    )
+
     print("[HARD EVAL] shared state cleared", flush=True)
 
+    establish_supervisor_session(
+        SHARED_STATE,
+        environment=ENVIRONMENT_ID,
+        run_mode=RUN_MODE,
+    )
+    print("[IPC] supervisor session established", flush=True)
+
     configured_seeds = _configured_eval_seeds()
-    eval_state = _init_or_resume_eval_state(eval_state_path, policy_name, configured_seeds)
+    eval_state = _init_or_resume_eval_state(
+        eval_state_path,
+        policy_name,
+        configured_seeds,
+        detector_id=CONFIGURED_DETECTOR,
+        detector_signature=CONFIGURED_DETECTOR_SIGNATURE,
+    )
     seeds = [int(s) for s in eval_state["seeds"]]
     total_runs = int(eval_state["total_runs"])
     run_index = int(eval_state["current_run_index"])
@@ -1473,7 +1522,7 @@ def main():
 
     _write_task_state(task_state_path, status="running", reason=None, seed=current_seed, total_objects=0, remaining_objects=0, validated_found_objects=set(), timeout_s=TOTAL_SECONDS, warmup_s=WARMUP_SECONDS, episode_s=EPISODE_SECONDS, now_time_s=0.0, report_written=False)
 
-    _atomic_write_json(
+    atomic_write_json(
         controller_progress_path,
         {
             "policy_name": policy_name,
@@ -1536,7 +1585,7 @@ def main():
     _write_task_state(task_state_path, status="running", reason=None, seed=current_seed, total_objects=total_objects, remaining_objects=total_objects, validated_found_objects=validated_found_objects, timeout_s=TOTAL_SECONDS, warmup_s=WARMUP_SECONDS, episode_s=EPISODE_SECONDS, now_time_s=0.0, report_written=False)
 
     spawn_cxcy = _cxcy_from_xy(drone_xy[0], drone_xy[1])
-    _atomic_write_json(
+    atomic_write_json(
         controller_progress_path,
         {
             "policy_name": None,
@@ -1555,7 +1604,7 @@ def main():
     while supervisor.step(timestep) != -1:
         t = supervisor.getTime()
         elapsed_total = float(t - start_time)
-        controller_progress = _read_json(
+        controller_progress = read_json(
             controller_progress_path,
             {
                 "policy_name": None,
@@ -1571,7 +1620,7 @@ def main():
         detector_limitations = _normalize_detector_limitations(controller_progress.get("detector_limitations", {}))
         experiment_metadata = _normalize_experiment_metadata(controller_progress.get("experiment_metadata", {}))
         if experiment_metadata.get("target_setup") in (None, "unknown"):
-            experiment_metadata["target_setup"] = "mixed_hard"
+            experiment_metadata["target_setup"] = "hard"
         target_distance_stats = _normalize_target_distance_stats(controller_progress.get("target_distance_stats", {}))
 
         claims = _extract_claims_from_progress(controller_progress)
@@ -1612,10 +1661,17 @@ def main():
                     "detector_model_size": experiment_metadata.get("detector_model_size", None),
                     "detector_model_variant": experiment_metadata.get("detector_model_variant", None),
                     "detector_model_path": experiment_metadata.get("detector_model_path", None),
+                    "detector_confidence_threshold": experiment_metadata.get("detector_confidence_threshold", None),
+                    "detector_iou_threshold": experiment_metadata.get("detector_iou_threshold", None),
+                    "detector_image_size": experiment_metadata.get("detector_image_size", None),
+                    "detector_device": experiment_metadata.get("detector_device", None),
                     "spawn_conditions": str(experiment_metadata.get("spawn_conditions", "unknown")),
-                    "target_setup": str(experiment_metadata.get("target_setup", "mixed_hard")),
-                    "found_det_threshold": experiment_metadata.get("found_det_threshold", None),
-                    "found_streak_steps": experiment_metadata.get("found_streak_steps", None),
+                    "environment": ENVIRONMENT_ID,
+
+                    "run_mode": RUN_MODE,
+
+                    "target_setup": str(experiment_metadata.get("target_setup", "hard")),
+                    "claim_confidence_threshold": experiment_metadata.get("claim_confidence_threshold", None),
                     "target_distance_stats": dict(target_distance_stats),
                     "autonomy_start_time_s": autonomy_start_time_s,
                     "now_time_s": float(final_time_s),
@@ -1641,10 +1697,17 @@ def main():
                     "detector_model_size": run_payload.get("detector_model_size", None),
                     "detector_model_variant": run_payload.get("detector_model_variant", None),
                     "detector_model_path": run_payload.get("detector_model_path", None),
+                    "detector_confidence_threshold": run_payload.get("detector_confidence_threshold", None),
+                    "detector_iou_threshold": run_payload.get("detector_iou_threshold", None),
+                    "detector_image_size": run_payload.get("detector_image_size", None),
+                    "detector_device": run_payload.get("detector_device", None),
                     "spawn_conditions": str(run_payload.get("spawn_conditions", "unknown")),
-                    "target_setup": str(run_payload.get("target_setup", "mixed_hard")),
-                    "found_det_threshold": run_payload.get("found_det_threshold", None),
-                    "found_streak_steps": run_payload.get("found_streak_steps", None),
+                    "environment": ENVIRONMENT_ID,
+
+                    "run_mode": RUN_MODE,
+
+                    "target_setup": str(run_payload.get("target_setup", "hard")),
+                    "claim_confidence_threshold": run_payload.get("claim_confidence_threshold", run_payload.get("found_det_threshold", None)),
                     "target_distance_stats": dict(run_payload.get("target_distance_stats", {})),
                     "elapsed_s": float(run_payload["elapsed_s"]),
                     "found_count": int(run_payload["found_count"]),
@@ -1660,8 +1723,8 @@ def main():
             is_last_run = (run_index + 1) >= total_runs
             if is_last_run:
                 _write_eval_report(eval_dir=eval_dir, policy_name=policy_name, seeds=seeds, runs=aggregate_runs)
-                eval_state = {"policy_name": policy_name, "seeds": seeds, "total_runs": total_runs, "current_run_index": run_index, "current_seed": current_seed, "eval_dir": eval_dir, "aggregate_runs": aggregate_runs, "completed": True, "scenario": "mixed_hard"}
-                _atomic_write_json(eval_state_path, eval_state)
+                eval_state = {"policy_name": policy_name, "detector_id": str(CONFIGURED_DETECTOR), "detector_signature": dict(CONFIGURED_DETECTOR_SIGNATURE), "seeds": seeds, "total_runs": total_runs, "current_run_index": run_index, "current_seed": current_seed, "eval_dir": eval_dir, "aggregate_runs": aggregate_runs, "completed": True, "scenario": ENVIRONMENT_ID, "environment": ENVIRONMENT_ID, "run_mode": RUN_MODE}
+                atomic_write_json(eval_state_path, eval_state)
                 _write_task_state(task_state_path, status=final_reason, reason=final_reason, seed=current_seed, total_objects=total_objects, remaining_objects=remaining_objects, validated_found_objects=validated_found_objects, timeout_s=TOTAL_SECONDS, warmup_s=WARMUP_SECONDS, episode_s=EPISODE_SECONDS, now_time_s=float(final_time_s), report_written=True)
                 print(f"[HARD EVAL] completed all {total_runs} runs", flush=True)
                 grace_start = supervisor.getTime()
@@ -1674,8 +1737,8 @@ def main():
                 return
             next_run_index = run_index + 1
             next_seed = int(seeds[next_run_index])
-            eval_state = {"policy_name": policy_name, "seeds": seeds, "total_runs": total_runs, "current_run_index": next_run_index, "current_seed": next_seed, "eval_dir": eval_dir, "aggregate_runs": aggregate_runs, "completed": False, "scenario": "mixed_hard"}
-            _atomic_write_json(eval_state_path, eval_state)
+            eval_state = {"policy_name": policy_name, "detector_id": str(CONFIGURED_DETECTOR), "detector_signature": dict(CONFIGURED_DETECTOR_SIGNATURE), "seeds": seeds, "total_runs": total_runs, "current_run_index": next_run_index, "current_seed": next_seed, "eval_dir": eval_dir, "aggregate_runs": aggregate_runs, "completed": False, "scenario": ENVIRONMENT_ID, "environment": ENVIRONMENT_ID, "run_mode": RUN_MODE}
+            atomic_write_json(eval_state_path, eval_state)
             _write_task_state(task_state_path, status=final_reason, reason=final_reason, seed=current_seed, total_objects=total_objects, remaining_objects=remaining_objects, validated_found_objects=validated_found_objects, timeout_s=TOTAL_SECONDS, warmup_s=WARMUP_SECONDS, episode_s=EPISODE_SECONDS, now_time_s=float(final_time_s), report_written=True)
             print(f"[HARD EVAL] finished run {run_index + 1}/{total_runs}; reloading world for next seed={next_seed}", flush=True)
             grace_start = supervisor.getTime()

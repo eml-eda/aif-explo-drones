@@ -1,0 +1,67 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "../protos/CrazyFlieDownCam.proto"
+
+# Target PROTOs: custom definitions expose stable model and recognitionColors
+# fields used by dataset generation and camera-recognition ground truth.
+IMPORTABLE EXTERNPROTO "../protos/DatasetBeerBottle.proto"
+IMPORTABLE EXTERNPROTO "../protos/DatasetCan.proto"
+
+# Hard-environment distractors: standard Webots PROTOs imported dynamically by
+# the hard supervisors. They remain non-target objects.
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/balls/protos/SoccerBall.proto"
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/kitchen/breakfast/protos/CerealBox.proto"
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/kitchen/utensils/protos/Plate.proto"
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/plants/protos/FlowerPot.proto"
+
+WorldInfo {
+  basicTimeStep 32
+}
+Viewpoint {
+  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
+  position 1.8996080951642066e-05 8.643238450265438e-05 11.341034861234583
+}
+TexturedBackground {
+}
+DirectionalLight {
+  castShadows TRUE
+}
+RectangleArena {
+  floorSize 5.5 6.5
+  # One texture tile across the entire room, rather than the 0.5 m grid tiles
+  # used by the base experiment world.
+  floorTileSize 5.5 6.5
+  floorAppearance PBRAppearance {
+    baseColorMap ImageTexture {
+      # Add the selected large playmat/room texture at this path.
+      url [
+        "world_resources/hard_floor_texture.png"
+      ]
+      filtering 1
+      repeatS FALSE
+      repeatT FALSE
+    }
+    roughness 1
+    metalness 0
+  }
+  wallHeight 2.2
+}
+DEF SPAWN_ROOT Group {
+}
+
+DEF CRAZYFLIE CrazyFlieDownCam {
+  translation 0 0 0.015
+  rotation 0 0 1 1.5707996938995747
+  controller "crazyflie_hard_dataset_collector"
+}
+
+# Hard dataset-collection world.
+Robot {
+  name "supervisor"
+  supervisor TRUE
+  controller "worldgen_hard_dataset_supervisor"
+  children [
+  ]
+}

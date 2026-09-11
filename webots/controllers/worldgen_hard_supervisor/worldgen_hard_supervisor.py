@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import colorsys
-import json
 import math
 import os
 import random
@@ -13,16 +12,30 @@ from typing import Dict, List, Optional, Tuple
 
 from controller import Supervisor
 
+ENVIRONMENT_ID = "hard"
+RUN_MODE = "single"
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONTROLLERS_DIR = os.path.dirname(CURRENT_DIR)
 
 if CONTROLLERS_DIR not in sys.path:
     sys.path.insert(0, CONTROLLERS_DIR)
 
-from crazyflie_AIF.config import AIF_POLICY as DEFAULT_POLICY
+from common.shared_state import (
+    CONTROLLER_READY_FILENAME,
+    IPC_SESSION_FILENAME,
+    SharedStateStore,
+    atomic_write_json,
+    establish_supervisor_session,
+    read_json,
+)
+
+SHARED_STATE = SharedStateStore.from_controller_file(__file__)
+
+from crazyflie_AIF.config import AIF_POLICY as DEFAULT_POLICY, normalize_policy_id
 
 # -----------------------------------------------------------------------------
-# Single-run supervisor for the mixed_hard scenario
+# Single-run supervisor for the hard scenario
 # -----------------------------------------------------------------------------
 # Keeps the mixed-table shared-file/reporting lifecycle while spawning the
 # hard scenario: the same task targets and desks plus non-target visual
@@ -30,7 +43,7 @@ from crazyflie_AIF.config import AIF_POLICY as DEFAULT_POLICY
 # task objects to be found; distractors are exported for traceability only.
 
 # ---- Single-run settings ----
-SEED = int(os.environ.get("HARD_SEED", "34"))
+SEED = int(os.environ.get("HARD_SEED", "63"))
 
 WARMUP_SECONDS = float(os.environ.get("HARD_WARMUP_SECONDS", "15.0"))
 EPISODE_SECONDS = float(os.environ.get("HARD_EPISODE_SECONDS", "180.0"))
@@ -205,41 +218,6 @@ def dist2(a: Point, b: Point) -> float:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
 
-def _shared_dir() -> str:
-    here = os.path.dirname(__file__)
-    shared_dir = os.path.abspath(os.path.join(here, "..", "shared"))
-    os.makedirs(shared_dir, exist_ok=True)
-    return shared_dir
-
-
-def _shared_path(filename: str) -> str:
-    return os.path.join(_shared_dir(), filename)
-
-
-def _read_json(path: str, default):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-
-def _atomic_write_json(path: str, payload) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-    os.replace(tmp_path, path)
-
-
-def _safe_remove(path: str) -> None:
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception:
-        pass
-
-
 def _node_id(node) -> Optional[int]:
     if hasattr(node, "getId"):
         return int(node.getId())
@@ -269,20 +247,24 @@ def _normalize_detector_limitations(payload: dict | None) -> dict:
 
 def _normalize_experiment_metadata(payload: dict | None) -> dict:
     payload = payload or {}
-    found_det_threshold = payload.get("found_det_threshold", None)
-    found_streak_steps = payload.get("found_streak_steps", None)
+    claim_confidence_threshold = payload.get("claim_confidence_threshold", payload.get("found_det_threshold", None))
     return {
+        "environment": str(payload.get("environment", payload.get("target_setup", ENVIRONMENT_ID))),
+        "run_mode": str(payload.get("run_mode", RUN_MODE)),
         "detector_used": str(payload.get("detector_used", "unknown")),
         "detector_model_family": None if payload.get("detector_model_family", None) is None else str(payload.get("detector_model_family")),
         "detector_model_size": None if payload.get("detector_model_size", None) is None else str(payload.get("detector_model_size")),
         "detector_model_variant": None if payload.get("detector_model_variant", None) is None else str(payload.get("detector_model_variant")),
         "detector_model_path": None if payload.get("detector_model_path", None) is None else str(payload.get("detector_model_path")),
+        "detector_confidence_threshold": None if payload.get("detector_confidence_threshold", None) is None else float(payload.get("detector_confidence_threshold")),
+        "detector_iou_threshold": None if payload.get("detector_iou_threshold", None) is None else float(payload.get("detector_iou_threshold")),
+        "detector_image_size": None if payload.get("detector_image_size", None) is None else int(payload.get("detector_image_size")),
+        "detector_device": None if payload.get("detector_device", None) is None else str(payload.get("detector_device")),
         "detector_backend": str(payload.get("detector_backend", "unknown")),
         "use_ground_truth_detections": bool(payload.get("use_ground_truth_detections", False)),
-        "found_det_threshold": None if found_det_threshold is None else float(found_det_threshold),
-        "found_streak_steps": None if found_streak_steps is None else int(found_streak_steps),
+        "claim_confidence_threshold": None if claim_confidence_threshold is None else float(claim_confidence_threshold),
         "spawn_conditions": str(payload.get("spawn_conditions", "unknown")),
-        "target_setup": str(payload.get("target_setup", "unknown")),
+        "target_setup": str(payload.get("target_setup", ENVIRONMENT_ID)),
     }
 
 
@@ -622,7 +604,6 @@ DEF {def_name} {proto} {{
 '''.strip()
 
 
-
 def _distractor_node_string(
     *,
     def_name: str,
@@ -650,7 +631,7 @@ def _write_spawned_objects_json(path: str, *, seed: int, objects: List[dict], ta
         "target_class_names": sorted(TARGET_CLASS_NAMES),
         "table_scenario": table_scenario,
     }
-    _atomic_write_json(path, payload)
+    atomic_write_json(path, payload)
 
 
 def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy: Point, drone_spawn_yaw: float, table_scenario: dict):
@@ -658,8 +639,10 @@ def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy: Point, 
     cxcy = _cxcy_from_xy(float(x), float(y))
     payload = {
         "seed": int(seed),
-        "scenario": "mixed_hard",
-        "target_setup": "mixed_hard",
+        "environment": ENVIRONMENT_ID,
+        "run_mode": RUN_MODE,
+        "scenario": ENVIRONMENT_ID,
+        "target_setup": ENVIRONMENT_ID,
         "drone_spawn": {
             "x": float(x),
             "y": float(y),
@@ -669,7 +652,7 @@ def _write_experiment_init_json(path: str, *, seed: int, drone_spawn_xy: Point, 
         },
         "table_scenario": table_scenario,
     }
-    _atomic_write_json(path, payload)
+    atomic_write_json(path, payload)
 
 
 def _write_task_state(path: str, *, status: str, reason: str | None, seed: int, total_objects: int, remaining_objects: int, validated_found_objects: set[tuple[int, int, str]], timeout_s: float, warmup_s: float, episode_s: float, now_time_s: float, report_written: bool) -> None:
@@ -694,7 +677,7 @@ def _write_task_state(path: str, *, status: str, reason: str | None, seed: int, 
         "now_time_s": float(now_time_s),
         "report_written": bool(report_written),
     }
-    _atomic_write_json(path, payload)
+    atomic_write_json(path, payload)
 
 
 def _empty_classification_stats() -> dict:
@@ -703,7 +686,6 @@ def _empty_classification_stats() -> dict:
         "correct_class_claims": 0,
         "wrong_class_claims": 0,
         "empty_cell_claims": 0,
-        "duplicate_claims_ignored": 0,
         "object_cell_claims": 0,
         "object_cell_class_accuracy": 0.0,
         "overall_claim_precision": 0.0,
@@ -768,7 +750,6 @@ def _evaluate_new_claims(*, claims: list[dict], seen_claim_keys: set, true_objec
     for claim in claims:
         key = _claim_key(claim)
         if key in seen_claim_keys:
-            classification_stats["duplicate_claims_ignored"] = int(classification_stats["duplicate_claims_ignored"]) + 1
             continue
         seen_claim_keys.add(key)
         classification_stats["unique_claims_evaluated"] = int(classification_stats["unique_claims_evaluated"]) + 1
@@ -815,10 +796,17 @@ def _write_run_report(*, run_dir: str, policy_name: str, gt_seed: int, total_obj
         "detector_model_size": experiment_metadata.get("detector_model_size", None),
         "detector_model_variant": experiment_metadata.get("detector_model_variant", None),
         "detector_model_path": experiment_metadata.get("detector_model_path", None),
+        "detector_confidence_threshold": experiment_metadata.get("detector_confidence_threshold", None),
+        "detector_iou_threshold": experiment_metadata.get("detector_iou_threshold", None),
+        "detector_image_size": experiment_metadata.get("detector_image_size", None),
+        "detector_device": experiment_metadata.get("detector_device", None),
         "spawn_conditions": str(experiment_metadata.get("spawn_conditions", "unknown")),
-        "target_setup": str(experiment_metadata.get("target_setup", "mixed_hard")),
-        "found_det_threshold": experiment_metadata.get("found_det_threshold", None),
-        "found_streak_steps": experiment_metadata.get("found_streak_steps", None),
+        "environment": ENVIRONMENT_ID,
+
+        "run_mode": RUN_MODE,
+
+        "target_setup": str(experiment_metadata.get("target_setup", "hard")),
+        "claim_confidence_threshold": experiment_metadata.get("claim_confidence_threshold", None),
         "target_distance_stats": dict(target_distance_stats),
         "autonomy_start_time_s": autonomy_start_time_s,
         "now_time_s": float(now_time_s),
@@ -838,7 +826,7 @@ def _write_run_report(*, run_dir: str, policy_name: str, gt_seed: int, total_obj
         "table_scenario": dict(table_scenario),
     }
     out_path = os.path.join(report_dir, "run_report.json")
-    _atomic_write_json(out_path, payload)
+    atomic_write_json(out_path, payload)
     print(f"[RUN REPORT] wrote {out_path}", flush=True)
     return payload
 
@@ -1206,7 +1194,9 @@ def _spawn_scene(
         [int(d["desk_id"]) for d in desks if bool(d.get("is_empty", False))]
     )
     table_scenario = {
-        "scenario": "mixed_hard",
+        "scenario": ENVIRONMENT_ID,
+        "environment": ENVIRONMENT_ID,
+        "run_mode": RUN_MODE,
         "num_tables": int(len(desks)),
         "num_targets": int(len(target_records)),
         "num_bottles": int(target_counts[CLASS_BOTTLE]),
@@ -1256,22 +1246,34 @@ def main():
 
     supervisor = Supervisor()
     timestep = int(supervisor.getBasicTimeStep())
-    policy_name = os.environ.get("AIF_POLICY", DEFAULT_POLICY)
+    policy_name = normalize_policy_id(os.environ.get("AIF_POLICY", DEFAULT_POLICY))
 
-    spawned_objects_path = _shared_path(SPAWNED_OBJECTS_FILENAME)
-    experiment_init_path = _shared_path(EXPERIMENT_INIT_FILENAME)
-    task_state_path = _shared_path(TASK_STATE_FILENAME)
-    controller_progress_path = _shared_path(CONTROLLER_PROGRESS_FILENAME)
-    eval_state_path = _shared_path(EVAL_STATE_FILENAME)
+    spawned_objects_path = SHARED_STATE.path(SPAWNED_OBJECTS_FILENAME)
+    experiment_init_path = SHARED_STATE.path(EXPERIMENT_INIT_FILENAME)
+    task_state_path = SHARED_STATE.path(TASK_STATE_FILENAME)
+    controller_progress_path = SHARED_STATE.path(CONTROLLER_PROGRESS_FILENAME)
+    eval_state_path = SHARED_STATE.path(EVAL_STATE_FILENAME)
 
     # Clear stale inter-process state so a single run cannot inherit a previous
     # evaluation seed, progress record, or evaluation output directory.
-    _safe_remove(spawned_objects_path)
-    _safe_remove(experiment_init_path)
-    _safe_remove(task_state_path)
-    _safe_remove(controller_progress_path)
-    _safe_remove(eval_state_path)
+    SHARED_STATE.clear(
+        CONTROLLER_READY_FILENAME,
+        IPC_SESSION_FILENAME,
+        SPAWNED_OBJECTS_FILENAME,
+        EXPERIMENT_INIT_FILENAME,
+        TASK_STATE_FILENAME,
+        CONTROLLER_PROGRESS_FILENAME,
+        EVAL_STATE_FILENAME,
+    )
+
     print("[HARD] shared state cleared", flush=True)
+
+    establish_supervisor_session(
+        SHARED_STATE,
+        environment=ENVIRONMENT_ID,
+        run_mode=RUN_MODE,
+    )
+    print("[IPC] supervisor session established", flush=True)
 
     spawn_root = supervisor.getFromDef("SPAWN_ROOT")
     if spawn_root is None:
@@ -1354,7 +1356,7 @@ def main():
     )
 
     spawn_cxcy = _cxcy_from_xy(drone_xy[0], drone_xy[1])
-    _atomic_write_json(
+    atomic_write_json(
         controller_progress_path,
         {
             "policy_name": None,
@@ -1384,7 +1386,7 @@ def main():
         now_time_s = float(supervisor.getTime())
         elapsed_total = now_time_s - float(start_time)
 
-        controller_progress = _read_json(
+        controller_progress = read_json(
             controller_progress_path,
             {
                 "policy_name": None,
@@ -1408,7 +1410,7 @@ def main():
             controller_progress.get("experiment_metadata", {})
         )
         if experiment_metadata.get("target_setup") in (None, "unknown"):
-            experiment_metadata["target_setup"] = "mixed_hard"
+            experiment_metadata["target_setup"] = "hard"
         target_distance_stats = _normalize_target_distance_stats(
             controller_progress.get("target_distance_stats", {})
         )

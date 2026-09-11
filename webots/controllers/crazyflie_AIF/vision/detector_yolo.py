@@ -1,10 +1,11 @@
-# crazyflie_AIF/vision/detector_yolo.py
+from __future__ import annotations
 
-import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from ultralytics import YOLO
-from config import AIF_YOLO_MODEL
+
 
 class DetectorOutput:
     def __init__(self, detections=None, embedding=None, raw=None):
@@ -13,45 +14,102 @@ class DetectorOutput:
         self.raw = raw
 
 
+def _normalize_label(label: str) -> str:
+    aliases = {
+        "bottle": "target_bottle",
+        "can": "target_can",
+        "table": "desk",
+        "tabletop": "desk",
+        "desk_surface": "desk",
+    }
+    value = str(label).strip()
+    return aliases.get(value, value)
+
+
+def _ordered_model_names(names) -> List[str]:
+    if isinstance(names, dict):
+        return [str(names[k]) for k in sorted(names, key=lambda v: int(v))]
+    if isinstance(names, (list, tuple)):
+        return [str(v) for v in names]
+    return []
+
+
 class Detector:
+    """YOLO detector used by the easy environment.
+
+    Checkpoint selection belongs to the central configuration layer. This
+    wrapper only loads the supplied model and validates that its output classes
+    match the environment class schema before inference begins.
+    """
+
     def __init__(
         self,
-        model_name=None,
-        device="cuda:0",
-        conf=0.25,
-        iou=0.45,
-        img_size=320,
-        class_names=None,
+        model_name: Optional[str] = None,
+        device: str = "cuda:0",
+        conf: float = 0.45,
+        iou: float = 0.40,
+        img_size: int = 320,
+        class_names: Optional[List[str]] = None,
+        expected_model_size: Optional[str] = None,
     ):
-        if model_name is None:
-            model_name = os.environ.get(
-                "AIF_YOLO_MODEL",
-                AIF_YOLO_MODEL,
+        if not model_name:
+            raise ValueError(
+                "YOLO checkpoint path was not supplied. Select it through "
+                "configuration/model_registry.py or AIF_MODEL_PATH."
             )
-        self.model_name = model_name
 
-        self.device = device
-        self.conf = float(os.environ.get("AIF_YOLO_CONF", conf))
-        self.iou = float(os.environ.get("AIF_YOLO_IOU", iou))
-        self.img_size = int(os.environ.get("AIF_YOLO_IMGSZ", img_size))
+        self.model_name = str(Path(model_name).expanduser())
+        self.device = str(device)
+        self.conf = float(conf)
+        self.iou = float(iou)
+        self.img_size = int(img_size)
+        self.class_names = [
+            _normalize_label(v)
+            for v in (class_names or ["target_bottle", "target_can"])
+        ]
 
         self.model = YOLO(self.model_name)
+        raw_model_names = _ordered_model_names(getattr(self.model, "names", {}))
+        normalized_model_names = [_normalize_label(v) for v in raw_model_names]
 
-        if class_names is None:
-            class_names = ["target_bottle", "target_can"]
+        if normalized_model_names != self.class_names:
+            raise ValueError(
+                "YOLO class schema mismatch.\n"
+                f"  checkpoint: {normalized_model_names}\n"
+                f"  environment: {self.class_names}\n"
+                f"  checkpoint path: {self.model_name}"
+            )
 
-        name_to_id = {v: k for k, v in self.model.names.items()}
-        self.classes = [name_to_id[n] for n in class_names if n in name_to_id]
+        expected_scale = {"nano": "n", "small": "s"}.get(
+            None if expected_model_size is None else str(expected_model_size).strip().lower()
+        )
+        model_yaml = getattr(getattr(self.model, "model", None), "yaml", {}) or {}
+        actual_scale = str(model_yaml.get("scale", "")).strip().lower() if isinstance(model_yaml, dict) else ""
+        if expected_scale and actual_scale and actual_scale != expected_scale:
+            raise ValueError(
+                "YOLO model-size mismatch.\n"
+                f"  expected profile size: {expected_model_size} ({expected_scale})\n"
+                f"  checkpoint model scale: {actual_scale}\n"
+                f"  checkpoint path: {self.model_name}"
+            )
+        if expected_scale and not actual_scale:
+            print(
+                f"[YOLO] WARNING: checkpoint did not expose a model scale; "
+                f"could not verify expected size '{expected_model_size}'.",
+                flush=True,
+            )
 
-        # If none matched, disable filtering rather than silently dropping all detections
-        if not self.classes:
-            self.classes = None
+        self.classes = list(range(len(self.class_names)))
 
-        print(f"[YOLO] model={self.model_name}")
-        print("YOLO classes example:", list(self.model.names.items())[:10])
-        print("Filtering classes:", self.classes)
+        print(
+            f"[YOLO] model={self.model_name} device={self.device} "
+            f"classes={dict(enumerate(self.class_names))} "
+            f"conf={self.conf:.3f} iou={self.iou:.3f} imgsz={self.img_size}",
+            flush=True,
+        )
 
-    def _image_from_webots(self, image, width, height):
+    @staticmethod
+    def _image_from_webots(image, width, height):
         if image is None or width is None or height is None:
             return None
 
@@ -61,8 +119,7 @@ class Detector:
             return None
 
         frame = frame.reshape((height, width, 4))
-        frame = frame[:, :, :3]  # Webots camera buffer is BGRA -> keep BGR for YOLO
-        return frame
+        return frame[:, :, :3]  # Webots BGRA -> BGR for Ultralytics/OpenCV.
 
     def process(self, image, width=None, height=None, timestamp=None):
         frame = self._image_from_webots(image, width, height)
@@ -79,7 +136,7 @@ class Detector:
             verbose=False,
         )
 
-        detections = []
+        detections: List[Dict[str, Any]] = []
         if results:
             res = results[0]
             boxes = res.boxes
@@ -89,13 +146,16 @@ class Detector:
                 clss = boxes.cls.detach().cpu().numpy().astype(int)
 
                 for (x1, y1, x2, y2), score, cls_id in zip(xyxy, confs, clss):
-                    label = res.names.get(int(cls_id), str(int(cls_id)))
+                    if not (0 <= int(cls_id) < len(self.class_names)):
+                        continue
+                    class_name = self.class_names[int(cls_id)]
                     detections.append(
                         {
                             "bbox_xyxy": [float(x1), float(y1), float(x2), float(y2)],
                             "confidence": float(score),
                             "class_id": int(cls_id),
-                            "label": str(label),
+                            "label": class_name,
+                            "class_name": class_name,
                         }
                     )
 

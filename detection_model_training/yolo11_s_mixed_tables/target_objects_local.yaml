@@ -1,9 +1,0 @@
-path: /home/ale/dev/thesis_project/aif-explo-drones/detection_model_training/dataset_mixed_tables
-train: images/train
-val: images/val
-test: images/test
-
-names:
-  0: target_bottle
-  1: target_can
-  2: desk

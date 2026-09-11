@@ -1,0 +1,62 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "../protos/CrazyFlieDownCam.proto"
+
+# Labelled classes used by the hard detector.
+IMPORTABLE EXTERNPROTO "../protos/DatasetBeerBottle.proto"
+IMPORTABLE EXTERNPROTO "../protos/DatasetCan.proto"
+
+# Collection-domain A distractors. These objects are rendered but remain
+# outside the bottle/can/desk training-label schema.
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/toys/protos/RubberDuck.proto"
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/kitchen/utensils/protos/Glass.proto"
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/fruits/protos/Apple.proto"
+IMPORTABLE EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/released/projects/objects/kitchen/breakfast/protos/BiscuitBox.proto"
+
+WorldInfo {
+  basicTimeStep 32
+}
+Viewpoint {
+  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
+  position 1.8996080951642066e-05 8.643238450265438e-05 11.341034861234583
+}
+TexturedBackground {
+}
+DirectionalLight {
+  castShadows TRUE
+}
+RectangleArena {
+  floorSize 5.5 6.5
+  floorTileSize 5.5 6.5
+  floorAppearance PBRAppearance {
+    baseColorMap ImageTexture {
+      url [
+        "world_resources/hard_collection_a_floor.png"
+      ]
+      filtering 1
+      repeatS FALSE
+      repeatT FALSE
+    }
+    roughness 1
+    metalness 0
+  }
+  wallHeight 2.2
+}
+DEF SPAWN_ROOT Group {
+}
+
+DEF CRAZYFLIE CrazyFlieDownCam {
+  translation 0 0 0.015
+  rotation 0 0 1 1.5707996938995747
+  controller "crazyflie_hard_dataset_collector"
+}
+
+Robot {
+  name "supervisor"
+  supervisor TRUE
+  controller "worldgen_hard_a_dataset_supervisor"
+  children [
+  ]
+}

@@ -57,9 +57,7 @@ DEF CRAZYFLIE CrazyFlieDownCam {
   controller "crazyflie_AIF"
 }
 
-# Default: 100-run sequential hard-environment evaluation.
-# For a single hard-scene run, change this controller name to
-# "worldgen_hard_supervisor".
+# Hard environment: default 100-run evaluation supervisor.
 Robot {
   name "supervisor"
   supervisor TRUE

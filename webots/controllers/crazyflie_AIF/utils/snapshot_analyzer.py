@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from dataclasses import dataclass
@@ -13,24 +14,10 @@ import numpy as np
 
 
 # -----------------------------------------------------------------------------
-# Paste the snapshot path here, then run this file directly.
+# CLI defaults
 # -----------------------------------------------------------------------------
-SNAPSHOT_PATH = "webots/controllers/crazyflie_AIF/logs/log_run_aif_saccade_table_20260611_144219/snapshots/snapshot_step003423_done_20260611_144402.npz"
-
-TOP_K_ACTIONS = 12
-TOP_K_CELLS = 10
-
-# Target belief heatmap: q(present)
-SHOW_TARGET_HEATMAP = True
-SAVE_TARGET_HEATMAP = True
-
-# Table belief heatmap: q(table). This is only rendered when q_table exists
-# in the snapshot, i.e. for table-enriched policy runs.
-SHOW_TABLE_HEATMAP = True
-SAVE_TABLE_HEATMAP = True
-
-ANNOTATE_HEATMAPS = True
-
+DEFAULT_TOP_K_ACTIONS = 12
+DEFAULT_TOP_K_CELLS = 10
 
 Cell = Tuple[int, int]
 
@@ -182,9 +169,22 @@ class SnapshotAnalyzer:
         return match.group(1)
 
     @staticmethod
-    def _default_heatmap_output_path(snapshot_path: str, suffix: str) -> str:
+    def _repo_root() -> Path:
+        # utils/ -> crazyflie_AIF/ -> controllers/ -> webots/ -> repo root
+        return Path(__file__).resolve().parents[4]
+
+    @staticmethod
+    def _default_heatmap_output_path(
+        snapshot_path: str,
+        suffix: str,
+        output_dir: Optional[str] = None,
+    ) -> str:
         policy_name = SnapshotAnalyzer._extract_policy_name_from_snapshot_path(snapshot_path)
-        out_dir = Path("webots/visuals/belief_heatmaps")
+        out_dir = (
+            Path(output_dir).expanduser().resolve()
+            if output_dir is not None
+            else SnapshotAnalyzer._repo_root() / "webots" / "visuals" / "belief_heatmaps"
+        )
         out_dir.mkdir(parents=True, exist_ok=True)
 
         snap_name = Path(snapshot_path).stem
@@ -389,6 +389,7 @@ class SnapshotAnalyzer:
         colorbar_label: str,
         suffix: str,
         out_path: Optional[str] = None,
+        output_dir: Optional[str] = None,
         annotate: bool = True,
         annotate_decimals: int = 2,
         figsize_scale: float = 0.55,
@@ -402,7 +403,9 @@ class SnapshotAnalyzer:
         rows, cols = values.shape
 
         if out_path is None:
-            out_path = self._default_heatmap_output_path(snapshot_path, suffix=suffix)
+            out_path = self._default_heatmap_output_path(
+                snapshot_path, suffix=suffix, output_dir=output_dir
+            )
 
         out_path_obj = Path(out_path)
         if save:
@@ -474,6 +477,7 @@ class SnapshotAnalyzer:
         snap: SnapshotData,
         *,
         out_path: Optional[str] = None,
+        output_dir: Optional[str] = None,
         annotate: bool = True,
         annotate_decimals: int = 2,
         figsize_scale: float = 0.55,
@@ -488,6 +492,7 @@ class SnapshotAnalyzer:
             colorbar_label="q(present)",
             suffix="q_present",
             out_path=out_path,
+            output_dir=output_dir,
             annotate=annotate,
             annotate_decimals=annotate_decimals,
             figsize_scale=figsize_scale,
@@ -500,6 +505,7 @@ class SnapshotAnalyzer:
         snap: SnapshotData,
         *,
         out_path: Optional[str] = None,
+        output_dir: Optional[str] = None,
         annotate: bool = True,
         annotate_decimals: int = 2,
         figsize_scale: float = 0.55,
@@ -516,6 +522,7 @@ class SnapshotAnalyzer:
             colorbar_label="q(table)",
             suffix="q_table",
             out_path=out_path,
+            output_dir=output_dir,
             annotate=annotate,
             annotate_decimals=annotate_decimals,
             figsize_scale=figsize_scale,
@@ -534,6 +541,7 @@ def analyze_snapshot_file(
     show_table_heatmap: bool = True,
     save_table_heatmap: bool = True,
     annotate_heatmaps: bool = True,
+    output_dir: Optional[str] = None,
 ) -> None:
     analyzer = SnapshotAnalyzer()
     snap = analyzer.load(snapshot_path)
@@ -545,6 +553,7 @@ def analyze_snapshot_file(
             show=show_target_heatmap,
             save=save_target_heatmap,
             annotate=annotate_heatmaps,
+            output_dir=output_dir,
         )
         if out_png is not None:
             print(f"[TARGET HEATMAP] wrote {out_png}")
@@ -566,6 +575,7 @@ def analyze_snapshot_file(
                 show=show_table_heatmap,
                 save=save_table_heatmap,
                 annotate=annotate_heatmaps,
+                output_dir=output_dir,
             )
             if table_png is not None:
                 print(f"[TABLE HEATMAP] wrote {table_png}")
@@ -574,15 +584,41 @@ def analyze_snapshot_file(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Analyze an AIF policy snapshot and optionally render belief heatmaps."
+    )
+    parser.add_argument("snapshot", type=Path, help="Path to a .npz snapshot file.")
+    parser.add_argument("--top-actions", type=int, default=DEFAULT_TOP_K_ACTIONS)
+    parser.add_argument("--top-cells", type=int, default=DEFAULT_TOP_K_CELLS)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Optional heatmap output directory. Defaults to webots/visuals/belief_heatmaps.",
+    )
+    parser.add_argument("--show", action="store_true", help="Display heatmap windows interactively.")
+    parser.add_argument("--no-save", action="store_true", help="Do not save heatmap PNGs.")
+    parser.add_argument("--no-target-heatmap", action="store_true")
+    parser.add_argument("--no-table-heatmap", action="store_true")
+    parser.add_argument("--no-annotate", action="store_true")
+    args = parser.parse_args()
+
+    snapshot = args.snapshot.expanduser().resolve()
+    if not snapshot.exists():
+        raise FileNotFoundError(f"Snapshot does not exist: {snapshot}")
+    if args.top_actions < 1 or args.top_cells < 1:
+        raise ValueError("--top-actions and --top-cells must be >= 1")
+
     analyze_snapshot_file(
-        SNAPSHOT_PATH,
-        top_k_actions=TOP_K_ACTIONS,
-        top_k_cells=TOP_K_CELLS,
-        show_target_heatmap=SHOW_TARGET_HEATMAP,
-        save_target_heatmap=SAVE_TARGET_HEATMAP,
-        show_table_heatmap=SHOW_TABLE_HEATMAP,
-        save_table_heatmap=SAVE_TABLE_HEATMAP,
-        annotate_heatmaps=ANNOTATE_HEATMAPS,
+        str(snapshot),
+        top_k_actions=int(args.top_actions),
+        top_k_cells=int(args.top_cells),
+        show_target_heatmap=bool(args.show and not args.no_target_heatmap),
+        save_target_heatmap=bool(not args.no_save and not args.no_target_heatmap),
+        show_table_heatmap=bool(args.show and not args.no_table_heatmap),
+        save_table_heatmap=bool(not args.no_save and not args.no_table_heatmap),
+        annotate_heatmaps=bool(not args.no_annotate),
+        output_dir=None if args.output_dir is None else str(args.output_dir),
     )
 
 

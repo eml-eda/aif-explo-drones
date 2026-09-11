@@ -1,7 +1,8 @@
-# Requires Webots 2025a (controller runtime provided by Webots)
+# Webots R2025a provides the controller runtime.
 numpy
 ultralytics
 pillow
 matplotlib
 torch
 torchvision
+pyyaml
