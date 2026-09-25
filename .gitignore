@@ -172,8 +172,10 @@ target_objects_local.yaml
 # -------------------------
 /webots/controllers/crazyflie_AIF/utils/coverage_visuals_generator*.ipynb
 /webots/controllers/crazyflie_AIF/utils/results_comp_final.ipynb
+/webots/controllers/crazyflie_AIF/utils/results_comp_complete.ipynb
 /webots/controllers/crazyflie_AIF/utils/results_comp_tables/
 /webots/controllers/crazyflie_AIF/utils/methodology_visuals/
 
 # Generated Webots visualization outputs
 /webots/visuals/
+/Visuals_DATE

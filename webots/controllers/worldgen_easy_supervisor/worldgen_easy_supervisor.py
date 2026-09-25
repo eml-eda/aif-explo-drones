@@ -30,7 +30,7 @@ ENVIRONMENT_ID = "easy"
 RUN_MODE = "single"
 
 # ---- Experiment settings ----
-SEED = 28
+SEED = int(os.environ.get("EASY_SCENARIO_SEED", "28"))
 
 WARMUP_SECONDS = 15.0
 EPISODE_SECONDS = 180.0

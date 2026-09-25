@@ -98,7 +98,7 @@ class AIFZOIPolicy:
         self.prior_target_floor = float(np.clip(prior_target_floor, 1e-6, 1.0 - 1e-6))
         self.prior_target_table = float(np.clip(prior_target_table, 1e-6, 1.0 - 1e-6))
         self.prior_unknown_fraction = float(np.clip(prior_unknown_fraction, 0.0, 1.0))
-        self.table_belief_prior = float(np.clip(table_belief_prior, 1e-6, 1.0 - 1e-6))
+        self.table_belief_prior = float(np.clip(table_belief_prior, 0.0, 1.0 - 1e-6))
         self.table_p_fa = float(np.clip(table_p_fa, 1e-6, 1.0 - 1e-6))
         self.table_no_detection_sensitivity = float(np.clip(table_no_detection_sensitivity, 1e-6, 1.0 - 1e-6))
 

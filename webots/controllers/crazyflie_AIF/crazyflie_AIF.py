@@ -71,7 +71,12 @@ ENABLE_OCCUPANCY_HEATMAP = True
 ENABLE_TRAJECTORY_PLOT = True
 TRACK_AIF_TARGET_DISTANCE = False
 
+# Dedicated high-resolution single-run log used by the post-hoc trajectory and
+# coverage-over-time comparison scripts. Evaluation campaigns stay unchanged.
+ENABLE_EPISODE_LOGGING = (aif_config.RUN_MODE == "single")
+
 ENABLE_LOGGING = ENABLE_CSV_LOGGING or ENABLE_OCCUPANCY_HEATMAP or ENABLE_TRAJECTORY_PLOT
+LOGGER_ENABLED = ENABLE_LOGGING or ENABLE_EPISODE_LOGGING
 
 ENABLE_CAPTURES = False
 LOG_EVERY_N_STEPS = 20
@@ -168,6 +173,7 @@ DETECTION_EVERY_S = 0.625
 EXPERIMENT_INIT_FILENAME = "experiment_init.json"
 TASK_STATE_FILENAME = "task_state.json"
 CONTROLLER_PROGRESS_FILENAME = "controller_progress.json"
+SCENE_SNAPSHOT_FILENAME = "scene_snapshot.json"
 
 # ---- Controller claim criterion ----
 CLAIM_CONFIDENCE_THRESHOLD = 0.45
@@ -190,7 +196,19 @@ DESK_OBJECT_CLASS_IDS = {DESK_CLASS_ID}
 
 AIF_TARGET_DISTANCE_POLICIES = {"aif_binary", "aif_zoi"}
 
+# ---- Easy AIF-ZOI ablation ----
+# "as_is" -> original AIF ZOI, including the default non-zero table prior
+# "zero"  -> no initial table belief; use the easy-environment target prior 6/143
+AIF_ZOI_EASY_TABLE_PRIOR_MODE = os.environ.get(
+    "AIF_ZOI_EASY_TABLE_PRIOR_MODE",
+    "as_is",
+).strip().lower()
 
+if AIF_ZOI_EASY_TABLE_PRIOR_MODE not in {"as_is", "zero"}:
+    raise ValueError(
+        "AIF_ZOI_EASY_TABLE_PRIOR_MODE must be 'as_is' or 'zero', "
+        f"got '{AIF_ZOI_EASY_TABLE_PRIOR_MODE}'."
+    )
 
 
 SHARED_STATE = SharedStateStore.from_controller_file(__file__)
@@ -209,6 +227,7 @@ def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
 
 def load_policy(name, debug=None, seed=None):
     policy_id = aif_config.normalize_policy_id(name)
+
     registry = {
         "wall_following": WallFollowingPolicy,
         "aif_binary": AIFBinaryPolicy,
@@ -217,9 +236,23 @@ def load_policy(name, debug=None, seed=None):
         "spiral": SpiralPolicy,
         "rotate_and_measure": RotateAndMeasurePolicy,
     }
+
     policy_cls = registry[policy_id]
+
     if policy_id == "pseudo_random":
         return policy_cls(seed=seed, debug=debug)
+
+    if policy_id == "aif_zoi" and ENVIRONMENT == "easy":
+        if AIF_ZOI_EASY_TABLE_PRIOR_MODE == "zero":
+            return policy_cls(
+                debug=debug,
+                table_belief_prior=0.0,
+                prior_target_floor=6.0 / 143.0,
+            )
+
+        # "as_is": exactly the original constructor/default parameters.
+        return policy_cls(debug=debug)
+
     return policy_cls(debug=debug)
 
 def _resolve_run_dir(base_log_dir: str, policy_name: str, eval_state_path: str) -> str:
@@ -277,6 +310,43 @@ def _experiment_metadata_payload() -> dict:
         "run_mode": str(aif_config.RUN_MODE),
         "target_setup": str(ENVIRONMENT),
     }
+
+
+def _write_scene_snapshot(
+    *,
+    run_dir: str,
+    policy_name: str,
+    episode_seed: int,
+    experiment_init: dict,
+    spawned_objects_payload: dict,
+) -> str:
+    """Persist the exact scene used by this run next to its episode log."""
+    payload = {
+        "schema_version": 1,
+        "environment": str(ENVIRONMENT),
+        "run_mode": str(aif_config.RUN_MODE),
+        "policy": str(policy_name),
+        "detector": str(DETECTOR_SELECTION.detector_id),
+        "seed": int(episode_seed),
+        "grid": {
+            "arena_width_m": float(ARENA_WIDTH_M),
+            "arena_height_m": float(ARENA_HEIGHT_M),
+            "cell_size_m": float(CELL_SIZE_M),
+            "min_x": float(MIN_X),
+            "max_x": float(MAX_X),
+            "min_y": float(MIN_Y),
+            "max_y": float(MAX_Y),
+            "rows": int(GRID_ROWS),
+            "cols": int(GRID_COLS),
+        },
+        "experiment_init": dict(experiment_init or {}),
+        "spawned_objects": dict(spawned_objects_payload or {}),
+    }
+
+    out_path = os.path.join(run_dir, SCENE_SNAPSHOT_FILENAME)
+    atomic_write_json(out_path, payload)
+    print(f"[SCENE SNAPSHOT] wrote {out_path}", flush=True)
+    return out_path
 
 
 def _supports_aif_target_distance(policy_name: str) -> bool:
@@ -528,11 +598,33 @@ def main() -> None:
     claim_log_file.write("time_s,x_m,y_m,current_cx,current_cy,claim_cx,claim_cy,class_name,confidence\n")
 
     logger = ExperimentLogger(
-        enabled=ENABLE_LOGGING,
+        enabled=LOGGER_ENABLED,
         log_dir=run_dir,
         grid_spec=grid_spec,
         min_time_s=AUTONOMY_START_DELAY_S,
     )
+
+    # Single-run post-hoc visualizations must remain self-contained after the
+    # supervisor overwrites the shared IPC files on later runs. Preserve the
+    # exact experiment init + spawned scene alongside the episode log.
+    if ENABLE_EPISODE_LOGGING:
+        spawned_objects_payload = wait_for_json(
+            gt_path,
+            validator=lambda d: isinstance(d.get("objects", None), list),
+            timeout_s=STARTUP_WAIT_TIMEOUT_S,
+            poll_s=STARTUP_WAIT_POLL_S,
+        )
+        if spawned_objects_payload is None:
+            raise RuntimeError(
+                f"Cannot create single-run scene snapshot; spawned-object manifest unavailable: {gt_path}"
+            )
+        _write_scene_snapshot(
+            run_dir=run_dir,
+            policy_name=policy_name,
+            episode_seed=episode_seed,
+            experiment_init=experiment_init,
+            spawned_objects_payload=spawned_objects_payload,
+        )
 
     pid_controller = pid_velocity_fixed_height_controller()
 
@@ -579,6 +671,8 @@ def main() -> None:
     print("ENVIRONMENT =", ENVIRONMENT)
     print("RUN_MODE =", aif_config.RUN_MODE)
     print("AIF_POLICY =", policy_name)
+    if policy_name == "aif_zoi" and ENVIRONMENT == "easy":
+        print("AIF_ZOI_EASY_TABLE_PRIOR_MODE =", AIF_ZOI_EASY_TABLE_PRIOR_MODE)
     print("AIF_DETECTOR =", DETECTOR_SELECTION.detector_id)
     print("Controls: Arrow keys for planar motion, Q/E yaw, W/S altitude")
     print("Press A to enable autonomous mode, D to disable\n")
@@ -675,6 +769,25 @@ def main() -> None:
 
             if current_cell_cxcy is not None:
                 visited_cells.add(current_cell_cxcy)
+
+            # High-resolution autonomous episode trace. Coverage is exactly the
+            # same visited-cell ratio used by the supervisor/report metric, while
+            # position/yaw are the continuous Webots pose for trajectory plots.
+            if (
+                ENABLE_EPISODE_LOGGING
+                and autonomous_mode
+                and autonomy_start_time is not None
+                and task_snapshot.status == "running"
+            ):
+                logger.log_episode_sample(
+                    episode_time_s=float(time_now - autonomy_start_time),
+                    sim_time_s=float(time_now),
+                    x_m=float(x_pos),
+                    y_m=float(y_pos),
+                    yaw_rad=float(yaw),
+                    visited_cells=len(visited_cells),
+                    total_cells=int(GRID_ROWS * GRID_COLS),
+                )
 
             # ---- Perception + image-to-grid projection ----
             perception_frame = project_perception_frame(

@@ -52,7 +52,7 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
         evaluation_supervisor="worldgen_easy_eval_supervisor",
         target_classes=("target_bottle", "target_can"),
         context_classes=(),
-        supported_policies=(*_NAIVE, "aif_binary"),
+        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi"),
     ),
     "medium": EnvironmentSpec(
         environment_id="medium",

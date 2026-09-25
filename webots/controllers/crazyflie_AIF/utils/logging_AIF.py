@@ -7,14 +7,16 @@ from datetime import datetime
 class ExperimentLogger:
     """
     Depends only on grid_spec.
-    Writes:
-      - occupancy_log_<ts>.csv    (per step samples)
-      - occupancy_summary_<ts>.csv (metadata + per-cell accumulated time)
-      - step_log_<ts>.csv         (actions)
 
-    New behavior:
-      - samples with time_s < min_time_s are ignored
-      - this is useful for excluding warm-up / takeoff from the occupancy heatmap
+    Writes:
+      - occupancy_log_<ts>.csv      (coarser samples used by the existing plots)
+      - occupancy_summary_<ts>.csv  (metadata + per-cell accumulated time)
+      - step_log_<ts>.csv           (actions)
+      - episode_log_<ts>.csv        (high-resolution episode trajectory + coverage)
+
+    Occupancy/step samples with time_s < min_time_s are ignored. The dedicated
+    episode log instead receives episode-relative time directly from the
+    controller, so t=0 corresponds to autonomous-search start.
     """
 
     def __init__(self, enabled=False, log_dir=None, grid_spec=None, arena_meta=None, min_time_s=0.0):
@@ -27,9 +29,19 @@ class ExperimentLogger:
         self.occupancy_log_path = None
         self.occupancy_summary_path = None
         self.step_log_path = None
+        self.episode_log_path = None
 
         self._occupancy_write_count = 0
         self._step_write_count = 0
+        self._episode_write_count = 0
+
+        self._occupancy_log = None
+        self._step_log = None
+        self._episode_log = None
+        self._occupancy_log_path = None
+        self._summary_path = None
+        self._step_log_path = None
+        self._episode_log_path = None
 
         self.occupancy_time_s = None
 
@@ -47,16 +59,23 @@ class ExperimentLogger:
         self.occupancy_log_path = os.path.join(log_dir, f"occupancy_log_{timestamp}.csv")
         self.occupancy_summary_path = os.path.join(log_dir, f"occupancy_summary_{timestamp}.csv")
         self.step_log_path = os.path.join(log_dir, f"step_log_{timestamp}.csv")
+        self.episode_log_path = os.path.join(log_dir, f"episode_log_{timestamp}.csv")
 
         self._occupancy_log_path = self.occupancy_log_path
         self._summary_path = self.occupancy_summary_path
         self._step_log_path = self.step_log_path
+        self._episode_log_path = self.episode_log_path
 
         self._occupancy_log = open(self._occupancy_log_path, "w", encoding="utf-8")
         self._occupancy_log.write("time_s,x_m,y_m,row,col,dt_s,inside\n")
 
         self._step_log = open(self._step_log_path, "w", encoding="utf-8")
         self._step_log.write("time_s,forward,sideways,yaw_rate,altitude,detections\n")
+
+        self._episode_log = open(self._episode_log_path, "w", encoding="utf-8")
+        self._episode_log.write(
+            "episode_time_s,sim_time_s,x_m,y_m,yaw_rad,visited_cells,total_cells,coverage_ratio\n"
+        )
 
         rows = int(self.grid_spec.rows)
         cols = int(self.grid_spec.cols)
@@ -105,12 +124,47 @@ class ExperimentLogger:
         self._step_write_count += 1
         if self._step_write_count % 20 == 0:
             self._step_log.flush()
-    
+
+    def log_episode_sample(
+        self,
+        *,
+        episode_time_s,
+        sim_time_s,
+        x_m,
+        y_m,
+        yaw_rad,
+        visited_cells,
+        total_cells,
+    ):
+        """Write one autonomous-search sample for post-hoc comparison plots."""
+        if not self.enabled or self._episode_log is None:
+            return
+
+        episode_time_s = max(0.0, float(episode_time_s))
+        total_cells = int(total_cells)
+        visited_cells = int(visited_cells)
+        coverage_ratio = (
+            float(visited_cells) / float(total_cells)
+            if total_cells > 0
+            else 0.0
+        )
+
+        self._episode_log.write(
+            f"{episode_time_s:.6f},{float(sim_time_s):.6f},"
+            f"{float(x_m):.6f},{float(y_m):.6f},{float(yaw_rad):.9f},"
+            f"{visited_cells},{total_cells},{coverage_ratio:.9f}\n"
+        )
+
+        self._episode_write_count += 1
+        if self._episode_write_count % 50 == 0:
+            self._episode_log.flush()
+
     def paths(self):
         return {
             "occupancy_log": self.occupancy_log_path,
             "occupancy_summary": self.occupancy_summary_path,
             "step_log": self.step_log_path,
+            "episode_log": self.episode_log_path,
         }
 
     def close(self):
@@ -121,6 +175,8 @@ class ExperimentLogger:
             self._step_log.close()
         if self._occupancy_log:
             self._occupancy_log.close()
+        if self._episode_log:
+            self._episode_log.close()
 
         if self._summary_path and self.occupancy_time_s is not None:
             gs = self.grid_spec
