@@ -71,6 +71,7 @@ class AIFZOIPolicy:
         table_belief_prior: float = 18.0 / 143.0,
         table_p_fa: float = 0.04,
         table_no_detection_sensitivity: float = 0.50,
+        table_context_enabled: bool = True,
         # Target observation model.
         p_fa: float = 0.04,
         no_detection_sensitivity: float = 0.50,
@@ -95,31 +96,45 @@ class AIFZOIPolicy:
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
 
-        self.prior_target_floor = float(np.clip(prior_target_floor, 1e-6, 1.0 - 1e-6))
-        self.prior_target_table = float(np.clip(prior_target_table, 1e-6, 1.0 - 1e-6))
-        self.prior_unknown_fraction = float(np.clip(prior_unknown_fraction, 0.0, 1.0))
-        self.table_belief_prior = float(np.clip(table_belief_prior, 0.0, 1.0 - 1e-6))
+        self.prior_target_floor = float(
+            np.clip(prior_target_floor, 1e-6, 1.0 - 1e-6))
+        self.prior_target_table = float(
+            np.clip(prior_target_table, 1e-6, 1.0 - 1e-6))
+        self.prior_unknown_fraction = float(
+            np.clip(prior_unknown_fraction, 0.0, 1.0))
+        self.table_belief_prior = float(
+            np.clip(table_belief_prior, 0.0, 1.0 - 1e-6))
         self.table_p_fa = float(np.clip(table_p_fa, 1e-6, 1.0 - 1e-6))
-        self.table_no_detection_sensitivity = float(np.clip(table_no_detection_sensitivity, 1e-6, 1.0 - 1e-6))
+        self.table_no_detection_sensitivity = float(
+            np.clip(table_no_detection_sensitivity, 1e-6, 1.0 - 1e-6))
+        self.table_context_enabled = bool(table_context_enabled)
 
         self.p_fa = float(np.clip(p_fa, 1e-6, 1.0 - 1e-6))
-        self.no_detection_sensitivity = float(np.clip(no_detection_sensitivity, 1e-6, 1.0 - 1e-6))
+        self.no_detection_sensitivity = float(
+            np.clip(no_detection_sensitivity, 1e-6, 1.0 - 1e-6))
         self.class_report_prob = float(np.clip(class_report_prob, 0.0, 1.0))
         self.class_accuracy = float(np.clip(class_accuracy, 0.5, 1.0))
-        self.unknown_class_report_prob = float(np.clip(unknown_class_report_prob, 0.0, 1.0))
-        self.peripheral_class_weight = float(np.clip(peripheral_class_weight, 0.0, 1.0))
-        self.classification_coverage_threshold = float(np.clip(classification_coverage_threshold, 0.0, 1.0))
+        self.unknown_class_report_prob = float(
+            np.clip(unknown_class_report_prob, 0.0, 1.0))
+        self.peripheral_class_weight = float(
+            np.clip(peripheral_class_weight, 0.0, 1.0))
+        self.classification_coverage_threshold = float(
+            np.clip(classification_coverage_threshold, 0.0, 1.0))
 
         self.beta_info = float(beta_info)
-        self.classification_preference_strength = float(classification_preference_strength)
-        self.generic_target_preference_strength = float(generic_target_preference_strength)
+        self.classification_preference_strength = float(
+            classification_preference_strength)
+        self.generic_target_preference_strength = float(
+            generic_target_preference_strength)
         self.table_exploration_weight = float(table_exploration_weight)
         self.distance_cost_epsilon = float(distance_cost_epsilon)
         self.planning_p_hit = float(np.clip(planning_p_hit, 1e-6, 1.0 - 1e-6))
-        self.min_coverage_for_ig = float(np.clip(min_coverage_for_ig, 0.0, 1.0))
+        self.min_coverage_for_ig = float(
+            np.clip(min_coverage_for_ig, 0.0, 1.0))
 
         self.replan_cooldown_s = float(replan_cooldown_s)
-        self.classified_confidence_threshold = float(np.clip(classified_confidence_threshold, 0.0, 1.0))
+        self.classified_confidence_threshold = float(
+            np.clip(classified_confidence_threshold, 0.0, 1.0))
 
         if yaw_options is None:
             yaw_options = [k * (math.pi / 4.0) for k in range(8)]
@@ -153,7 +168,8 @@ class AIFZOIPolicy:
         # Candidate FoV coverage cache, exactly mirroring the old policy idea:
         # cache floor/table projections for each candidate cell and yaw. Runtime
         # table_cells only select which surface-specific coverage to use per cell.
-        self._candidate_coverage_cache: Dict[Tuple[int, int, int], Dict[str, Dict[Tuple[int, int], float]]] = {}
+        self._candidate_coverage_cache: Dict[Tuple[int, int,
+                                                   int], Dict[str, Dict[Tuple[int, int], float]]] = {}
 
     # ---------------------------------------------------------------------
     # Public controller API
@@ -181,20 +197,25 @@ class AIFZOIPolicy:
         dbg_every = int(self.debug.get("every_n", 50))
         step_ok = (step is not None) and (step % dbg_every == 0)
 
-        current_cell: Optional[Cell] = self._parse_cell(grid.get("current_cell", None))
-        visible_mask: Dict[Cell, bool] = self._normalize_bool_cell_map(grid.get("visible_mask", {}) or {})
-        coverages: Dict[Cell, float] = self._normalize_float_cell_map(grid.get("coverages", {}) or {})
+        current_cell: Optional[Cell] = self._parse_cell(
+            grid.get("current_cell", None))
+        visible_mask: Dict[Cell, bool] = self._normalize_bool_cell_map(
+            grid.get("visible_mask", {}) or {})
+        coverages: Dict[Cell, float] = self._normalize_float_cell_map(
+            grid.get("coverages", {}) or {})
         table_cells = self._table_cells_from_grid(grid)
-        perception_step = bool(grid.get("perception_processed_this_step", False))
+        perception_step = bool(
+            grid.get("perception_processed_this_step", False))
 
         # Reconstruct table belief from any persistent table-confidence map already
         # accumulated by the controller before the policy first runs, then update
         # q_table from this processed perception frame. q_table then conditions
         # the target prior before target observations are assimilated.
-        self._seed_table_beliefs_from_persistent_confidence(grid)
-        if perception_step:
-            self._update_table_beliefs_from_observation(grid=grid)
-        self._apply_table_context_from_beliefs()
+        if self.table_context_enabled:
+            self._seed_table_beliefs_from_persistent_confidence(grid)
+            if perception_step:
+                self._update_table_beliefs_from_observation(grid=grid)
+            self._apply_table_context_from_beliefs()
 
         # Only target-belief updates on processed perception steps because the
         # controller sends empty visible/evidence fields on throttled frames.
@@ -213,8 +234,10 @@ class AIFZOIPolicy:
 
         time_now = float(observation.get("time", 0.0))
         has_target = self.navigator.has_target()
-        arrived = self.navigator.arrived(pose, coverages) if has_target else False
-        cooldown_elapsed = (time_now - self._last_replan_time_s) >= self.replan_cooldown_s
+        arrived = self.navigator.arrived(
+            pose, coverages) if has_target else False
+        cooldown_elapsed = (
+            time_now - self._last_replan_time_s) >= self.replan_cooldown_s
         should_replan = (not has_target) or (arrived and cooldown_elapsed)
 
         if should_replan and current_cell is not None:
@@ -299,7 +322,8 @@ class AIFZOIPolicy:
                 )
 
         if dbg_policy and step_ok:
-            self._print_debug_grid(step, grid, visible_mask, coverages, table_cells)
+            self._print_debug_grid(
+                step, grid, visible_mask, coverages, table_cells)
 
         cmd = self.navigator.compute_command(pose)
 
@@ -336,11 +360,14 @@ class AIFZOIPolicy:
 
         current_cell = self._parse_cell(grid.get("current_cell", None))
         table_cells = self._table_cells_from_grid(grid)
-        visible_mask = self._normalize_bool_cell_map(grid.get("visible_mask", {}) or {})
-        coverages = self._normalize_float_cell_map(grid.get("coverages", {}) or {})
+        visible_mask = self._normalize_bool_cell_map(
+            grid.get("visible_mask", {}) or {})
+        coverages = self._normalize_float_cell_map(
+            grid.get("coverages", {}) or {})
 
         scored_actions = []
-        chosen = self._last_chosen or (current_cell, float(pose.get("yaw", 0.0)))
+        chosen = self._last_chosen or (
+            current_cell, float(pose.get("yaw", 0.0)))
 
         if current_cell is not None:
             try:
@@ -356,7 +383,8 @@ class AIFZOIPolicy:
         return self._save_snapshot_npz(
             snap_dir=self._snap_dir,
             step=step,
-            pose={"x": float(pose.get("x", 0.0)), "y": float(pose.get("y", 0.0)), "yaw": float(pose.get("yaw", 0.0))},
+            pose={"x": float(pose.get("x", 0.0)), "y": float(
+                pose.get("y", 0.0)), "yaw": float(pose.get("yaw", 0.0))},
             current_cell=current_cell,
             found_cells=self._found_cells_from_task(task),
             table_cells=table_cells,
@@ -389,11 +417,15 @@ class AIFZOIPolicy:
             cols=int(gs["cols"]),
         )
         self.fov_spec = self._fov_spec_from_dict(fs)
-        self.floor_fov_spec = self._fov_spec_from_dict(fov_by_surface.get("floor", fs))
-        self.table_fov_spec = self._fov_spec_from_dict(fov_by_surface.get("table", fs))
+        self.floor_fov_spec = self._fov_spec_from_dict(
+            fov_by_surface.get("floor", fs))
+        self.table_fov_spec = self._fov_spec_from_dict(
+            fov_by_surface.get("table", fs))
 
-        self.env_mgr_floor = GridEnvManager(self.grid_spec, self.floor_fov_spec)
-        self.env_mgr_table = GridEnvManager(self.grid_spec, self.table_fov_spec)
+        self.env_mgr_floor = GridEnvManager(
+            self.grid_spec, self.floor_fov_spec)
+        self.env_mgr_table = GridEnvManager(
+            self.grid_spec, self.table_fov_spec)
         self.env_mgr = self.env_mgr_floor
 
         self.navigator = Navigator(
@@ -408,9 +440,11 @@ class AIFZOIPolicy:
             min_cell_coverage=0.60,
         )
 
-        self.q_s = np.zeros((self.grid_spec.rows, self.grid_spec.cols, 4), dtype=np.float64)
-        initial_table_prob = self.table_belief_prior
-        initial_target_prior = self._context_prior(table_prob=initial_table_prob)
+        self.q_s = np.zeros(
+            (self.grid_spec.rows, self.grid_spec.cols, 4), dtype=np.float64)
+        initial_table_prob = self.table_belief_prior if self.table_context_enabled else 0.0
+        initial_target_prior = self._context_prior(
+            table_prob=initial_table_prob)
         self.q_s[:, :, :] = initial_target_prior.reshape(1, 1, 4)
 
         self.q_table = np.full(
@@ -468,9 +502,12 @@ class AIFZOIPolicy:
 
         target_xy = self._cell_center_xy(cx, cy)
         yaw = float(self.yaw_options[int(target_yaw_index)])
-        floor_cov = dict(self.env_mgr_floor.compute_cell_coverages(target_xy[0], target_xy[1], yaw))
-        table_cov = dict(self.env_mgr_table.compute_cell_coverages(target_xy[0], target_xy[1], yaw))
-        self._candidate_coverage_cache[key] = {"floor": floor_cov, "table": table_cov}
+        floor_cov = dict(self.env_mgr_floor.compute_cell_coverages(
+            target_xy[0], target_xy[1], yaw))
+        table_cov = dict(self.env_mgr_table.compute_cell_coverages(
+            target_xy[0], target_xy[1], yaw))
+        self._candidate_coverage_cache[key] = {
+            "floor": floor_cov, "table": table_cov}
         return floor_cov, table_cov
 
     def _merged_candidate_coverages_rc(
@@ -491,7 +528,8 @@ class AIFZOIPolicy:
         for (r, c) in all_rc:
             rc = (int(r), int(c))
             cxcy = (int(c), int(r))
-            val = float(table_cov.get(rc, 0.0)) if cxcy in table_cells else float(floor_cov.get(rc, 0.0))
+            val = float(table_cov.get(rc, 0.0)) if cxcy in table_cells else float(
+                floor_cov.get(rc, 0.0))
             if val > 0.0:
                 out[rc] = val
         return out
@@ -513,12 +551,14 @@ class AIFZOIPolicy:
         same prior_unknown_fraction convention used by the previous policy.
         """
         q_t = float(np.clip(table_prob, 0.0, 1.0))
-        p_present = (1.0 - q_t) * self.prior_target_floor + q_t * self.prior_target_table
+        p_present = (1.0 - q_t) * self.prior_target_floor + \
+            q_t * self.prior_target_table
         p_present = float(np.clip(p_present, 1e-6, 1.0 - 1e-6))
 
         p_unknown = p_present * self.prior_unknown_fraction
         p_known_each = p_present * (1.0 - self.prior_unknown_fraction) * 0.5
-        prior = np.array([1.0 - p_present, p_unknown, p_known_each, p_known_each], dtype=np.float64)
+        prior = np.array([1.0 - p_present, p_unknown,
+                         p_known_each, p_known_each], dtype=np.float64)
         return self._normalize(prior)
 
     def _seed_table_beliefs_from_persistent_confidence(self, grid: dict) -> None:
@@ -535,7 +575,8 @@ class AIFZOIPolicy:
 
         raw = grid.get("table_confidence_persistent", None)
         if raw is None:
-            raw = (grid.get("surface_height_map", {}) or {}).get("table_confidence_by_cell", {}) or {}
+            raw = (grid.get("surface_height_map", {}) or {}).get(
+                "table_confidence_by_cell", {}) or {}
 
         conf_map = self._normalize_float_cell_map(raw or {})
         if not conf_map:
@@ -544,7 +585,8 @@ class AIFZOIPolicy:
         # If this same processed frame already carries fresh positive table
         # evidence for a cell, let the normal Bayesian table update consume it
         # instead of seeding and updating from the same bbox twice.
-        current_positive = set(self._normalize_float_cell_map(grid.get("table_confidence", {}) or {}).keys())
+        current_positive = set(self._normalize_float_cell_map(
+            grid.get("table_confidence", {}) or {}).keys())
 
         rows, cols = self.q_table.shape
         for (cx, cy), conf in conf_map.items():
@@ -554,7 +596,8 @@ class AIFZOIPolicy:
             cell = (cx, cy)
             if cell in self._seeded_persistent_table_cells or cell in current_positive:
                 continue
-            self.q_table[cy, cx] = max(float(self.q_table[cy, cx]), float(np.clip(conf, 0.0, 1.0)))
+            self.q_table[cy, cx] = max(
+                float(self.q_table[cy, cx]), float(np.clip(conf, 0.0, 1.0)))
             self._seeded_persistent_table_cells.add(cell)
 
     def _update_table_beliefs_from_observation(self, *, grid: dict) -> None:
@@ -569,9 +612,12 @@ class AIFZOIPolicy:
         if self.q_table is None:
             return
 
-        table_conf = self._normalize_float_cell_map(grid.get("table_confidence", {}) or {})
-        table_visible = self._normalize_bool_cell_map(grid.get("table_visible_mask", {}) or {})
-        table_cov = self._normalize_float_cell_map(grid.get("table_coverages", {}) or {})
+        table_conf = self._normalize_float_cell_map(
+            grid.get("table_confidence", {}) or {})
+        table_visible = self._normalize_bool_cell_map(
+            grid.get("table_visible_mask", {}) or {})
+        table_cov = self._normalize_float_cell_map(
+            grid.get("table_coverages", {}) or {})
 
         positive_cells = set(table_conf.keys())
 
@@ -634,7 +680,8 @@ class AIFZOIPolicy:
 
         p_hit = float(np.clip(p_hit, 1e-6, 1.0 - 1e-6))
 
-        prior = np.array([1.0 - q_prior_table, q_prior_table], dtype=np.float64)
+        prior = np.array(
+            [1.0 - q_prior_table, q_prior_table], dtype=np.float64)
         likelihood = (
             np.array([p_fa, p_hit], dtype=np.float64)
             if table_detected
@@ -728,7 +775,8 @@ class AIFZOIPolicy:
             per_event_coverage = coverage / float(max(1, len(events)))
             for event in sorted(events, key=lambda e: float(e.get("confidence", 0.0)), reverse=True):
                 class_name = self._event_class_name(event)
-                conf = float(np.clip(float(event.get("confidence", 0.0)), 0.0, 1.0))
+                conf = float(
+                    np.clip(float(event.get("confidence", 0.0)), 0.0, 1.0))
 
                 if class_name == "target_bottle":
                     class_obs = O_BOTTLE
@@ -796,7 +844,8 @@ class AIFZOIPolicy:
 
         p_hit = float(np.clip(p_hit, 1e-6, 1.0 - 1e-6))
 
-        A = self._A_center(p_hit) if use_center_likelihood else self._A_visible(p_hit)
+        A = self._A_center(
+            p_hit) if use_center_likelihood else self._A_visible(p_hit)
         prior = self.q_s[cy, cx, :].copy()
         likelihood = A[int(obs_index), :]
         post_unnorm = likelihood * prior
@@ -998,11 +1047,13 @@ class AIFZOIPolicy:
                 # have target/class uncertainty. This is deliberately grounded
                 # in the controller's table_cells only; no neighbors or GT table
                 # geometry are injected.
-                table_bonus += frac * self._present_prob(q) * self._classification_need(q)
+                table_bonus += frac * \
+                    self._present_prob(q) * self._classification_need(q)
 
         cx_t, cy_t = int(target_cell[0]), int(target_cell[1])
         q_t = self.q_s[cy_t, cx_t, :]
-        center_utility = self._center_classification_utility(q_t, is_table=(target_cell in table_cells))
+        center_utility = self._center_classification_utility(
+            q_t, is_table=(target_cell in table_cells))
         utility = center_utility + self.table_exploration_weight * table_bonus
 
         # In the old code this term was named risk and minimized. Here risk is
@@ -1032,7 +1083,8 @@ class AIFZOIPolicy:
             if z <= 1e-12:
                 continue
             post = post / z
-            kl = float(np.sum(post * (np.log(post + 1e-12) - np.log(q + 1e-12))))
+            kl = float(
+                np.sum(post * (np.log(post + 1e-12) - np.log(q + 1e-12))))
             ig += po * kl
         return float(ig)
 
@@ -1061,7 +1113,8 @@ class AIFZOIPolicy:
         p_present = self._present_prob(q)
         if p_present <= 1e-12:
             return 0.0
-        class_conf = max(float(q[S_BOTTLE]), float(q[S_CAN])) / max(p_present, 1e-12)
+        class_conf = max(float(q[S_BOTTLE]), float(
+            q[S_CAN])) / max(p_present, 1e-12)
         return float(p_present * (1.0 - class_conf))
 
     def _classification_confidence_from_q(self, q: np.ndarray) -> float:
@@ -1125,7 +1178,8 @@ class AIFZOIPolicy:
         # event list is not available. This loses class labels, but keeps the
         # policy usable on old logs/controllers.
         if not events:
-            det_conf = grid.get("det_confidence_multiclass", None) or grid.get("det_confidence", {}) or {}
+            det_conf = grid.get("det_confidence_multiclass", None) or grid.get(
+                "det_confidence", {}) or {}
             meta = grid.get("det_metadata_multiclass", {}) or {}
             for raw_cell, conf in det_conf.items():
                 cell = self._parse_cell(raw_cell)
@@ -1135,7 +1189,8 @@ class AIFZOIPolicy:
                 if m is None and isinstance(raw_cell, tuple):
                     m = meta.get((int(raw_cell[0]), int(raw_cell[1])), None)
                 class_name = self._event_class_name(m or {})
-                events.append({"cell": cell, "confidence": float(conf), "class_name": class_name, "_target_generic": True})
+                events.append({"cell": cell, "confidence": float(
+                    conf), "class_name": class_name, "_target_generic": True})
 
         for event in events:
             if not self._is_target_event(event):
@@ -1302,7 +1357,8 @@ class AIFZOIPolicy:
             cy = int(idx // cols)
             cx = int(idx % cols)
             q = self.q_s[cy, cx, :]
-            out.append((cx, cy, float(p_present[cy, cx]), float(self._classification_confidence_from_q(q)), float(self._classification_need(q))))
+            out.append((cx, cy, float(p_present[cy, cx]), float(
+                self._classification_confidence_from_q(q)), float(self._classification_need(q))))
         return out
 
     def _print_debug_grid(
@@ -1321,7 +1377,8 @@ class AIFZOIPolicy:
             flush=True,
         )
 
-        top_cov = sorted(coverages.items(), key=lambda kv: kv[1], reverse=True)[:9]
+        top_cov = sorted(coverages.items(),
+                         key=lambda kv: kv[1], reverse=True)[:9]
         for (cx, cy), frac in top_cov:
             q = self.q_s[cy, cx, :] if self.q_s is not None else np.zeros(4)
             print(
@@ -1336,13 +1393,15 @@ class AIFZOIPolicy:
         if top_bel:
             print(
                 "  top p_present: " + ", ".join(
-                    [f"({cx},{cy}) p={p:.2f} cls={cls:.2f} need={need:.2f}" for (cx, cy, p, cls, need) in top_bel]
+                    [f"({cx},{cy}) p={p:.2f} cls={cls:.2f} need={need:.2f}" for (
+                        cx, cy, p, cls, need) in top_bel]
                 ),
                 flush=True,
             )
 
         if self.navigator is not None and self.navigator.has_target():
-            print(f"  target={self.navigator.target_cell} target_yaw={self.navigator.target_yaw:.3f}", flush=True)
+            print(
+                f"  target={self.navigator.target_cell} target_yaw={self.navigator.target_yaw:.3f}", flush=True)
 
     def _maybe_init_snapshot_dir(self, snap_dir: Optional[str]) -> Optional[str]:
         if not snap_dir:
@@ -1415,7 +1474,8 @@ class AIFZOIPolicy:
         for cy in range(self.q_s.shape[0]):
             for cx in range(self.q_s.shape[1]):
                 q = self.q_s[cy, cx, :]
-                q_class_conf[cy, cx] = self._classification_confidence_from_q(q)
+                q_class_conf[cy,
+                             cx] = self._classification_confidence_from_q(q)
                 q_need[cy, cx] = self._classification_need(q)
 
         chosen_cell = chosen[0]
@@ -1439,6 +1499,7 @@ class AIFZOIPolicy:
                 "prior_target_floor": float(self.prior_target_floor),
                 "prior_target_table": float(self.prior_target_table),
                 "table_belief_prior": float(self.table_belief_prior),
+                "table_context_enabled": bool(self.table_context_enabled),
                 "table_p_fa": float(self.table_p_fa),
                 "table_no_detection_sensitivity": float(self.table_no_detection_sensitivity),
                 "p_fa": float(self.p_fa),
@@ -1455,11 +1516,13 @@ class AIFZOIPolicy:
         np.savez_compressed(
             path,
             q_s=self.q_s.astype(np.float32),
-            q_table=(self.q_table if self.q_table is not None else np.zeros_like(q_present)).astype(np.float32),
+            q_table=(self.q_table if self.q_table is not None else np.zeros_like(
+                q_present)).astype(np.float32),
             q_present=q_present.astype(np.float32),
             q_class_confidence=q_class_conf.astype(np.float32),
             q_classification_need=q_need.astype(np.float32),
-            table_map=self._table_map_array(table_cells or set()).astype(np.uint8),
+            table_map=self._table_map_array(
+                table_cells or set()).astype(np.uint8),
             meta_json=np.array(json.dumps(meta), dtype=object),
         )
         print(f"[SNAPSHOT] wrote {path}", flush=True)
@@ -1467,7 +1530,8 @@ class AIFZOIPolicy:
 
     def _table_map_array(self, table_cells: set[Cell]) -> np.ndarray:
         assert self.grid_spec is not None
-        arr = np.zeros((self.grid_spec.rows, self.grid_spec.cols), dtype=np.uint8)
+        arr = np.zeros(
+            (self.grid_spec.rows, self.grid_spec.cols), dtype=np.uint8)
         for cx, cy in table_cells:
             if 0 <= int(cx) < self.grid_spec.cols and 0 <= int(cy) < self.grid_spec.rows:
                 arr[int(cy), int(cx)] = 1

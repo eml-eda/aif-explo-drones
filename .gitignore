@@ -107,9 +107,9 @@ webots/protos/docs/
 # Ignore copied reference controller
 webots/controllers/crazyflie_py_wallfollowing/
 
-# Ignore papers and books
+# Ignore papers, books and docs
 papers/
-
+docs/
 self-utils/
 
 capture_visuals_thesis/

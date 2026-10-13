@@ -161,6 +161,34 @@ AIF_DETECTOR_DEVICE
 
 Their defaults are defined in `webots/controllers/crazyflie_AIF/config.py`.
 
+### Evaluation summaries
+
+Every completed evaluation writes its detailed report and a compact metrics
+summary under that campaign's `eval_report/` directory:
+
+```text
+eval_<policy>_<detector>_<environment>_<timestamp>/eval_report/eval_report.json
+eval_<policy>_<detector>_<environment>_<timestamp>/eval_report/global_results.json
+```
+
+The compact result records environment, policy, detector, run count, success
+rate, target recovery, time to success, and visited-cell ratio. Time to success
+is calculated from successful runs only; target recovery and visited-cell
+statistics use all runs. Reprocessing the same campaign replaces its entry by
+`campaign_id` rather than adding a duplicate in that campaign's summary file.
+
+The complete 15-campaign Easy-environment matrix can be run sequentially with:
+
+```bash
+scripts/run_easy_experiments.sh --list
+scripts/run_easy_experiments.sh
+```
+
+Queue progress is saved under the ignored experiment logs. Rerunning the script
+after an interruption resumes the queued campaign. Use `--status` to inspect
+the next job, `--start-at N` to select a one-based queue position, or `--reset`
+to return the queue to campaign 1.
+
 ## Webots worlds
 
 Eight canonical worlds are included.

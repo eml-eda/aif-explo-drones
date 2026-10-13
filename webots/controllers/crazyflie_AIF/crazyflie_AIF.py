@@ -60,6 +60,7 @@ from common.shared_state import (
 from config import AIF_POLICY as DEFAULT_POLICY
 import config as aif_config
 
+
 # Central, validated detector selection. User-facing choices live in config.py.
 DETECTOR_SELECTION = aif_config.DETECTOR_SELECTION
 
@@ -213,6 +214,7 @@ if AIF_ZOI_EASY_TABLE_PRIOR_MODE not in {"as_is", "zero"}:
 
 SHARED_STATE = SharedStateStore.from_controller_file(__file__)
 
+
 def load_gt_objects(json_path: str):
     data = read_json(json_path)
     return list(data.get("objects", []))
@@ -244,16 +246,26 @@ def load_policy(name, debug=None, seed=None):
 
     if policy_id == "aif_zoi" and ENVIRONMENT == "easy":
         if AIF_ZOI_EASY_TABLE_PRIOR_MODE == "zero":
+            # No table context; all six Easy targets are on the floor, across 11 x 13 cells.
             return policy_cls(
                 debug=debug,
+                table_context_enabled=False,
                 table_belief_prior=0.0,
-                prior_target_floor=6.0 / 143.0,
+                prior_target_floor=6.0 / (GRID_ROWS * GRID_COLS),
             )
 
         # "as_is": exactly the original constructor/default parameters.
         return policy_cls(debug=debug)
 
+    if policy_id == "aif_zoi":
+        environment_spec = aif_config.EXPERIMENT_SELECTION.environment_spec
+        return policy_cls(
+            debug=debug,
+            table_context_enabled="desk" in environment_spec.context_classes,
+        )
+
     return policy_cls(debug=debug)
+
 
 def _resolve_run_dir(base_log_dir: str, policy_name: str, eval_state_path: str) -> str:
     """
@@ -296,6 +308,7 @@ def _detector_limitations_payload() -> dict:
         payload["time_interval_s"] = float(DETECTION_EVERY_S)
 
     return payload
+
 
 def _detector_model_metadata_payload() -> dict:
     return DETECTOR_SELECTION.metadata()
@@ -357,7 +370,6 @@ def _tracks_aif_target_distance(policy_name: str) -> bool:
     return bool(TRACK_AIF_TARGET_DISTANCE and _supports_aif_target_distance(policy_name))
 
 
-
 def _read_manual_inputs(
     keyboard,
     *,
@@ -414,6 +426,7 @@ def _read_manual_inputs(
         autonomy_started_at,
     )
 
+
 def main() -> None:
     robot = Robot()
     timestep = int(robot.getBasicTimeStep())
@@ -425,7 +438,8 @@ def main() -> None:
     camera = robot.getDevice("camera")
     camera.enable(timestep)
 
-    policy_name = aif_config.normalize_policy_id(os.environ.get("AIF_POLICY", DEFAULT_POLICY))
+    policy_name = aif_config.normalize_policy_id(
+        os.environ.get("AIF_POLICY", DEFAULT_POLICY))
 
     experiment_init_path = SHARED_STATE.path(EXPERIMENT_INIT_FILENAME)
     gt_path = SHARED_STATE.path(GT_JSON_FILENAME)
@@ -444,13 +458,15 @@ def main() -> None:
 
     experiment_init = wait_for_json(
         experiment_init_path,
-        validator=lambda d: isinstance(d.get("drone_spawn", None), dict) and ("x" in d["drone_spawn"]) and ("y" in d["drone_spawn"]),
+        validator=lambda d: isinstance(d.get("drone_spawn", None), dict) and (
+            "x" in d["drone_spawn"]) and ("y" in d["drone_spawn"]),
         timeout_s=STARTUP_WAIT_TIMEOUT_S,
         poll_s=STARTUP_WAIT_POLL_S,
     )
 
     if experiment_init is None:
-        print(f"[WARN] experiment init file not available at startup: {experiment_init_path}", flush=True)
+        print(
+            f"[WARN] experiment init file not available at startup: {experiment_init_path}", flush=True)
         experiment_init = {
             "seed": -1,
             "drone_spawn": {"x": 0.0, "y": 0.0, "yaw": 0.0, "cx": None, "cy": None},
@@ -515,8 +531,10 @@ def main() -> None:
     task_snapshot = TaskStateSnapshot()
 
     visited_cells = set()
-    persistent_table_cells = set()  # discovered persistent table-height cells, stored as (cx, cy)
-    persistent_table_confidence = {}  # persistent max desk confidence by discovered table cell (cx, cy)
+    # discovered persistent table-height cells, stored as (cx, cy)
+    persistent_table_cells = set()
+    # persistent max desk confidence by discovered table cell (cx, cy)
+    persistent_table_confidence = {}
 
     autonomy_start_time = None
     final_snapshot_written = False
@@ -530,7 +548,8 @@ def main() -> None:
             poll_s=STARTUP_WAIT_POLL_S,
         )
         if gt_json is None:
-            raise FileNotFoundError(f"Required GT file not found or invalid: {gt_path}")
+            raise FileNotFoundError(
+                f"Required GT file not found or invalid: {gt_path}")
 
         gt_objects = load_gt_objects(gt_path)
         print(f"[GT] Loaded {len(gt_objects)} objects from {gt_path}")
@@ -566,9 +585,11 @@ def main() -> None:
         target_class_ids=frozenset(TARGET_OBJECT_CLASS_IDS),
         desk_class_names=frozenset(DESK_OBJECT_CLASS_NAMES),
         desk_class_ids=frozenset(DESK_OBJECT_CLASS_IDS),
-        surface_detection_conf_threshold=float(SURFACE_DETECTION_CONF_THRESHOLD),
+        surface_detection_conf_threshold=float(
+            SURFACE_DETECTION_CONF_THRESHOLD),
         enable_table_shadow_projection=bool(ENABLE_TABLE_SHADOW_PROJECTION),
-        table_shadow_forward_tolerance_m=float(TABLE_SHADOW_FORWARD_TOLERANCE_M),
+        table_shadow_forward_tolerance_m=float(
+            TABLE_SHADOW_FORWARD_TOLERANCE_M),
         min_x=float(MIN_X),
         min_y=float(MIN_Y),
         cell_size_m=float(CELL_SIZE_M),
@@ -593,9 +614,11 @@ def main() -> None:
     run_dir = _resolve_run_dir(base_log_dir, policy_name, eval_state_path)
     print("Run output dir:", run_dir)
 
-    claim_log_path = os.path.join(run_dir, f"claim_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    claim_log_path = os.path.join(
+        run_dir, f"claim_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     claim_log_file = open(claim_log_path, "w", encoding="utf-8")
-    claim_log_file.write("time_s,x_m,y_m,current_cx,current_cy,claim_cx,claim_cy,class_name,confidence\n")
+    claim_log_file.write(
+        "time_s,x_m,y_m,current_cx,current_cy,claim_cx,claim_cy,class_name,confidence\n")
 
     logger = ExperimentLogger(
         enabled=LOGGER_ENABLED,
@@ -700,7 +723,8 @@ def main() -> None:
                 if time_now >= AUTONOMY_START_DELAY_S and task_snapshot.status == "running":
                     autonomous_mode = True
                     autonomy_start_time = float(time_now)
-                    print(f"Autonomous mode: ON (auto at t={time_now:.1f}s)", flush=True)
+                    print(
+                        f"Autonomous mode: ON (auto at t={time_now:.1f}s)", flush=True)
 
             (
                 forward_desired,
@@ -718,7 +742,8 @@ def main() -> None:
             if manual_autonomy_start_time is not None:
                 autonomy_start_time = manual_autonomy_start_time
 
-            height_desired = max(0.1, height_desired + height_diff_desired * dt)
+            height_desired = max(0.1, height_desired +
+                                 height_diff_desired * dt)
 
             if ENABLE_CAPTURES and (step_count % CAPTURE_EVERY_N_STEPS == 0):
                 save_capture(
@@ -734,8 +759,10 @@ def main() -> None:
             y_pos = sensor_state["gps"]["y"]
             yaw = sensor_state["imu"]["yaw"]
 
-            floor_visual_coverages = env_mgr_floor.compute_cell_coverages(x_pos, y_pos, yaw)
-            table_visual_coverages = env_mgr_table.compute_cell_coverages(x_pos, y_pos, yaw)
+            floor_visual_coverages = env_mgr_floor.compute_cell_coverages(
+                x_pos, y_pos, yaw)
+            table_visual_coverages = env_mgr_table.compute_cell_coverages(
+                x_pos, y_pos, yaw)
 
             # Reset every controller step. Populated only from desk detections
             # processed in this frame, then used below to select table-height
@@ -830,8 +857,10 @@ def main() -> None:
 
             visual_coverages_cxcy = mapping_rc_to_cxcy(visual_coverages)
             visible_mask_cxcy = mapping_rc_to_cxcy(visible_mask)
-            det_conf_cxcy = mapping_rc_to_cxcy(perception_frame.target_confidence_rc)
-            det_meta_cxcy = mapping_rc_to_cxcy(perception_frame.target_metadata_rc)
+            det_conf_cxcy = mapping_rc_to_cxcy(
+                perception_frame.target_confidence_rc)
+            det_meta_cxcy = mapping_rc_to_cxcy(
+                perception_frame.target_metadata_rc)
             det_all_events_cxcy = [
                 detection_event_rc_to_cxcy(event)
                 for event in perception_frame.all_events_rc
@@ -840,7 +869,8 @@ def main() -> None:
                 detection_event_rc_to_cxcy(event)
                 for event in perception_frame.target_events_rc
             ]
-            table_conf_cxcy = mapping_rc_to_cxcy(perception_frame.table_confidence_rc)
+            table_conf_cxcy = mapping_rc_to_cxcy(
+                perception_frame.table_confidence_rc)
 
             # Policies must consume perception evidence only on processed detector
             # frames. Reusing an empty observation on skipped control steps would
@@ -868,9 +898,11 @@ def main() -> None:
 
             best_obj = None
             if det_conf_cxcy:
-                best_cell, best_conf = max(det_conf_cxcy.items(), key=lambda kv: float(kv[1]))
+                best_cell, best_conf = max(
+                    det_conf_cxcy.items(), key=lambda kv: float(kv[1]))
                 best_meta = det_meta_cxcy.get(best_cell, {})
-                best_class_name = str(best_meta.get("class_name", best_meta.get("label", "unknown")))
+                best_class_name = str(best_meta.get(
+                    "class_name", best_meta.get("label", "unknown")))
                 best_class_id = int(best_meta.get("class_id", -1))
                 best_obj = {
                     "cell": best_cell,
@@ -895,7 +927,8 @@ def main() -> None:
                 )
 
                 if claim_log_file is not None:
-                    cur_cx, cur_cy = current_cell_cxcy if current_cell_cxcy is not None else (-1, -1)
+                    cur_cx, cur_cy = current_cell_cxcy if current_cell_cxcy is not None else (
+                        -1, -1)
                     claim_log_file.write(
                         f"{time_now:.6f},{x_pos:.6f},{y_pos:.6f},"
                         f"{int(cur_cx)},{int(cur_cy)},"
@@ -908,7 +941,8 @@ def main() -> None:
             controller_claim_cells = claim_manager.claimed_cells
 
             if DEBUG.get("fov", False) and (step_count % int(DEBUG.get("every_n", 50)) == 0):
-                top_rc = sorted(visual_coverages.items(), key=lambda kv: kv[1], reverse=True)[:12]
+                top_rc = sorted(visual_coverages.items(),
+                                key=lambda kv: kv[1], reverse=True)[:12]
                 num_vis = sum(1 for v in visible_mask.values() if v)
 
                 print("\n[FOV DEBUG]")
@@ -922,7 +956,8 @@ def main() -> None:
                     f"table_cells={len(persistent_table_cells)} effective_table_projection_cells={len(effective_table_projection_cells)}"
                 )
                 for (r, c), frac in top_rc:
-                    print(f"    cell=(cx={c},cy={r}) coverage={frac*100:5.1f}% visible={visible_mask[(r,c)]}")
+                    print(
+                        f"    cell=(cx={c},cy={r}) coverage={frac*100:5.1f}% visible={visible_mask[(r,c)]}")
 
             if ENABLE_LOGGING and (step_count % LOG_EVERY_N_STEPS == 0):
                 logger.log_occupancy(
@@ -959,7 +994,8 @@ def main() -> None:
                 task_state=task_snapshot,
                 claim_confidence_threshold=CLAIM_CONFIDENCE_THRESHOLD,
                 snapshots_enabled=ENABLE_SNAPSHOTS,
-                snapshots_dir=os.path.join(run_dir, "snapshots") if run_dir else None,
+                snapshots_dir=os.path.join(
+                    run_dir, "snapshots") if run_dir else None,
                 snapshots_every_n=SNAPSHOT_EVERY_N_STEPS,
                 snapshots_on_stuck=SNAPSHOT_ON_STUCK,
                 stuck_replan_limit=STUCK_REPLAN_LIMIT,
@@ -972,17 +1008,20 @@ def main() -> None:
             if task_snapshot.status != "running":
                 if autonomous_mode:
                     autonomous_mode = False
-                    print(f"Autonomous mode: OFF ({task_snapshot.status})", flush=True)
+                    print(
+                        f"Autonomous mode: OFF ({task_snapshot.status})", flush=True)
 
                 if (not final_snapshot_written) and hasattr(policy, "save_snapshot_from_controller"):
                     try:
                         policy.save_snapshot_from_controller(
                             policy_observation,
-                            reason=str(task_snapshot.reason or task_snapshot.status),
+                            reason=str(
+                                task_snapshot.reason or task_snapshot.status),
                         )
                         final_snapshot_written = True
                     except Exception as e:
-                        print(f"[SNAPSHOT] final snapshot failed: {e}", flush=True)
+                        print(
+                            f"[SNAPSHOT] final snapshot failed: {e}", flush=True)
 
             # ---- Policy action ----
             if autonomous_mode and task_snapshot.status == "running":
@@ -1036,7 +1075,8 @@ def main() -> None:
 
     finally:
         try:
-            write_progress(last_time_s=float(time_now) if "time_now" in locals() else 0.0)
+            write_progress(last_time_s=float(time_now)
+                           if "time_now" in locals() else 0.0)
         except Exception:
             pass
 
@@ -1054,7 +1094,8 @@ def main() -> None:
                     run_dir=run_dir,
                     make_heatmap=ENABLE_OCCUPANCY_HEATMAP,
                     make_trajectory=ENABLE_TRAJECTORY_PLOT,
-                    occupancy_summary_path=logger_paths.get("occupancy_summary"),
+                    occupancy_summary_path=logger_paths.get(
+                        "occupancy_summary"),
                     occupancy_log_path=logger_paths.get("occupancy_log"),
                     gt_json_path=gt_path if os.path.exists(gt_path) else None,
                     plots_subdir=TRAJECTORY_PLOTS_SUBDIR,
@@ -1064,7 +1105,9 @@ def main() -> None:
                     print(f"[VIS] wrote {name}: {path}", flush=True)
 
             except Exception as e:
-                print(f"[VIS] failed to generate run visualizations: {e}", flush=True)
+                print(
+                    f"[VIS] failed to generate run visualizations: {e}", flush=True)
+
 
 if __name__ == "__main__":
     main()

@@ -115,11 +115,12 @@ def write_runtime_dataset_yaml(env_name: str, model_root: Path) -> Path:
     return output_yaml
 
 
-def defaults_for_env(env_name: str) -> tuple[Path, Path, Path]:
+def defaults_for_env(env_name: str, *, write_data_yaml: bool = True) -> tuple[Path | None, Path, Path]:
     preset = ENV_PRESETS[env_name]
     model_root = PROJECT_ROOT / preset["model_dir"]
     model_root.mkdir(parents=True, exist_ok=True)
-    data_yaml = write_runtime_dataset_yaml(env_name, model_root)
+    # Only require the default prepared dataset when no --data override is given.
+    data_yaml = write_runtime_dataset_yaml(env_name, model_root) if write_data_yaml else None
     weights = model_root / "runs" / preset["run_name"] / "best.pt"
     eval_project = model_root / preset["eval_dir"]
     return data_yaml, weights, eval_project
@@ -1042,7 +1043,7 @@ def evaluate_checkpoint(*, env: str, weights: str | Path | None = None, data: st
                         score_thresh: float = 0.001, nms_thresh: float = 0.5, detections_per_img: int = 100,
                         plots: bool = True) -> dict[str, Any]:
     env_name = canonical_env(env)
-    default_data, default_weights, default_eval = defaults_for_env(env_name)
+    default_data, default_weights, default_eval = defaults_for_env(env_name, write_data_yaml=data is None)
 
     args = argparse.Namespace(
         env=env_name,
@@ -1124,7 +1125,7 @@ def main() -> None:
     # Keep every CLI diagnostic option by constructing the same Namespace and using
     # the existing evaluate_split implementation directly here.
     env_name = canonical_env(args.env)
-    default_data, default_weights, default_eval = defaults_for_env(env_name)
+    default_data, default_weights, default_eval = defaults_for_env(env_name, write_data_yaml=args.data is None)
     args.env = env_name
     args.data = str(repo_path(args.data) if args.data else default_data)
     args.weights = str(repo_path(args.weights) if args.weights else default_weights)

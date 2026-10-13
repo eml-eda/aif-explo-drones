@@ -30,6 +30,8 @@ from common.shared_state import (
     establish_supervisor_session,
     read_json,
 )
+from common.global_results import update_global_result
+from common.experiment_naming import evaluation_directory_name
 
 SHARED_STATE = SharedStateStore.from_controller_file(__file__)
 
@@ -822,6 +824,17 @@ def _write_eval_report(
     out_path = os.path.join(report_dir, "eval_report.json")
     atomic_write_json(out_path, payload)
     print(f"[EVAL REPORT] wrote {out_path}", flush=True)
+    try:
+        global_result_path = os.path.join(report_dir, "global_results.json")
+        update_global_result(
+            global_result_path,
+            campaign_id=os.path.basename(os.path.normpath(eval_dir)),
+            environment=ENVIRONMENT_ID,
+            eval_report=payload,
+        )
+        print(f"[GLOBAL RESULT] updated {global_result_path}", flush=True)
+    except Exception as exc:
+        print(f"[GLOBAL RESULT] failed to update: {exc}", flush=True)
     return out_path
 
 
@@ -868,13 +881,17 @@ def _init_or_resume_eval_state(
         )
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    eval_dir_name = evaluation_directory_name(
+        policy=policy_name,
+        detector=detector_id,
+        environment=ENVIRONMENT_ID,
+        timestamp=ts,
+    )
     if policy_name == "aif_zoi":
-        eval_dir = os.path.join(
-            _controller_logs_dir(),
-            f"eval_{policy_name}_easy_{aif_zoi_table_prior_mode}_{ts}",
-        )
-    else:
-        eval_dir = os.path.join(_controller_logs_dir(), f"eval_{policy_name}_easy_{ts}")
+        # Keep the Easy AIF-ZOI table-prior ablation visible in the directory name.
+        eval_dir_name = eval_dir_name.replace(
+            f"_{ENVIRONMENT_ID}_", f"_{ENVIRONMENT_ID}_{aif_zoi_table_prior_mode}_", 1)
+    eval_dir = os.path.join(_controller_logs_dir(), eval_dir_name)
 
     eval_state = {
         "policy_name": policy_name,
