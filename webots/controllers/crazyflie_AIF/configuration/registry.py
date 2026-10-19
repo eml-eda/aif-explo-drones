@@ -36,6 +36,7 @@ POLICIES: Dict[str, PolicySpec] = {
     "rotate_and_measure": PolicySpec("rotate_and_measure", "Rotate and Measure"),
     "aif_binary": PolicySpec("aif_binary", "AIF Binary"),
     "aif_zoi": PolicySpec("aif_zoi", "AIF ZOI"),
+    "aif_zoi_v2": PolicySpec("aif_zoi_v2", "AIF ZOI v2"),
 }
 
 POLICY_ALIASES = {
@@ -52,7 +53,7 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
         evaluation_supervisor="worldgen_easy_eval_supervisor",
         target_classes=("target_bottle", "target_can"),
         context_classes=(),
-        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi"),
+        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi", "aif_zoi_v2"),
     ),
     "medium": EnvironmentSpec(
         environment_id="medium",
@@ -62,7 +63,7 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
         evaluation_supervisor="worldgen_medium_eval_supervisor",
         target_classes=("target_bottle", "target_can"),
         context_classes=("desk",),
-        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi"),
+        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi", "aif_zoi_v2"),
     ),
     "hard": EnvironmentSpec(
         environment_id="hard",
@@ -72,7 +73,7 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
         evaluation_supervisor="worldgen_hard_eval_supervisor",
         target_classes=("target_bottle", "target_can"),
         context_classes=("desk",),
-        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi"),
+        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi", "aif_zoi_v2"),
     ),
 }
 

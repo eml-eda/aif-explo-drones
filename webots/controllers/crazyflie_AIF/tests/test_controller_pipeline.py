@@ -206,6 +206,60 @@ class ControllerPipelineTests(unittest.TestCase):
         )
         self.assertNotIn("detections", obs)
 
+    def test_plane_coverages_are_additive_grid_keys(self):
+        evidence = PolicyPerceptionEvidence.for_step(
+            perception_processed=True,
+            visible_mask={(5, 6): True},
+            det_confidence={},
+            det_confidence_multiclass={},
+            det_metadata_multiclass={},
+            detections_all=[],
+            target_detections=[],
+            table_confidence={},
+            table_visible_mask={(5, 6): True},
+            table_coverages={(5, 6): 0.8},
+        )
+        fov = _FovSpec(0.5, 0.5, 0.5, 0.5)
+        kwargs = dict(
+            sensor_state={"time": 1.0},
+            step=1,
+            pose={"x": 0.0, "y": 0.0, "yaw": 0.0},
+            grid_spec=_GridSpec(),
+            detector_is_ground_truth=False,
+            detector_detections=[],
+            current_cell=(5, 6),
+            visual_coverages={(5, 6): 0.8},
+            perception_evidence=evidence,
+            coverage_threshold=0.05,
+            persistent_table_confidence={},
+            perception_processed=True,
+            surface_height_map={},
+            persistent_table_cells=set(),
+            effective_table_projection_cells=set(),
+            claimed_found_cells=set(),
+            task_state=TaskStateSnapshot(),
+            claim_confidence_threshold=0.45,
+            snapshots_enabled=False,
+            snapshots_dir=None,
+            snapshots_every_n=200,
+            snapshots_on_stuck=True,
+            stuck_replan_limit=100,
+            floor_fov_spec=fov,
+            table_fov_spec=fov,
+            floor_height_m=0.0,
+            table_height_m=0.72,
+        )
+        without = build_policy_observation(**kwargs)
+        with_planes = build_policy_observation(
+            **kwargs,
+            floor_plane_coverages={(5, 6): 0.8, (5, 7): 0.3},
+            table_plane_coverages={(5, 6): 0.4},
+        )
+        self.assertNotIn("floor_plane_coverages", without["grid"])
+        self.assertEqual(with_planes["grid"].pop("floor_plane_coverages"), {(5, 6): 0.8, (5, 7): 0.3})
+        self.assertEqual(with_planes["grid"].pop("table_plane_coverages"), {(5, 6): 0.4})
+        self.assertEqual(with_planes, without)
+
     def test_target_distance_tracker_matches_legacy_aggregation(self):
         tracker = TargetDistanceTracker()
         self.assertFalse(tracker.record_policy_action({"forward": 0.1}))

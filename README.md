@@ -26,7 +26,7 @@ context in the medium and hard environments but are not search targets.
 
 ## Navigation policies
 
-The repository contains four lightweight baseline policies and two Active
+The repository contains four lightweight baseline policies and three Active
 Inference policies:
 
 | Policy ID | Description |
@@ -37,6 +37,7 @@ Inference policies:
 | `rotate_and_measure` | Rotation-and-translation coverage baseline |
 | `aif_binary` | Active Inference using a binary target-presence belief |
 | `aif_zoi` | Active Inference using target class and zone-of-interest context |
+| `aif_zoi_v2` | `aif_zoi` planner with a fully Bayesian, parameterised observation and prior model |
 
 `aif_binary` maintains a binary belief over target absence or presence for each
 grid cell.
@@ -44,6 +45,54 @@ grid cell.
 `aif_zoi` extends the belief model with bottle, can, and unknown-target states,
 together with a separate belief over desk occupancy. This allows the policy to
 use contextual information when selecting informative observations.
+
+`aif_zoi_v2` keeps the `aif_zoi` planner but replaces its belief model. Each cell
+holds a belief over empty, bottle and can. The prior depends on whether the cell
+is a table cell (`λ_T`), a floor cell (`λ_F`) or not yet typed
+(`ρ·λ_T + (1−ρ)·λ_F`). A cell enters the table map when its centre, projected at
+table height, falls inside a desk box. A cell is typed floor only when its centre
+has been in the camera footprint at table height without the cell entering the
+table map. Each
+visible cell gets one observation per processed frame (nothing, bottle box or can
+box) through a single likelihood with detection probability `max(f, v·r)`. Here
+`v` is the probability that a target in the cell is inside the image: the cell's
+coverage at table height and at floor height, mixed by the probability that the
+target is on a table given the cell type. Detector confidence does not enter the
+likelihood, and the planner uses the same likelihood as the belief update. The
+model is in `webots/controllers/crazyflie_AIF/policies/zoi_v2_model.py`.
+
+The parameters are set with environment variables. The defaults are the values
+of the 73/100 campaign: `r`, `a`, `f` from the offline calibration counts (hard
+world, MobileNet SSD, seed 101, 400 images), and `λ_T`, `λ_F`, `ρ` from the
+scenario (6 targets, 90% on tables, 3 desks of about 3.4 cells each, 143 cells).
+
+| Variable | Default (medium/hard) | Default (easy) |
+| --- | --- | --- |
+| `AIF_ZOI_V2_RECALL` (`r`) | 0.84 | 0.84 |
+| `AIF_ZOI_V2_CLASS_ACCURACY` (`a`) | 0.98 | 0.98 |
+| `AIF_ZOI_V2_FALSE_ALARM` (`f`) | 0.001 | 0.001 |
+| `AIF_ZOI_V2_LAMBDA_TABLE` (`λ_T`) | 0.54 | unused |
+| `AIF_ZOI_V2_LAMBDA_FLOOR` (`λ_F`) | 0.0045 | 6/143 |
+| `AIF_ZOI_V2_RHO` (`ρ`) | 0.07 | 0 |
+| `AIF_ZOI_V2_TABLE_MAP` | `touched` | unused |
+
+`AIF_ZOI_V2_TABLE_MAP=touched` uses the controller's table map (every cell a
+desk-box probe hits). `centre` is an experimental alternative where a cell is a
+table cell only when its centre falls inside a desk box. It lost most runs in a
+first test, and its default priors are recomputed for that rule.
+
+`AIF_ZOI_V2_SURFACE_MODEL=joint` selects the joint surface model
+(`policies/aif_zoi_v2_joint.py`): each cell holds a belief over {table, floor} ×
+{empty, bottle, can}, updated every frame by the desk evidence (a desk box covers
+the cell or not) and the target evidence, with no table map. Its defaults all come
+from one calibration set (`tools/v2_analysis/calibrate_desk.py`): `r` = 141/169,
+`a` = 141/142, `f` = 3/3493, `AIF_ZOI_V2_DESK_RECALL` = 182/191 ≈ 0.953 and
+`AIF_ZOI_V2_DESK_FALSE_ALARM` = 189/1490 ≈ 0.127, the probabilities that a desk box
+covers a table / floor cell in view. The priors are `λ_T` = 0.536, `λ_F` = 0.0045
+and `ρ` = 0.0705, computed for cells whose centre is on a desk top.
+
+`r`, `a`, `f`, `λ_T` and `λ_F` must lie strictly between 0 and 1. The values
+used in a run are written to `policy_parameters.json` in the run directory.
 
 ## Perception backends
 

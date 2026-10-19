@@ -132,6 +132,10 @@ def _update_dataset_metadata(
         "run_index": int(experiment_init.get("run_index", 0)),
         "samples_collected": int(sample_count),
         "objects_manifest": dataset_objects.get("metadata", {}),
+        # Spawned objects with their poses (desks carry tabletop_rect), so that
+        # images can be related to the grid offline together with the manifest
+        # drone poses.
+        "objects": dataset_objects.get("objects", []),
     }
     payload = {
         "dataset_type": collection_config.dataset_type,

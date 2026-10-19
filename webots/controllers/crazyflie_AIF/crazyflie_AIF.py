@@ -16,8 +16,11 @@ from policies.spiral import SpiralPolicy
 from policies.rotate_and_measure import RotateAndMeasurePolicy
 from policies.aif_binary import AIFBinaryPolicy
 from policies.aif_zoi import AIFZOIPolicy
+from policies.aif_zoi_v2 import AIFZOIV2Policy
+from policies.aif_zoi_v2_joint import AIFZOIV2JointPolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
+from utils.perception_log import PerceptionFrameLogger
 from vision.perception_manager import PerceptionManager, PerceptionSchedule
 from utils.run_visualizations import generate_run_visualizations
 
@@ -75,6 +78,12 @@ TRACK_AIF_TARGET_DISTANCE = False
 # Dedicated high-resolution single-run log used by the post-hoc trajectory and
 # coverage-over-time comparison scripts. Evaluation campaigns stay unchanged.
 ENABLE_EPISODE_LOGGING = (aif_config.RUN_MODE == "single")
+
+# Per-frame perception log (perception_log.jsonl) for measuring cell-level
+# recall, false alarms and misassignments offline. Off by default; enable with
+# AIF_PERCEPTION_LOG=1.
+ENABLE_PERCEPTION_LOG = os.environ.get(
+    "AIF_PERCEPTION_LOG", "0").strip().lower() in {"1", "true", "yes"}
 
 ENABLE_LOGGING = ENABLE_CSV_LOGGING or ENABLE_OCCUPANCY_HEATMAP or ENABLE_TRAJECTORY_PLOT
 LOGGER_ENABLED = ENABLE_LOGGING or ENABLE_EPISODE_LOGGING
@@ -195,7 +204,7 @@ TARGET_OBJECT_CLASS_IDS = {0, 1}
 DESK_OBJECT_CLASS_NAMES = {DESK_CLASS_NAME}
 DESK_OBJECT_CLASS_IDS = {DESK_CLASS_ID}
 
-AIF_TARGET_DISTANCE_POLICIES = {"aif_binary", "aif_zoi"}
+AIF_TARGET_DISTANCE_POLICIES = {"aif_binary", "aif_zoi", "aif_zoi_v2"}
 
 # ---- Easy AIF-ZOI ablation ----
 # "as_is" -> original AIF ZOI, including the default non-zero table prior
@@ -234,6 +243,7 @@ def load_policy(name, debug=None, seed=None):
         "wall_following": WallFollowingPolicy,
         "aif_binary": AIFBinaryPolicy,
         "aif_zoi": AIFZOIPolicy,
+        "aif_zoi_v2": AIFZOIV2Policy,
         "pseudo_random": PseudoRandomPolicy,
         "spiral": SpiralPolicy,
         "rotate_and_measure": RotateAndMeasurePolicy,
@@ -263,6 +273,18 @@ def load_policy(name, debug=None, seed=None):
             debug=debug,
             table_context_enabled="desk" in environment_spec.context_classes,
         )
+
+    if policy_id == "aif_zoi_v2":
+        # Model parameters come from AIF_ZOI_V2_* environment variables, with
+        # per-environment defaults (configuration/aif_zoi_v2_params.py).
+        params = aif_config.AIF_ZOI_V2_PARAMS
+        if params is None:
+            params = aif_config.resolve_aif_zoi_v2_params(
+                aif_config.EXPERIMENT_SELECTION.environment_spec)
+        if params.surface_model == "joint":
+            # Surface in the belief state (roadmap 3.1); same policy ID.
+            policy_cls = AIFZOIV2JointPolicy
+        return policy_cls(debug=debug, params=params)
 
     return policy_cls(debug=debug)
 
@@ -614,6 +636,12 @@ def main() -> None:
     run_dir = _resolve_run_dir(base_log_dir, policy_name, eval_state_path)
     print("Run output dir:", run_dir)
 
+    # Record the parameters actually used by policies that expose them.
+    if hasattr(policy, "parameters"):
+        policy_parameters_path = os.path.join(run_dir, "policy_parameters.json")
+        atomic_write_json(policy_parameters_path, policy.parameters())
+        print(f"[POLICY] wrote {policy_parameters_path}", flush=True)
+
     claim_log_path = os.path.join(
         run_dir, f"claim_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     claim_log_file = open(claim_log_path, "w", encoding="utf-8")
@@ -648,6 +676,52 @@ def main() -> None:
             experiment_init=experiment_init,
             spawned_objects_payload=spawned_objects_payload,
         )
+
+    perception_logger = PerceptionFrameLogger(
+        enabled=ENABLE_PERCEPTION_LOG, run_dir=run_dir)
+    if perception_logger.enabled:
+        # Ground truth for this episode; the seed check guards against a stale
+        # manifest left by the previous run.
+        perception_gt = wait_for_json(
+            gt_path,
+            validator=lambda d: isinstance(d.get("objects", None), list)
+            and int(d.get("seed", -1)) == int(episode_seed),
+            timeout_s=STARTUP_WAIT_TIMEOUT_S,
+            poll_s=STARTUP_WAIT_POLL_S,
+        )
+        if perception_gt is None:
+            print(
+                f"[PERCEPTION LOG] spawned objects for seed {episode_seed} unavailable; "
+                "header has no ground truth", flush=True)
+        perception_logger.write_header({
+            "environment": str(ENVIRONMENT),
+            "policy": str(policy_name),
+            "detector": str(DETECTOR_SELECTION.detector_id),
+            "seed": int(episode_seed),
+            "image_size": [int(camera.getWidth()), int(camera.getHeight())],
+            "flying_altitude_m": float(FLYING_ATTITUDE),
+            "table_height_m": float(TABLE_HEIGHT_M),
+            "coverage_threshold": float(COVERAGE_UPDATE_THRESHOLD),
+            "detection_every_s": float(DETECTION_EVERY_S),
+            "grid": {
+                "min_x": float(MIN_X),
+                "min_y": float(MIN_Y),
+                "cell_size_m": float(CELL_SIZE_M),
+                "rows": int(GRID_ROWS),
+                "cols": int(GRID_COLS),
+            },
+            "fov_spec": {
+                surface: {
+                    "half_left": float(spec.half_left),
+                    "half_right": float(spec.half_right),
+                    "forward": float(spec.forward),
+                    "backward": float(spec.backward),
+                }
+                for surface, spec in (("floor", floor_fov_spec), ("table", table_fov_spec))
+            },
+            "spawned_objects": perception_gt,
+        })
+        print(f"[PERCEPTION LOG] writing {perception_logger.path}", flush=True)
 
     pid_controller = pid_velocity_fixed_height_controller()
 
@@ -855,6 +929,23 @@ def main() -> None:
                     threshold=COVERAGE_UPDATE_THRESHOLD,
                 )
 
+            if process_detection_this_step:
+                perception_logger.log_frame(
+                    time_s=time_now,
+                    step=step_count,
+                    autonomous=autonomous_mode,
+                    x=x_pos,
+                    y=y_pos,
+                    z=sensor_state["gps"]["z"],
+                    yaw=yaw,
+                    floor_coverages_rc=floor_visual_coverages,
+                    table_coverages_rc=table_visual_coverages,
+                    merged_coverages_rc=visual_coverages,
+                    table_projection_cells_cxcy=effective_table_projection_cells,
+                    persistent_table_cells_cxcy=persistent_table_cells,
+                    detection_events_rc=perception_frame.all_events_rc,
+                )
+
             visual_coverages_cxcy = mapping_rc_to_cxcy(visual_coverages)
             visible_mask_cxcy = mapping_rc_to_cxcy(visible_mask)
             det_conf_cxcy = mapping_rc_to_cxcy(
@@ -1003,6 +1094,8 @@ def main() -> None:
                 table_fov_spec=table_fov_spec,
                 floor_height_m=FLOOR_HEIGHT_M,
                 table_height_m=TABLE_HEIGHT_M,
+                floor_plane_coverages=mapping_rc_to_cxcy(floor_visual_coverages),
+                table_plane_coverages=mapping_rc_to_cxcy(table_visual_coverages),
             )
 
             if task_snapshot.status != "running":
@@ -1081,6 +1174,7 @@ def main() -> None:
             pass
 
         logger_paths = logger.close()
+        perception_logger.close()
 
         try:
             if claim_log_file is not None:

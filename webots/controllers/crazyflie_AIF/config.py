@@ -15,6 +15,7 @@ A one-run override can be supplied with AIF_MODEL_PATH=/path/to/best.pt.
 import os
 
 try:  # Imported as crazyflie_AIF.config by supervisors.
+    from .configuration.aif_zoi_v2_params import resolve_aif_zoi_v2_params
     from .configuration.detector_config import resolve_detector_selection
     from .configuration.experiment_config import resolve_experiment_selection
     from .configuration.registry import (
@@ -24,6 +25,7 @@ try:  # Imported as crazyflie_AIF.config by supervisors.
     )
     from .configuration.validation import validate_runtime_selection
 except ImportError:  # Executed from the crazyflie_AIF controller directory.
+    from configuration.aif_zoi_v2_params import resolve_aif_zoi_v2_params
     from configuration.detector_config import resolve_detector_selection
     from configuration.experiment_config import resolve_experiment_selection
     from configuration.registry import (
@@ -52,6 +54,14 @@ EXPERIMENT_SELECTION = resolve_experiment_selection(
 ENVIRONMENT = EXPERIMENT_SELECTION.environment
 RUN_MODE = EXPERIMENT_SELECTION.run_mode
 AIF_POLICY = EXPERIMENT_SELECTION.policy
+
+# aif_zoi_v2 model parameters (AIF_ZOI_V2_* environment variables). Invalid
+# values fail at startup; other policies ignore these variables.
+AIF_ZOI_V2_PARAMS = (
+    resolve_aif_zoi_v2_params(EXPERIMENT_SELECTION.environment_spec)
+    if AIF_POLICY == "aif_zoi_v2"
+    else None
+)
 
 
 # -----------------------------------------------------------------------------

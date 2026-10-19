@@ -204,8 +204,16 @@ def build_policy_observation(
     table_fov_spec: Any,
     floor_height_m: float,
     table_height_m: float,
+    floor_plane_coverages: Optional[Mapping[Cell, Any]] = None,
+    table_plane_coverages: Optional[Mapping[Cell, Any]] = None,
 ) -> dict:
-    """Build the policy input without changing the established schema."""
+    """Build the policy input without changing the established schema.
+
+    floor_plane_coverages / table_plane_coverages are optional additions: the
+    coverage of each cell by the camera footprint at floor and at table height,
+    independent of the table map. They are added as new grid keys only when
+    given, so existing keys are unchanged.
+    """
     policy_observation = {
         **dict(sensor_state),
         "step": int(step),
@@ -286,6 +294,11 @@ def build_policy_observation(
             },
         },
     }
+
+    if floor_plane_coverages is not None:
+        policy_observation["grid"]["floor_plane_coverages"] = dict(floor_plane_coverages)
+    if table_plane_coverages is not None:
+        policy_observation["grid"]["table_plane_coverages"] = dict(table_plane_coverages)
 
     if not detector_is_ground_truth:
         policy_observation["detections"] = list(detector_detections or [])
