@@ -118,6 +118,19 @@ def default_priors(rule: str) -> dict:
 SURFACE_MODELS = ("typed", "joint")
 DEFAULT_SURFACE_MODEL = "typed"
 
+# Planner ranking. "distance_cost" (default, as aif_zoi): G = -beta*IG - kappa*U + eps*d.
+# "rate": (beta*IG + kappa*U) / T, with T the navigator's arrival time plus one
+# detector period (policies/planner_time.py), so moves cost seconds, not a weight.
+PLANNER_OBJECTIVES = ("distance_cost", "rate")
+DEFAULT_PLANNER_OBJECTIVE = "distance_cost"
+
+# Planner terms. "info_and_class" (default, as aif_zoi): beta*IG plus the
+# classification bonus kappa*U_class. "info_only": IG alone. The belief keeps
+# bottle and can as separate states, so IG already values resolving the class,
+# and with "rate" the score IG / T has no weight at all.
+PLANNER_TERMS = ("info_and_class", "info_only")
+DEFAULT_PLANNER_TERMS = "info_and_class"
+
 ENV_VARS = {
     "recall": "AIF_ZOI_V2_RECALL",
     "class_accuracy": "AIF_ZOI_V2_CLASS_ACCURACY",
@@ -130,6 +143,8 @@ ENV_VARS = {
 }
 TABLE_MAP_RULE_ENV_VAR = "AIF_ZOI_V2_TABLE_MAP"
 SURFACE_MODEL_ENV_VAR = "AIF_ZOI_V2_SURFACE_MODEL"
+PLANNER_OBJECTIVE_ENV_VAR = "AIF_ZOI_V2_PLANNER"
+PLANNER_TERMS_ENV_VAR = "AIF_ZOI_V2_PLANNER_TERMS"
 
 
 @dataclass(frozen=True)
@@ -153,6 +168,8 @@ class AIFZOIV2Params:
     rho: float = DEFAULT_RHO
     table_map_rule: str = DEFAULT_TABLE_MAP_RULE
     surface_model: str = DEFAULT_SURFACE_MODEL
+    planner_objective: str = DEFAULT_PLANNER_OBJECTIVE
+    planner_terms: str = DEFAULT_PLANNER_TERMS
     desk_recall: float = DEFAULT_DESK_RECALL
     desk_false_alarm: float = DEFAULT_DESK_FALSE_ALARM
     table_context_enabled: bool = True
@@ -173,6 +190,12 @@ class AIFZOIV2Params:
         if self.surface_model not in SURFACE_MODELS:
             raise ValueError(
                 f"aif_zoi_v2 surface_model must be one of {SURFACE_MODELS}, got {self.surface_model!r}")
+        if self.planner_objective not in PLANNER_OBJECTIVES:
+            raise ValueError(
+                f"aif_zoi_v2 planner_objective must be one of {PLANNER_OBJECTIVES}, got {self.planner_objective!r}")
+        if self.planner_terms not in PLANNER_TERMS:
+            raise ValueError(
+                f"aif_zoi_v2 planner_terms must be one of {PLANNER_TERMS}, got {self.planner_terms!r}")
         if not float(self.desk_recall) > float(self.desk_false_alarm):
             raise ValueError(
                 "aif_zoi_v2 desk_recall must exceed desk_false_alarm, "
@@ -205,6 +228,12 @@ def resolve_aif_zoi_v2_params(
     surface_model = str(environ.get(SURFACE_MODEL_ENV_VAR, "") or DEFAULT_SURFACE_MODEL).strip().lower()
     if surface_model not in SURFACE_MODELS:
         raise ValueError(f"{SURFACE_MODEL_ENV_VAR} must be one of {SURFACE_MODELS}, got {surface_model!r}")
+    planner = str(environ.get(PLANNER_OBJECTIVE_ENV_VAR, "") or DEFAULT_PLANNER_OBJECTIVE).strip().lower()
+    if planner not in PLANNER_OBJECTIVES:
+        raise ValueError(f"{PLANNER_OBJECTIVE_ENV_VAR} must be one of {PLANNER_OBJECTIVES}, got {planner!r}")
+    terms = str(environ.get(PLANNER_TERMS_ENV_VAR, "") or DEFAULT_PLANNER_TERMS).strip().lower()
+    if terms not in PLANNER_TERMS:
+        raise ValueError(f"{PLANNER_TERMS_ENV_VAR} must be one of {PLANNER_TERMS}, got {terms!r}")
 
     if surface_model == "joint":
         # Everything from the calibration counts and the scenario: a table cell is a
@@ -230,4 +259,5 @@ def resolve_aif_zoi_v2_params(
         for key, default in defaults.items()
     }
     return AIFZOIV2Params(
-        **values, table_map_rule=rule, surface_model=surface_model, table_context_enabled=has_tables)
+        **values, table_map_rule=rule, surface_model=surface_model, planner_objective=planner,
+        planner_terms=terms, table_context_enabled=has_tables)

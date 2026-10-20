@@ -91,6 +91,20 @@ from one calibration set (`tools/v2_analysis/calibrate_desk.py`): `r` = 141/169,
 covers a table / floor cell in view. The priors are `λ_T` = 0.536, `λ_F` = 0.0045
 and `ρ` = 0.0705, computed for cells whose centre is on a desk top.
 
+`AIF_ZOI_V2_PLANNER=rate` ranks the planner's candidates by expected information
+per second, `(β·IG + κ·U_class) / T`, instead of `−β·IG − κ·U_class + ε·distance`.
+`T` is the navigator's exact arrival time under its own control law (turn first,
+then each body axis saturated at its limit) plus one detector period
+(`policies/planner_time.py`). It is derived from the navigator settings and the
+detector rate, with no weight of its own. The default, `distance_cost`, is the
+`aif_zoi` planner.
+
+`AIF_ZOI_V2_PLANNER_TERMS=info_only` drops the classification bonus `κ·U_class`
+and ranks by the information gain alone. The belief keeps bottle and can as
+separate states, so the information gain already values resolving the class.
+Together with `AIF_ZOI_V2_PLANNER=rate`, the planner's score is `IG / T`, with no
+weight. The default, `info_and_class`, is the `aif_zoi` scoring.
+
 `r`, `a`, `f`, `λ_T` and `λ_F` must lie strictly between 0 and 1. The values
 used in a run are written to `policy_parameters.json` in the run directory.
 

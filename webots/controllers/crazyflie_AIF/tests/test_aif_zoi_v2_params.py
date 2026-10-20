@@ -32,6 +32,8 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
                     "rho": 0.07,
                     "table_map_rule": "touched",
                     "surface_model": "typed",
+                    "planner_objective": "distance_cost",
+                    "planner_terms": "info_and_class",
                     "desk_recall": 182 / 191,
                     "desk_false_alarm": 189 / 1490,
                     "table_context_enabled": True,
@@ -57,6 +59,22 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
         self.assertAlmostEqual(params.lambda_table, 5.4 / c)
         self.assertAlmostEqual(params.lambda_floor, 0.6 / (143 - c))
         self.assertAlmostEqual(params.rho, c / 143)
+
+    def test_planner_objective(self):
+        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER": "rate"})
+        self.assertEqual(params.planner_objective, "rate")
+        with self.assertRaises(ValueError):
+            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER": "fastest"})
+        with self.assertRaises(ValueError):
+            AIFZOIV2Params(planner_objective="fastest")
+
+    def test_planner_terms(self):
+        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER_TERMS": "info_only"})
+        self.assertEqual(params.planner_terms, "info_only")
+        with self.assertRaises(ValueError):
+            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER_TERMS": "class_only"})
+        with self.assertRaises(ValueError):
+            AIFZOIV2Params(planner_terms="class_only")
 
     def test_joint_model_overrides_and_validation(self):
         params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={

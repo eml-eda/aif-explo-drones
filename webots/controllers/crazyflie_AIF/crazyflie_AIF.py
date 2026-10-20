@@ -284,7 +284,8 @@ def load_policy(name, debug=None, seed=None):
         if params.surface_model == "joint":
             # Surface in the belief state (roadmap 3.1); same policy ID.
             policy_cls = AIFZOIV2JointPolicy
-        return policy_cls(debug=debug, params=params)
+        # The "rate" planner needs the controller's detector period.
+        return policy_cls(debug=debug, params=params, detector_period_s=DETECTION_EVERY_S)
 
     return policy_cls(debug=debug)
 

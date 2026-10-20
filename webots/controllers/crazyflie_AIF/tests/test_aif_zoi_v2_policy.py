@@ -388,6 +388,76 @@ class AIFZOIV2PolicyPlanningTests(unittest.TestCase):
         self.assertTrue(self.policy.navigator.has_target())
 
 
+
+class AIFZOIV2RatePlannerTests(unittest.TestCase):
+    """planner_objective="rate": rank by (beta*IG + utility) / T."""
+
+    def make(self, objective, ig_by_candidate, terms="info_and_class", utility_by_candidate=None):
+        policy = AIFZOIV2Policy(params=AIFZOIV2Params(
+            table_map_rule="touched", planner_objective=objective, planner_terms=terms))
+        policy.compute_action(make_obs(processed=False))
+        utilities = utility_by_candidate or {}
+
+        def fake(*, target_cell, target_yaw_index, table_cells=None):
+            key = (tuple(target_cell), int(target_yaw_index))
+            ig, u = ig_by_candidate.get(key, 0.0), utilities.get(key, 0.0)
+            return {"risk": -u, "utility": u, "IG": ig, "table_bonus": 0.0, "center_classification_need": 0.0,
+                    "center_p_present": 0.0, "center_class_confidence": 0.0}
+
+        policy._efe_components = fake
+        return policy
+
+    POSE = {"x": -2.75 + 0.5 * 5 + 0.25, "y": -3.25 + 0.5 * 6 + 0.25, "yaw": 0.0}  # centre of (5, 6)
+
+    def test_near_view_wins_when_it_gives_more_information_per_second(self):
+        # Near: next cell ahead, IG 0.5. Far: 3 m away and a half turn, IG 1.2.
+        igs = {((6, 6), 0): 0.5, ((5, 0), 4): 1.2}
+        dist = self.make("distance_cost", igs)._pick_next_action(current_cell=(5, 6), pose=self.POSE)
+        rate = self.make("rate", igs)._pick_next_action(current_cell=(5, 6), pose=self.POSE)
+        self.assertEqual(dist[0], (5, 0))
+        self.assertEqual(rate[0], (6, 6))
+
+    def test_far_view_still_wins_with_enough_information(self):
+        igs = {((6, 6), 0): 0.5, ((5, 0), 4): 20.0}
+        rate = self.make("rate", igs)._pick_next_action(current_cell=(5, 6), pose=self.POSE)
+        self.assertEqual(rate[0], (5, 0))
+
+    def test_ties_go_to_the_shortest_flight(self):
+        # Nothing left to learn anywhere: stay, with the current heading.
+        best, _ = self.make("rate", {})._pick_next_action(current_cell=(5, 6), pose=self.POSE, return_scores=True)
+        self.assertEqual(best, ((5, 6), 0.0))
+
+    def test_info_only_ignores_the_classification_bonus(self):
+        # Next cell ahead: IG 0.5. Cell two ahead: IG 0.2 but a large classification bonus.
+        igs = {((6, 6), 0): 0.5, ((7, 6), 0): 0.2}
+        bonus = {((7, 6), 0): 3.0}
+        with_bonus = self.make("rate", igs, utility_by_candidate=bonus)
+        info_only = self.make("rate", igs, terms="info_only", utility_by_candidate=bonus)
+        self.assertEqual(with_bonus._pick_next_action(current_cell=(5, 6), pose=self.POSE)[0], (7, 6))
+        best, scores = info_only._pick_next_action(current_cell=(5, 6), pose=self.POSE, return_scores=True)
+        self.assertEqual(best[0], (6, 6))
+        rec = next(r for r in scores if r["cell"] == [7, 6] and r["yaw"] == 0.0)
+        self.assertAlmostEqual(rec["rate"], 0.2 / rec["T"])
+        self.assertEqual(info_only.parameters()["planning"]["terms"], "info_only")
+
+    def test_info_only_with_distance_cost(self):
+        igs = {((6, 6), 0): 0.5, ((7, 6), 0): 0.2}
+        policy = self.make("distance_cost", igs, terms="info_only", utility_by_candidate={((7, 6), 0): 3.0})
+        best, scores = policy._pick_next_action(current_cell=(5, 6), pose=self.POSE, return_scores=True)
+        self.assertEqual(best[0], (6, 6))
+        rec = next(r for r in scores if r["cell"] == [7, 6] and r["yaw"] == 0.0)
+        self.assertAlmostEqual(rec["G"], -0.2 + 0.04 * 1.0)
+
+    def test_scores_record_the_flight_time(self):
+        policy = self.make("rate", {((6, 6), 0): 0.5})
+        _, scores = policy._pick_next_action(current_cell=(5, 6), pose=self.POSE, return_scores=True)
+        rec = next(r for r in scores if r["cell"] == [6, 6] and r["yaw"] == 0.0)
+        T, _, _ = policy.time_model.time_to(self.POSE, policy._cell_center_xy(6, 6), 0.0)
+        self.assertAlmostEqual(rec["T"], T)
+        self.assertAlmostEqual(rec["rate"], 0.5 / T)
+        self.assertEqual(policy.parameters()["planning"]["objective"], "rate")
+        self.assertEqual(policy.parameters()["planning"]["time_model"]["detector_period_s"], 0.625)
+
 class AIFZOIV2PolicyDiagnosticsTests(unittest.TestCase):
     def test_parameters_record_model_values(self):
         params = AIFZOIV2Policy(params=AIFZOIV2Params(recall=0.7)).parameters()

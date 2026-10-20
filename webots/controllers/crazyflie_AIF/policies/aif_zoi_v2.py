@@ -13,6 +13,7 @@ import numpy as np
 from configuration.aif_zoi_v2_params import AIFZOIV2Params
 from env.env_manager import FoVSpec, GridEnvManager, GridSpec
 from env.surface_projection import event_bbox_xyxy
+from policies.planner_time import NavigatorTimeModel
 from policies.zoi_v2_model import (
     CELL_FLOOR,
     CELL_TABLE,
@@ -94,6 +95,8 @@ class AIFZOIV2Policy:
         yaw_options: Optional[List[float]] = None,
         replan_cooldown_s: float = 0.4,
         classified_confidence_threshold: float = 0.80,
+        # Detector period of the controller (DETECTION_EVERY_S), for the "rate" planner.
+        detector_period_s: float = 0.625,
     ):
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
@@ -108,6 +111,8 @@ class AIFZOIV2Policy:
         self.distance_cost_epsilon = float(distance_cost_epsilon)
 
         self.replan_cooldown_s = float(replan_cooldown_s)
+        # Flight time of a move, derived from the navigator's control law.
+        self.time_model = NavigatorTimeModel.from_navigator(NAVIGATOR_KWARGS, detector_period_s)
         self.classified_confidence_threshold = float(
             np.clip(classified_confidence_threshold, 0.0, 1.0))
 
@@ -179,6 +184,9 @@ class AIFZOIV2Policy:
                 "replan_cooldown_s": float(self.replan_cooldown_s),
                 "classified_confidence_threshold": float(self.classified_confidence_threshold),
                 "navigator": dict(NAVIGATOR_KWARGS),
+                "objective": self.params.planner_objective,
+                "terms": self.params.planner_terms,
+                "time_model": self.time_model.as_dict() if self.params.planner_objective == "rate" else None,
             },
         }
 
@@ -258,6 +266,7 @@ class AIFZOIV2Policy:
                 current_cell=current_cell,
                 table_cells=table_cells,
                 return_scores=True,
+                pose=pose,
             )
 
             target_distance_m = self._cell_distance_m(current_cell, next_cell)
@@ -319,6 +328,7 @@ class AIFZOIV2Policy:
                     current_cell=current_cell,
                     table_cells=table_cells,
                     return_scores=True,
+                    pose=pose,
                 )
                 self._save_snapshot_npz(
                     snap_dir=self._snap_dir,
@@ -388,6 +398,8 @@ class AIFZOIV2Policy:
                     current_cell=current_cell,
                     table_cells=table_cells,
                     return_scores=True,
+                    pose={"x": float(pose.get("x", 0.0)), "y": float(pose.get("y", 0.0)),
+                          "yaw": float(pose.get("yaw", 0.0))} if pose else None,
                 )
                 chosen = (best_cell, best_yaw)
             except Exception:
@@ -784,6 +796,7 @@ class AIFZOIV2Policy:
         current_cell: Cell,
         table_cells: Optional[set[Cell]] = None,
         return_scores: bool = False,
+        pose: Optional[dict] = None,
     ):
         assert self.grid_spec is not None
         assert self.q_s is not None
@@ -798,6 +811,15 @@ class AIFZOIV2Policy:
         cx0, cy0 = current_cell
         x0, y0 = self._cell_center_xy(cx0, cy0)
 
+        # "rate": rank by (beta*IG + utility) / T, T the navigator's flight time plus
+        # one detector period; ties go to the shorter flight.
+        use_rate = self.params.planner_objective == "rate"
+        # "info_only": no classification bonus; the ranking uses the information gain alone.
+        info_only = self.params.planner_terms == "info_only"
+        if use_rate and pose is None:
+            pose = {"x": x0, "y": y0, "yaw": 0.0}
+        best_key = (-float("inf"), -float("inf"))
+
         for cell in candidates:
             tx, ty = self._cell_center_xy(cell[0], cell[1])
             dist = math.hypot(tx - x0, ty - y0)
@@ -809,12 +831,16 @@ class AIFZOIV2Policy:
                     target_yaw_index=yaw_idx,
                     table_cells=table_cells,
                 )
-                risk = comps["risk"]
+                risk = 0.0 if info_only else comps["risk"]
+                goal = 0.0 if info_only else comps["utility"]
                 IG = comps["IG"]
                 G = float(risk - self.beta_info * IG + distance_cost)
+                if use_rate:
+                    T, t_turn, t_move = self.time_model.time_to(pose, (tx, ty), yaw)
+                    rate = float((self.beta_info * IG + goal) / T)
 
                 if return_scores:
-                    scores.append({
+                    record = {
                         "cell": [int(cell[0]), int(cell[1])],
                         "yaw": float(yaw),
                         "risk": float(risk),
@@ -827,9 +853,18 @@ class AIFZOIV2Policy:
                         "distance": float(dist),
                         "distance_cost": float(distance_cost),
                         "G": float(G),
-                    })
+                    }
+                    if use_rate:
+                        record.update({"T": float(T), "T_turn": float(t_turn), "T_move": float(t_move),
+                                       "rate": rate})
+                    scores.append(record)
 
-                if G < best_G:
+                if use_rate:
+                    key = (rate, -T)
+                    if key > best_key:
+                        best_key = key
+                        best = (cell, yaw)
+                elif G < best_G:
                     best_G = G
                     best = (cell, yaw)
 
