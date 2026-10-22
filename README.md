@@ -105,6 +105,14 @@ separate states, so the information gain already values resolving the class.
 Together with `AIF_ZOI_V2_PLANNER=rate`, the planner's score is `IG / T`, with no
 weight. The default, `info_and_class`, is the `aif_zoi` scoring.
 
+The scenario description is set with `AIF_ZOI_V2_N_TARGETS` (6),
+`AIF_ZOI_V2_P_ON_TABLE` (0.9) and `AIF_ZOI_V2_N_DESKS` (3); the default priors are
+computed from it. With the joint model, `AIF_ZOI_V2_RHO_MODEL=learned` drops the
+desk count: the share of desk cells `ρ` gets a uniform prior over its feasible
+range and is inferred in flight from the desk evidence. The prior then needs only
+the number of targets and the share on tables. The estimate of `ρ` is written to
+each perception-log frame (`policy.rho_mean`, `policy.rho_sd`).
+
 `r`, `a`, `f`, `λ_T` and `λ_F` must lie strictly between 0 and 1. The values
 used in a run are written to `policy_parameters.json` in the run directory.
 

@@ -40,6 +40,13 @@ from policies.zoi_v2_model import (
     joint_prior,
     table_probability,
 )
+from policies.zoi_v2_model import (
+    joint_prior_base_and_slope,
+    marginal_beliefs,
+    rho_grid,
+    rho_posterior,
+    rho_support,
+)
 
 R, A_CLS, F = 0.84, 0.98, 0.01
 PRIOR_KW = {"lambda_table": 0.54, "lambda_floor": 0.0045, "rho": 0.07}
@@ -272,6 +279,67 @@ class JointModelTests(unittest.TestCase):
         self.assertGreater(
             expected_information_gain(self.q0, L(1.0, 1.0)),
             expected_information_gain(self.q0, L(1.0, 1.0, **no_desk)))
+
+
+SCEN = {"n_targets": 6, "p_on_table": 0.9, "n_cells": 143}
+
+
+class LearnedRhoTests(unittest.TestCase):
+    def setUp(self):
+        self.base, self.d = joint_prior_base_and_slope(**SCEN)
+        self.lo, self.hi = rho_support(**SCEN)
+        self.grid = rho_grid(self.lo, self.hi, 256)
+
+    def lik(self, covered, target_obs, wt=1.0, wf=1.0):
+        return L(wt, wf)[joint_obs_index(covered, target_obs)]
+
+    def test_linear_prior_matches_the_joint_prior(self):
+        rho = 10.08 / 143
+        lam_t, lam_f = 5.4 / (143 * rho), 0.6 / (143 * (1 - rho))
+        np.testing.assert_allclose(self.base + rho * self.d,
+                                   joint_prior(lambda_table=lam_t, lambda_floor=lam_f, rho=rho), atol=1e-15)
+
+    def test_prior_is_positive_inside_the_support(self):
+        self.assertAlmostEqual(self.lo, 5.4 / 143)
+        self.assertAlmostEqual(self.hi, 1 - 0.6 / 143)
+        prior = self.base[None, :] + self.grid[:, None] * self.d[None, :]
+        self.assertTrue(np.all(prior > 0))
+
+    def test_no_evidence_keeps_the_uniform_prior(self):
+        ell = np.ones((143, 6))
+        w = rho_posterior(ell, self.base, self.d, self.grid)
+        np.testing.assert_allclose(w, np.full(256, 1 / 256))
+        q = marginal_beliefs(ell, self.base, self.d, self.grid, w)
+        np.testing.assert_allclose(q.sum(axis=1), np.ones(143))
+        self.assertAlmostEqual(1 - (q[0, 0] + q[0, 3]), 6 / 143)  # target mass does not depend on rho
+
+    def test_floor_evidence_lowers_rho_and_desk_evidence_raises_it(self):
+        mean = lambda w: float(w @ self.grid)
+        floor = np.ones((143, 6)); floor[:100] = self.lik(False, O_NOTHING)
+        desk = np.ones((143, 6)); desk[:100] = self.lik(True, O_NOTHING)
+        self.assertLess(mean(rho_posterior(floor, self.base, self.d, self.grid)), 0.06)
+        self.assertGreater(mean(rho_posterior(desk, self.base, self.d, self.grid)), 0.5)
+
+    def test_concentrated_posterior_reduces_to_the_fixed_update(self):
+        ell = np.ones((143, 6)); ell[7] = self.lik(True, O_BOTTLE, 0.6, 0.9)
+        w = np.zeros(256); w[40] = 1.0
+        q = marginal_beliefs(ell, self.base, self.d, self.grid, w)
+        rho = self.grid[40]
+        expected = bayes_update(self.base + rho * self.d, L(0.6, 0.9), joint_obs_index(True, O_BOTTLE))
+        np.testing.assert_allclose(q[7], expected, atol=1e-12)
+
+    def test_grid_resolution_does_not_matter(self):
+        ell = np.ones((143, 6))
+        ell[:60] = self.lik(False, O_NOTHING)
+        ell[60:66] = self.lik(True, O_NOTHING, 0.4, 0.9)
+        ell[66] = self.lik(True, O_CAN)
+        out = []
+        for size in (256, 1024):
+            g = rho_grid(self.lo, self.hi, size)
+            w = rho_posterior(ell, self.base, self.d, g)
+            out.append((float(w @ g), marginal_beliefs(ell, self.base, self.d, g, w)))
+        self.assertAlmostEqual(out[0][0], out[1][0], places=4)
+        np.testing.assert_allclose(out[0][1], out[1][1], atol=1e-3)
 
 
 if __name__ == "__main__":

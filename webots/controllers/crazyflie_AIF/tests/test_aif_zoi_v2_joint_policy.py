@@ -26,7 +26,12 @@ from policies.zoi_v2_model import (
     joint_likelihood,
     joint_obs_index,
     joint_prior,
+    joint_prior_base_and_slope,
+    marginal_beliefs,
     predictive,
+    rho_grid,
+    rho_posterior,
+    rho_support,
     table_probability,
 )
 from test_aif_zoi_v2_policy import box, make_obs
@@ -165,6 +170,55 @@ class JointPolicyPlanningTests(unittest.TestCase):
         self.assertAlmostEqual(params["model"]["desk_recall"], 182 / 191)
         self.assertAlmostEqual(params["model"]["desk_false_alarm"], 189 / 1490)
         self.assertIn("desk_evidence", params["observation_model"])
+
+
+LEARNED = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
+    "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_RHO_MODEL": "learned"})
+
+
+class LearnedRhoPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.policy = AIFZOIV2JointPolicy(params=LEARNED)
+        self.base, self.d = joint_prior_base_and_slope(n_targets=6, p_on_table=0.9, n_cells=143)
+        self.grid = rho_grid(*rho_support(n_targets=6, p_on_table=0.9, n_cells=143), 256)
+
+    def test_starts_from_the_uniform_rho_prior(self):
+        self.policy.compute_action(make_obs(processed=False))
+        mean, _ = self.policy.rho_estimate()
+        self.assertAlmostEqual(mean, float(self.grid.mean()))
+        self.assertAlmostEqual(float(self.policy.q_s[0, 0, 1:].sum()), 6 / 143)
+        self.assertAlmostEqual(table_probability(self.policy.q_joint[0, 0]), mean)
+
+    def test_beliefs_are_the_exact_average_over_rho(self):
+        planes = {(5, 6): (1.0, 1.0), (3, 4): (0.3, 0.9), (4, 4): (0.6, 0.9)}
+        self.policy.compute_action(make_obs(
+            planes=planes, events=[desk_event([(4, 4)]), box((4, 4), "target_bottle", 0.8)]))
+        ell = np.ones((143, 6))
+        for (cx, cy), o in (((5, 6), joint_obs_index(False, O_NOTHING)), ((3, 4), joint_obs_index(False, O_NOTHING)),
+                            ((4, 4), joint_obs_index(True, O_BOTTLE))):
+            row = L(*planes[(cx, cy)])[o]
+            ell[cy * 11 + cx] = row / row.max()
+        w = rho_posterior(ell, self.base, self.d, self.grid)
+        q = marginal_beliefs(ell, self.base, self.d, self.grid, w).reshape(13, 11, 6)
+        np.testing.assert_allclose(self.policy.q_joint, q, atol=1e-12)
+        np.testing.assert_allclose(self.policy.q_s, q[:, :, 0:3] + q[:, :, 3:6], atol=1e-12)
+
+    def test_floor_views_lower_rho_and_are_logged(self):
+        self.policy.compute_action(make_obs(processed=False))
+        start, _ = self.policy.rho_estimate()
+        for i, cell in enumerate([(5, 6), (6, 6), (7, 6), (4, 6), (5, 7), (5, 5), (6, 7), (4, 5)]):
+            self.policy.compute_action(make_obs(planes={cell: (1.0, 1.0)}, current_cell=cell, time_s=0.1 * (i + 1)))
+        mean, sd = self.policy.rho_estimate()
+        self.assertLess(mean, start)
+        diag = self.policy.diagnostics()
+        self.assertAlmostEqual(diag["rho_mean"], round(mean, 5))
+        self.assertIn("rho_sd", diag)
+        self.assertEqual(self.policy.parameters()["observation_model"]["rho_grid_size"], 256)
+
+    def test_fixed_mode_logs_nothing(self):
+        policy = AIFZOIV2JointPolicy(params=PARAMS)
+        policy.compute_action(make_obs(planes={(5, 6): (1.0, 1.0)}))
+        self.assertEqual(policy.diagnostics(), {})
 
 
 if __name__ == "__main__":

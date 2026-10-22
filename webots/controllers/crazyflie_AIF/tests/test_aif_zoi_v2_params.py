@@ -34,6 +34,10 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
                     "surface_model": "typed",
                     "planner_objective": "distance_cost",
                     "planner_terms": "info_and_class",
+                    "rho_model": "fixed",
+                    "n_targets": 6.0,
+                    "p_target_on_table": 0.9,
+                    "n_desks": 3.0,
                     "desk_recall": 182 / 191,
                     "desk_false_alarm": 189 / 1490,
                     "table_context_enabled": True,
@@ -67,6 +71,36 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
             resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER": "fastest"})
         with self.assertRaises(ValueError):
             AIFZOIV2Params(planner_objective="fastest")
+
+    def test_scenario_inputs_drive_the_joint_priors(self):
+        # 4 desks, 8 targets: lambda_T = N*pi/C, lambda_F = N(1-pi)/(M-C), rho = C/M.
+        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
+            "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_N_DESKS": "4", "AIF_ZOI_V2_N_TARGETS": "8"})
+        c = 4 * 1.2 * 0.7 / 0.25
+        self.assertAlmostEqual(params.lambda_table, 8 * 0.9 / c)
+        self.assertAlmostEqual(params.lambda_floor, 8 * 0.1 / (143 - c))
+        self.assertAlmostEqual(params.rho, c / 143)
+        self.assertEqual((params.n_targets, params.n_desks), (8.0, 4.0))
+
+    def test_scenario_defaults_reproduce_the_current_priors(self):
+        self.assertEqual(scenario_priors("touched", 6, 0.9, 3), scenario_priors("touched"))
+        # Typed model: unchanged 73/100 values unless a scenario variable is given.
+        typed = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={})
+        self.assertEqual((typed.lambda_table, typed.rho), (0.54, 0.07))
+        typed4 = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_N_DESKS": "4"})
+        self.assertAlmostEqual(typed4.rho, 4 * 1.2 * 0.7 / 0.25 / 143)
+
+    def test_rho_model(self):
+        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
+            "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_RHO_MODEL": "learned"})
+        self.assertEqual(params.rho_model, "learned")
+        with self.assertRaises(ValueError):  # learned needs the joint model
+            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_RHO_MODEL": "learned"})
+        with self.assertRaises(ValueError):
+            AIFZOIV2Params(rho_model="guessed")
+        for bad in ({"n_targets": 0}, {"p_target_on_table": 1.0}, {"n_desks": -1}):
+            with self.assertRaises(ValueError):
+                AIFZOIV2Params(**bad)
 
     def test_planner_terms(self):
         params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER_TERMS": "info_only"})

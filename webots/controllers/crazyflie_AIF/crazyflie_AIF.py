@@ -945,6 +945,7 @@ def main() -> None:
                     table_projection_cells_cxcy=effective_table_projection_cells,
                     persistent_table_cells_cxcy=persistent_table_cells,
                     detection_events_rc=perception_frame.all_events_rc,
+                    policy_state=(policy.diagnostics() if hasattr(policy, "diagnostics") else None),
                 )
 
             visual_coverages_cxcy = mapping_rc_to_cxcy(visual_coverages)

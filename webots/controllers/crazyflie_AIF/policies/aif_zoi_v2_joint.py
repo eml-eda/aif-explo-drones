@@ -17,8 +17,17 @@ from policies.zoi_v2_model import (
     joint_likelihood,
     joint_obs_index,
     joint_prior,
+    joint_prior_base_and_slope,
+    marginal_beliefs,
     predictive,
+    rho_grid,
+    rho_posterior,
+    rho_support,
 )
+
+# Resolution of the grid over rho in learned mode (numerical, not a model choice;
+# tests check that results do not depend on it).
+RHO_GRID_SIZE = 256
 
 
 class AIFZOIV2JointPolicy(AIFZOIV2Policy):
@@ -37,11 +46,21 @@ class AIFZOIV2JointPolicy(AIFZOIV2Policy):
     The controller's table map (grid["table_cells"]) is still passed to the
     planner, only to predict which cells the controller's visible mask will
     update, as in the base policy.
+
+    With params.rho_model == "learned", the share of desk cells rho is not given:
+    it has a uniform prior over its feasible range and is inferred every frame
+    from all the evidence (zoi_v2_model.py, learned-rho section). Each cell keeps
+    the product of the likelihood rows it has received (ell), and q_joint is the
+    exact average of its posterior over p(rho | data). The prior then needs only
+    the number of targets and the share on tables.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.q_joint: Optional[np.ndarray] = None
+        self.rho_learned = self.params.rho_model == "learned" and self.table_context_enabled
+        self._ell: Optional[np.ndarray] = None
+        self._rho_base = self._rho_slope = self._rho_grid = self._rho_weights = None
 
     def parameters(self) -> dict:
         out = super().parameters()
@@ -49,8 +68,24 @@ class AIFZOIV2JointPolicy(AIFZOIV2Policy):
             "surface": "joint belief over {table, floor} x {empty, bottle, can}",
             "visibility": "table-plane coverage for table states, floor-plane coverage for floor states",
             "desk_evidence": "desk box covers the cell; informative when table-plane coverage >= update gate",
+            "rho": "learned in flight, uniform prior on its feasible range" if self.rho_learned else "fixed",
         }
+        if self.rho_learned:
+            out["observation_model"]["rho_grid_size"] = RHO_GRID_SIZE
         return out
+
+    def diagnostics(self) -> dict:
+        """Per-frame values for the perception log."""
+        if not self.rho_learned or self._rho_weights is None:
+            return {}
+        mean, sd = self.rho_estimate()
+        return {"rho_mean": round(mean, 5), "rho_sd": round(sd, 5)}
+
+    def rho_estimate(self) -> tuple:
+        """(mean, sd) of p(rho | data)."""
+        w, g = self._rho_weights, self._rho_grid
+        mean = float(w @ g)
+        return mean, float(np.sqrt(max(0.0, w @ (g - mean) ** 2)))
 
     # ------------------------------------------------------------------
     # Belief
@@ -68,6 +103,22 @@ class AIFZOIV2JointPolicy(AIFZOIV2Policy):
         )
         self.q_joint = np.tile(prior.reshape(1, 1, -1), (rows, cols, 1))
         self.q_s = np.tile(content_marginal(prior).reshape(1, 1, 3), (rows, cols, 1))
+        if self.rho_learned:
+            scen = {"n_targets": self.params.n_targets, "p_on_table": self.params.p_target_on_table,
+                    "n_cells": rows * cols}
+            self._rho_base, self._rho_slope = joint_prior_base_and_slope(**scen)
+            self._rho_grid = rho_grid(*rho_support(**scen), RHO_GRID_SIZE)
+            self._ell = np.ones((rows, cols, 6))
+            self._refresh_learned_beliefs()
+
+    def _refresh_learned_beliefs(self) -> None:
+        """Recompute p(rho | data) and every cell's belief from ell."""
+        rows, cols = self._ell.shape[0], self._ell.shape[1]
+        ell = self._ell.reshape(-1, 6)
+        self._rho_weights = rho_posterior(ell, self._rho_base, self._rho_slope, self._rho_grid)
+        q = marginal_beliefs(ell, self._rho_base, self._rho_slope, self._rho_grid, self._rho_weights)
+        self.q_joint = q.reshape(rows, cols, 6)
+        self.q_s = (self.q_joint[:, :, 0:3] + self.q_joint[:, :, 3:6]).copy()
 
     def _update_cell_types(self, *, table_cells, pose) -> None:
         # The surface is part of the belief; cells keep no hard type.
@@ -133,9 +184,18 @@ class AIFZOIV2JointPolicy(AIFZOIV2Policy):
             w_floor = float(floor_plane.get(cell, 0.0))
             covered = cell in desk_cells and self._desk_in_view(w_table) and self.table_context_enabled
             obs_index = joint_obs_index(covered, self._cell_observation(target_events_by_cell.get(cell, [])))
+            if self.rho_learned:
+                # Accumulate the evidence; beliefs are refreshed once per frame below.
+                row = self._joint_likelihood(w_table, w_floor)[obs_index]
+                ell = self._ell[cell[1], cell[0], :] * row
+                self._ell[cell[1], cell[0], :] = ell / ell.max()
+                continue
             q = bayes_update(self.q_joint[cell[1], cell[0], :], self._joint_likelihood(w_table, w_floor), obs_index)
             self.q_joint[cell[1], cell[0], :] = q
             self.q_s[cell[1], cell[0], :] = content_marginal(q)
+
+        if self.rho_learned and visible_cells:
+            self._refresh_learned_beliefs()
 
         for cell, events in target_events_by_cell.items():
             if cell not in visible_cells:

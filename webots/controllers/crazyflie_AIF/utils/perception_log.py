@@ -82,6 +82,7 @@ class PerceptionFrameLogger:
         table_projection_cells_cxcy: Iterable,
         persistent_table_cells_cxcy: Iterable,
         detection_events_rc: Iterable[Mapping],
+        policy_state: Optional[Mapping] = None,
     ) -> None:
         if self._file is None:
             return
@@ -94,7 +95,7 @@ class PerceptionFrameLogger:
                 _round(floor_coverages_rc.get(rc, 0.0)),
                 _round(table_coverages_rc.get(rc, 0.0)),
             ])
-        self._write({
+        record = {
             "type": "frame",
             "t": _round(time_s, 3),
             "step": int(step),
@@ -105,7 +106,11 @@ class PerceptionFrameLogger:
             "table_projection_cells": sorted([int(c[0]), int(c[1])] for c in table_projection_cells_cxcy),
             "table_cells": sorted([int(c[0]), int(c[1])] for c in persistent_table_cells_cxcy),
             "detections": [detection_record(e) for e in detection_events_rc],
-        })
+        }
+        if policy_state:
+            # Policy-side values (e.g. the learned rho), as of the previous frame.
+            record["policy"] = dict(policy_state)
+        self._write(record)
 
     def close(self) -> None:
         if self._file is not None:

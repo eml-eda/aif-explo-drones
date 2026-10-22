@@ -275,3 +275,62 @@ def content_marginal(q_joint: np.ndarray) -> np.ndarray:
 def table_probability(q_joint: np.ndarray) -> float:
     """P(table) for one cell."""
     return float(np.sum(np.asarray(q_joint, dtype=np.float64)[0:3]))
+
+
+# ---------------------------------------------------------------------------
+# Joint surface model with the share of desk cells rho learned in flight
+# ---------------------------------------------------------------------------
+#
+# The target part of the joint prior does not depend on rho:
+#     P(table, target) = rho * lambda_T = N * pi / M
+#     P(floor, target) = (1 - rho) * lambda_F = N * (1 - pi) / M
+# so the prior of a cell is linear in rho: prior(rho) = base + rho * d, with
+# d = e(table, empty) - e(floor, empty). All entries are positive for rho in
+# (N*pi/M, 1 - N*(1-pi)/M). With rho uniform on that range and cells independent
+# given rho, the evidence for rho is the product over cells of
+#     Z_j(rho) = ell_j . base + rho * (ell_j . d),
+# ell_j being the product of the likelihood rows a cell has received, and each
+# cell's belief is the exact average of its posterior over p(rho | data).
+
+
+def rho_support(*, n_targets: float, p_on_table: float, n_cells: int) -> tuple:
+    """Feasible range of rho: enough desk cells for the on-table targets, and
+    enough floor cells for the floor targets."""
+    lo = float(n_targets) * float(p_on_table) / float(n_cells)
+    hi = 1.0 - float(n_targets) * (1.0 - float(p_on_table)) / float(n_cells)
+    return lo, hi
+
+
+def joint_prior_base_and_slope(*, n_targets: float, p_on_table: float, n_cells: int) -> tuple:
+    """(base, d) with prior(rho) = base + rho * d over the 6 joint states."""
+    m_table = float(n_targets) * float(p_on_table) / float(n_cells)
+    m_floor = float(n_targets) * (1.0 - float(p_on_table)) / float(n_cells)
+    base = np.array([-m_table, 0.5 * m_table, 0.5 * m_table, 1.0 - m_floor, 0.5 * m_floor, 0.5 * m_floor])
+    d = np.array([1.0, 0.0, 0.0, -1.0, 0.0, 0.0])
+    return base, d
+
+
+def rho_grid(lo: float, hi: float, size: int) -> np.ndarray:
+    """Midpoints of `size` equal bins of (lo, hi): a numerical resolution, not a model choice."""
+    return lo + (np.arange(int(size)) + 0.5) * (hi - lo) / int(size)
+
+
+def rho_posterior(ell: np.ndarray, base: np.ndarray, d: np.ndarray, grid: np.ndarray) -> np.ndarray:
+    """Weights of p(rho | data) on the grid, from a uniform prior. ell: (cells, 6)."""
+    ell = np.asarray(ell, dtype=np.float64).reshape(-1, N_JOINT)
+    a = ell @ base
+    b = ell @ d
+    log_z = np.log(a[:, None] + b[:, None] * grid[None, :]).sum(axis=0)
+    w = np.exp(log_z - log_z.max())
+    return w / w.sum()
+
+
+def marginal_beliefs(
+    ell: np.ndarray, base: np.ndarray, d: np.ndarray, grid: np.ndarray, weights: np.ndarray
+) -> np.ndarray:
+    """Each cell's belief averaged over p(rho | data). ell: (cells, 6) -> (cells, 6)."""
+    ell = np.asarray(ell, dtype=np.float64).reshape(-1, N_JOINT)
+    prior = base[None, :] + grid[:, None] * d[None, :]        # (G, 6)
+    post = ell[:, None, :] * prior[None, :, :]                  # (cells, G, 6)
+    post /= post.sum(axis=2, keepdims=True)
+    return np.einsum("g,cgs->cs", weights, post)

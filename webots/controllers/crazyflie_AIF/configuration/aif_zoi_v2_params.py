@@ -87,12 +87,19 @@ def table_cells_per_desk(rule: str) -> float:
     return area / (CELL_SIZE_M ** 2)
 
 
-def scenario_priors(rule: str) -> dict:
+def scenario_priors(
+    rule: str,
+    n_targets: float = SCENARIO_TARGETS,
+    p_on_table: float = SCENARIO_P_ON_TABLE,
+    n_desks: float = SCENARIO_TABLES,
+) -> dict:
     """lambda_T = N*pi / C, lambda_F = N*(1 - pi) / (M - C), rho = C / M."""
-    c = SCENARIO_TABLES * table_cells_per_desk(rule)
+    c = float(n_desks) * table_cells_per_desk(rule)
+    if c <= 0.0:
+        return {"lambda_table": DEFAULT_LAMBDA_TABLE, "lambda_floor": float(n_targets) / GRID_CELLS, "rho": 0.0}
     return {
-        "lambda_table": SCENARIO_TARGETS * SCENARIO_P_ON_TABLE / c,
-        "lambda_floor": SCENARIO_TARGETS * (1.0 - SCENARIO_P_ON_TABLE) / (GRID_CELLS - c),
+        "lambda_table": float(n_targets) * float(p_on_table) / c,
+        "lambda_floor": float(n_targets) * (1.0 - float(p_on_table)) / (GRID_CELLS - c),
         "rho": c / GRID_CELLS,
     }
 
@@ -117,6 +124,13 @@ def default_priors(rule: str) -> dict:
 
 SURFACE_MODELS = ("typed", "joint")
 DEFAULT_SURFACE_MODEL = "typed"
+
+# Share of desk cells, joint model only. "fixed": rho from the scenario (needs the
+# number of desks). "learned": rho is unknown, with a uniform prior over its
+# feasible range, and inferred in flight from the desk evidence; the prior then
+# needs only the number of targets N and the share on tables pi.
+RHO_MODELS = ("fixed", "learned")
+DEFAULT_RHO_MODEL = "fixed"
 
 # Planner ranking. "distance_cost" (default, as aif_zoi): G = -beta*IG - kappa*U + eps*d.
 # "rate": (beta*IG + kappa*U) / T, with T the navigator's arrival time plus one
@@ -143,6 +157,13 @@ ENV_VARS = {
 }
 TABLE_MAP_RULE_ENV_VAR = "AIF_ZOI_V2_TABLE_MAP"
 SURFACE_MODEL_ENV_VAR = "AIF_ZOI_V2_SURFACE_MODEL"
+RHO_MODEL_ENV_VAR = "AIF_ZOI_V2_RHO_MODEL"
+# Scenario description; the default priors follow it.
+SCENARIO_ENV_VARS = {
+    "n_targets": "AIF_ZOI_V2_N_TARGETS",
+    "p_target_on_table": "AIF_ZOI_V2_P_ON_TABLE",
+    "n_desks": "AIF_ZOI_V2_N_DESKS",
+}
 PLANNER_OBJECTIVE_ENV_VAR = "AIF_ZOI_V2_PLANNER"
 PLANNER_TERMS_ENV_VAR = "AIF_ZOI_V2_PLANNER_TERMS"
 
@@ -170,6 +191,10 @@ class AIFZOIV2Params:
     surface_model: str = DEFAULT_SURFACE_MODEL
     planner_objective: str = DEFAULT_PLANNER_OBJECTIVE
     planner_terms: str = DEFAULT_PLANNER_TERMS
+    rho_model: str = DEFAULT_RHO_MODEL
+    n_targets: float = SCENARIO_TARGETS
+    p_target_on_table: float = SCENARIO_P_ON_TABLE
+    n_desks: float = SCENARIO_TABLES
     desk_recall: float = DEFAULT_DESK_RECALL
     desk_false_alarm: float = DEFAULT_DESK_FALSE_ALARM
     table_context_enabled: bool = True
@@ -196,6 +221,16 @@ class AIFZOIV2Params:
         if self.planner_terms not in PLANNER_TERMS:
             raise ValueError(
                 f"aif_zoi_v2 planner_terms must be one of {PLANNER_TERMS}, got {self.planner_terms!r}")
+        if self.rho_model not in RHO_MODELS:
+            raise ValueError(f"aif_zoi_v2 rho_model must be one of {RHO_MODELS}, got {self.rho_model!r}")
+        if self.rho_model == "learned" and self.surface_model != "joint":
+            raise ValueError("aif_zoi_v2 rho_model 'learned' needs surface_model 'joint'")
+        if not float(self.n_targets) > 0.0:
+            raise ValueError(f"aif_zoi_v2 n_targets must be positive, got {self.n_targets}")
+        if not (0.0 < float(self.p_target_on_table) < 1.0):
+            raise ValueError(f"aif_zoi_v2 p_target_on_table must be in (0, 1), got {self.p_target_on_table}")
+        if float(self.n_desks) < 0.0:
+            raise ValueError(f"aif_zoi_v2 n_desks must be >= 0, got {self.n_desks}")
         if not float(self.desk_recall) > float(self.desk_false_alarm):
             raise ValueError(
                 "aif_zoi_v2 desk_recall must exceed desk_false_alarm, "
@@ -234,22 +269,34 @@ def resolve_aif_zoi_v2_params(
     terms = str(environ.get(PLANNER_TERMS_ENV_VAR, "") or DEFAULT_PLANNER_TERMS).strip().lower()
     if terms not in PLANNER_TERMS:
         raise ValueError(f"{PLANNER_TERMS_ENV_VAR} must be one of {PLANNER_TERMS}, got {terms!r}")
+    rho_model = str(environ.get(RHO_MODEL_ENV_VAR, "") or DEFAULT_RHO_MODEL).strip().lower()
+    if rho_model not in RHO_MODELS:
+        raise ValueError(f"{RHO_MODEL_ENV_VAR} must be one of {RHO_MODELS}, got {rho_model!r}")
+    scenario = {
+        "n_targets": _env_float(environ, SCENARIO_ENV_VARS["n_targets"], SCENARIO_TARGETS),
+        "p_target_on_table": _env_float(environ, SCENARIO_ENV_VARS["p_target_on_table"], SCENARIO_P_ON_TABLE),
+        "n_desks": _env_float(environ, SCENARIO_ENV_VARS["n_desks"], SCENARIO_TABLES),
+    }
+    scenario_given = any(str(environ.get(v, "")).strip() for v in SCENARIO_ENV_VARS.values())
+
+    def from_scenario(r: str) -> dict:
+        return scenario_priors(r, scenario["n_targets"], scenario["p_target_on_table"], scenario["n_desks"])
 
     if surface_model == "joint":
         # Everything from the calibration counts and the scenario: a table cell is a
-        # cell whose centre is on a desk top (C = 3 desks x L*W / cell area).
+        # cell whose centre is on a desk top (C = n_desks x L*W / cell area).
         detector = (SUCCESSION_RECALL, SUCCESSION_CLASS_ACCURACY, SUCCESSION_FALSE_ALARM)
-        priors = scenario_priors("touched")
+        priors = from_scenario("touched")
     else:
         detector = (DEFAULT_RECALL, DEFAULT_CLASS_ACCURACY, DEFAULT_FALSE_ALARM)
-        priors = default_priors(rule)
+        priors = from_scenario(rule) if scenario_given else default_priors(rule)
 
     defaults = {
         "recall": detector[0],
         "class_accuracy": detector[1],
         "false_alarm": detector[2],
         "lambda_table": priors["lambda_table"],
-        "lambda_floor": priors["lambda_floor"] if has_tables else DEFAULT_LAMBDA_FLOOR_NO_TABLES,
+        "lambda_floor": priors["lambda_floor"] if has_tables else scenario["n_targets"] / GRID_CELLS,
         "rho": priors["rho"] if has_tables else DEFAULT_RHO_NO_TABLES,
         "desk_recall": DEFAULT_DESK_RECALL,
         "desk_false_alarm": DEFAULT_DESK_FALSE_ALARM,
@@ -259,5 +306,5 @@ def resolve_aif_zoi_v2_params(
         for key, default in defaults.items()
     }
     return AIFZOIV2Params(
-        **values, table_map_rule=rule, surface_model=surface_model, planner_objective=planner,
-        planner_terms=terms, table_context_enabled=has_tables)
+        **values, **scenario, table_map_rule=rule, surface_model=surface_model, planner_objective=planner,
+        planner_terms=terms, rho_model=rho_model, table_context_enabled=has_tables)

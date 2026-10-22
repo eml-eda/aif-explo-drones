@@ -47,6 +47,7 @@ class PerceptionFrameLoggerTest(unittest.TestCase):
                     "surface_assumption": "table",
                     "bbox_overlaps_desk": True,
                 }],
+                policy_state={"rho_mean": 0.07, "rho_sd": 0.01},
             )
             logger.close()
 
@@ -61,6 +62,7 @@ class PerceptionFrameLoggerTest(unittest.TestCase):
         self.assertEqual(det["cell_floor"], [6, 2])
         self.assertEqual(det["cell_table"], [5, 2])
         self.assertTrue(det["bbox_overlaps_desk"])
+        self.assertEqual(frame["policy"], {"rho_mean": 0.07, "rho_sd": 0.01})
 
 
 if __name__ == "__main__":
