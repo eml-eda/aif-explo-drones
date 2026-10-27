@@ -42,6 +42,7 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
                     "desk_recall": 182 / 191,
                     "desk_false_alarm": 189 / 1490,
                     "table_context_enabled": True,
+                    "calibration": "mobilenet_ssd",
                 },
             )
 
@@ -64,6 +65,29 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
         self.assertAlmostEqual(params.lambda_table, 5.4 / c)
         self.assertAlmostEqual(params.lambda_floor, 0.6 / (143 - c))
         self.assertAlmostEqual(params.rho, c / 143)
+
+    def test_joint_calibration_follows_detector(self):
+        joint = {"AIF_ZOI_V2_SURFACE_MODEL": "joint"}
+        mbnet = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint, detector_id="mobilenet_ssd")
+        self.assertEqual(mbnet, resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint))
+        yolo = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint, detector_id="yolo_nano")
+        self.assertEqual(yolo.calibration, "yolo_nano")
+        # Same calibration images; YOLO nano counts from yolo_calib_predictions.py.
+        self.assertAlmostEqual(yolo.recall, 168 / 169)
+        self.assertAlmostEqual(yolo.class_accuracy, 168 / 169)
+        self.assertAlmostEqual(yolo.false_alarm, 7 / 3493)
+        self.assertAlmostEqual(yolo.desk_recall, 183 / 191)
+        self.assertAlmostEqual(yolo.desk_false_alarm, 199 / 1490)
+        self.assertEqual((yolo.lambda_table, yolo.rho), (mbnet.lambda_table, mbnet.rho))
+        # An environment variable still overrides the calibration.
+        override = resolve_aif_zoi_v2_params(
+            ENVIRONMENTS["hard"], environ={**joint, "AIF_ZOI_V2_RECALL": "0.9"}, detector_id="yolo_nano")
+        self.assertAlmostEqual(override.recall, 0.9)
+        with self.assertRaises(ValueError):
+            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint, detector_id="yolo_small")
+        # The typed model keeps its fixed values whatever the detector.
+        typed = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={}, detector_id="yolo_nano")
+        self.assertEqual(typed, resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={}))
 
     def test_planner_objective(self):
         params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER": "rate"})

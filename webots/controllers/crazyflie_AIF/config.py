@@ -55,14 +55,6 @@ ENVIRONMENT = EXPERIMENT_SELECTION.environment
 RUN_MODE = EXPERIMENT_SELECTION.run_mode
 AIF_POLICY = EXPERIMENT_SELECTION.policy
 
-# aif_zoi_v2 model parameters (AIF_ZOI_V2_* environment variables). Invalid
-# values fail at startup; other policies ignore these variables.
-AIF_ZOI_V2_PARAMS = (
-    resolve_aif_zoi_v2_params(EXPERIMENT_SELECTION.environment_spec)
-    if AIF_POLICY == "aif_zoi_v2"
-    else None
-)
-
 
 # -----------------------------------------------------------------------------
 # Detector selection
@@ -102,6 +94,15 @@ DETECTOR_SELECTION = resolve_detector_selection(
 
 # Canonical public detector id.
 AIF_DETECTOR = DETECTOR_SELECTION.detector_id
+
+# aif_zoi_v2 model parameters (AIF_ZOI_V2_* environment variables), with the
+# joint model's detector values from this detector's calibration. Invalid values
+# fail at startup; other policies ignore these variables.
+AIF_ZOI_V2_PARAMS = (
+    resolve_aif_zoi_v2_params(EXPERIMENT_SELECTION.environment_spec, detector_id=AIF_DETECTOR)
+    if AIF_POLICY == "aif_zoi_v2"
+    else None
+)
 
 # Compatibility exports for code outside the new configuration package. New
 # controller code should use DETECTOR_SELECTION directly.

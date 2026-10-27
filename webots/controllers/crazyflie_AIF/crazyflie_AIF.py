@@ -280,7 +280,8 @@ def load_policy(name, debug=None, seed=None):
         params = aif_config.AIF_ZOI_V2_PARAMS
         if params is None:
             params = aif_config.resolve_aif_zoi_v2_params(
-                aif_config.EXPERIMENT_SELECTION.environment_spec)
+                aif_config.EXPERIMENT_SELECTION.environment_spec,
+                detector_id=DETECTOR_SELECTION.detector_id)
         if params.surface_model == "joint":
             # Surface in the belief state (roadmap 3.1); same policy ID.
             policy_cls = AIFZOIV2JointPolicy

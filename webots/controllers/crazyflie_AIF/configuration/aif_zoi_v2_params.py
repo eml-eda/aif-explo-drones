@@ -45,6 +45,45 @@ def rule_of_succession(successes: float, trials: float) -> float:
     return (float(successes) + 1.0) / (float(trials) + 2.0)
 
 
+@dataclass(frozen=True)
+class DetectorCalibration:
+    """Counts from one detector on the calibration set (calibrate_desk.py)."""
+
+    targets: int
+    targets_detected: int
+    class_correct: int
+    false_boxes: int
+    empty_cell_frames: int
+    table_cells: int
+    table_cells_covered: int
+    floor_cells: int
+    floor_cells_covered: int
+
+    def rates(self) -> dict:
+        return {
+            "recall": rule_of_succession(self.targets_detected, self.targets),
+            "class_accuracy": rule_of_succession(self.class_correct, self.targets_detected),
+            "false_alarm": rule_of_succession(self.false_boxes, self.empty_cell_frames),
+            "desk_recall": rule_of_succession(self.table_cells_covered, self.table_cells),
+            "desk_false_alarm": rule_of_succession(self.floor_cells_covered, self.floor_cells),
+        }
+
+
+# Same images, labels, poses and deployment settings for every detector. YOLO nano
+# predictions: tools/v2_analysis/yolo_calib_predictions.py (hard checkpoint, CPU),
+# saved in hard_calib_seed101/eval/yolo_nano/deployed/predictions.json.
+DETECTOR_CALIBRATIONS = {
+    "mobilenet_ssd": DetectorCalibration(
+        targets=CALIB_TARGETS, targets_detected=CALIB_TARGETS_DETECTED, class_correct=CALIB_CLASS_CORRECT,
+        false_boxes=CALIB_FALSE_BOXES, empty_cell_frames=CALIB_EMPTY_CELL_FRAMES,
+        table_cells=CALIB_TABLE_CELLS, table_cells_covered=CALIB_TABLE_CELLS_COVERED,
+        floor_cells=CALIB_FLOOR_CELLS, floor_cells_covered=CALIB_FLOOR_CELLS_COVERED),
+    "yolo_nano": DetectorCalibration(
+        targets=167, targets_detected=167, class_correct=167, false_boxes=6, empty_cell_frames=3491,
+        table_cells=189, table_cells_covered=182, floor_cells=1488, floor_cells_covered=198),
+}
+DEFAULT_CALIBRATION = "mobilenet_ssd"
+
 SUCCESSION_RECALL = rule_of_succession(CALIB_TARGETS_DETECTED, CALIB_TARGETS)            # 0.834
 SUCCESSION_CLASS_ACCURACY = rule_of_succession(CALIB_CLASS_CORRECT, CALIB_TARGETS_DETECTED)  # 0.993
 SUCCESSION_FALSE_ALARM = rule_of_succession(CALIB_FALSE_BOXES, CALIB_EMPTY_CELL_FRAMES)  # 0.00086
@@ -207,6 +246,8 @@ class AIFZOIV2Params:
     desk_recall: float = DEFAULT_DESK_RECALL
     desk_false_alarm: float = DEFAULT_DESK_FALSE_ALARM
     table_context_enabled: bool = True
+    # Detector whose calibration counts give the joint model's detector values.
+    calibration: str = DEFAULT_CALIBRATION
 
     def __post_init__(self) -> None:
         # Strict open intervals: an exact 0 or 1 puts an exact zero in the
@@ -266,7 +307,9 @@ def _env_float(environ: Mapping[str, str], name: str, default: float) -> float:
 def resolve_aif_zoi_v2_params(
     environment_spec: EnvironmentSpec,
     environ: Optional[Mapping[str, str]] = None,
+    detector_id: Optional[str] = None,
 ) -> AIFZOIV2Params:
+    """detector_id selects the joint model's calibration (MobileNet when None)."""
     environ = os.environ if environ is None else environ
     has_tables = "desk" in environment_spec.context_classes
 
@@ -298,24 +341,32 @@ def resolve_aif_zoi_v2_params(
     def from_scenario(r: str) -> dict:
         return scenario_priors(r, scenario["n_targets"], scenario["p_target_on_table"], scenario["n_desks"])
 
+    calibration = DEFAULT_CALIBRATION if detector_id is None else str(detector_id)
     if surface_model == "joint":
         # Everything from the calibration counts and the scenario: a table cell is a
         # cell whose centre is on a desk top (C = n_desks x L*W / cell area).
-        detector = (SUCCESSION_RECALL, SUCCESSION_CLASS_ACCURACY, SUCCESSION_FALSE_ALARM)
+        if calibration not in DETECTOR_CALIBRATIONS:
+            raise ValueError(
+                f"aif_zoi_v2 joint model has no calibration for detector {calibration!r} "
+                f"(calibrated: {sorted(DETECTOR_CALIBRATIONS)})")
+        rates = DETECTOR_CALIBRATIONS[calibration].rates()
         priors = from_scenario("touched")
     else:
-        detector = (DEFAULT_RECALL, DEFAULT_CLASS_ACCURACY, DEFAULT_FALSE_ALARM)
+        calibration = DEFAULT_CALIBRATION
+        rates = {"recall": DEFAULT_RECALL, "class_accuracy": DEFAULT_CLASS_ACCURACY,
+                 "false_alarm": DEFAULT_FALSE_ALARM, "desk_recall": DEFAULT_DESK_RECALL,
+                 "desk_false_alarm": DEFAULT_DESK_FALSE_ALARM}
         priors = from_scenario(rule) if scenario_given else default_priors(rule)
 
     defaults = {
-        "recall": detector[0],
-        "class_accuracy": detector[1],
-        "false_alarm": detector[2],
+        "recall": rates["recall"],
+        "class_accuracy": rates["class_accuracy"],
+        "false_alarm": rates["false_alarm"],
         "lambda_table": priors["lambda_table"],
         "lambda_floor": priors["lambda_floor"] if has_tables else scenario["n_targets"] / GRID_CELLS,
         "rho": priors["rho"] if has_tables else DEFAULT_RHO_NO_TABLES,
-        "desk_recall": DEFAULT_DESK_RECALL,
-        "desk_false_alarm": DEFAULT_DESK_FALSE_ALARM,
+        "desk_recall": rates["desk_recall"],
+        "desk_false_alarm": rates["desk_false_alarm"],
     }
     values = {
         key: _env_float(environ, ENV_VARS[key], default)
@@ -323,4 +374,5 @@ def resolve_aif_zoi_v2_params(
     }
     return AIFZOIV2Params(
         **values, **scenario, table_map_rule=rule, surface_model=surface_model, planner_objective=planner,
-        planner_terms=terms, rho_model=rho_model, target_model=target_model, table_context_enabled=has_tables)
+        planner_terms=terms, rho_model=rho_model, target_model=target_model, table_context_enabled=has_tables,
+        calibration=calibration)
