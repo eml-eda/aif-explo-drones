@@ -4,63 +4,38 @@
 Pure numpy, no geometry or controller state, so the same functions serve the
 belief update and the planner's expected information gain.
 
-States per cell:       empty, bottle, can.
-Observations per cell: nothing, "bottle" box, "can" box (one per cell per frame).
+State per cell: the surface and the content, 6 states
+{table, floor} x {empty, bottle, can}, index surface * 3 + content. A table cell
+is a cell whose centre is on a desk top.
 
-Prior: P(target in cell) depends on what is known about the cell surface
+Observations per visible cell per processed frame, independent given the state:
 
-    table cell        lambda_table
-    floor cell        lambda_floor
-    not yet observed  rho * lambda_table + (1 - rho) * lambda_floor
+- target observation: nothing, "bottle" box or "can" box. With visibility v,
+  recall r, class accuracy a, false alarm f and p = max(f, v * r):
 
-and the target mass is split evenly between bottle and can.
+                        empty     bottle      can
+        nothing         1 - f     1 - p       1 - p
+        "bottle" box    f / 2     p * a       p * (1 - a)
+        "can" box       f / 2     p * (1 - a) p * a
 
-Likelihood, with visibility v, recall r, class accuracy a, false alarm f and
-p = max(f, v * r):
+  v is the probability that a target present in the cell is inside the image:
+  the cell's coverage by the camera footprint at table height (w_T) in the table
+  states and at floor height (w_F) in the floor states. A target is a small
+  object, in view with probability w.
 
-                    empty     bottle      can
-    nothing         1 - f     1 - p       1 - p
-    "bottle" box    f / 2     p * a       p * (1 - a)
-    "can" box       f / 2     p * (1 - a) p * a
+- desk observation: a desk box covers the cell or not. With the desk in view
+  (w_T >= update gate), P(covered | table) = d (desk recall) and
+  P(covered | floor) = g (desk false alarm); otherwise it carries no
+  information. A desk is an extended object: if any part of a desk cell is in
+  view at table height, the desk is in the image, so its evidence does not
+  scale with w_T (the offline calibration shows a flat covered rate above the
+  gate).
 
-Visibility v is the probability that a target present in the cell is inside
-the camera image. With the target uniformly distributed within its cell, v at
-one surface is the cell's area coverage by the camera footprint at that
-surface's height. The surface is mixed with the probability that a present
-target is on a table, pi_c:
+The joint likelihood has 6 outcomes, index desk * 3 + target.
 
-    v = pi_c * v_table + (1 - pi_c) * v_floor
-
-    table cell        pi_c = 1
-    floor cell        pi_c = 0
-    not yet observed  pi_c = rho * lambda_table / (rho * lambda_table + (1 - rho) * lambda_floor)
-
-P(o | target) is linear in v, so mixing v is the same as mixing the per-surface
-likelihoods (exactly whenever v_table * r and v_floor * r are both >= f).
-
-Joint surface model (roadmap 3.1). Instead of a hard cell type, the surface is
-part of the state: 6 states {table, floor} x {empty, bottle, can}, index
-surface * 3 + content. A table cell is a cell whose centre is on a desk top.
-
-    prior   P(table) = rho; content | table ~ (1 - lambda_table, lambda_table/2, lambda_table/2),
-            content | floor ~ (1 - lambda_floor, lambda_floor/2, lambda_floor/2)
-
-Each visible cell gets two observations per processed frame, independent given
-the state: a desk observation (a desk box covers the cell or not) and the
-target observation above. With w_T and w_F the cell's coverage at table and at
-floor height, desk recall d and desk false alarm g:
-
-    desk in view (w_T >= update gate):
-        P(desk box covers the cell | table) = d
-        P(desk box covers the cell | floor) = g
-    otherwise the desk observation carries no information.
-
-A desk is an extended object: if any part of a desk cell is in view at table
-height, the desk is in the image, so its evidence does not scale with w_T (the
-offline calibration shows a flat covered rate above the gate). A target is a
-small object, in view with probability w. The target likelihood uses v = w_T in
-the table states and v = w_F in the floor states. The joint likelihood has 6
-outcomes, index desk * 3 + target.
+Prior: the share of desk cells rho and the fraction of cells holding a target
+theta are unknown and learned in flight (last section); only the share of
+targets on desks pi is given.
 """
 
 from __future__ import annotations
@@ -77,61 +52,6 @@ O_BOTTLE = 1
 O_CAN = 2
 OBS_NAMES = ["nothing", "target_bottle", "target_can"]
 
-# Cell surface types used to select the prior.
-CELL_UNOBSERVED = 0
-CELL_FLOOR = 1
-CELL_TABLE = 2
-CELL_TYPE_NAMES = ["unobserved", "floor", "table"]
-
-
-def prior_present(cell_type: int, *, lambda_table: float, lambda_floor: float, rho: float) -> float:
-    """P(target in cell) for a cell of the given surface type."""
-    cell_type = int(cell_type)
-    if cell_type == CELL_TABLE:
-        return float(lambda_table)
-    if cell_type == CELL_FLOOR:
-        return float(lambda_floor)
-    if cell_type == CELL_UNOBSERVED:
-        return float(rho * lambda_table + (1.0 - rho) * lambda_floor)
-    raise ValueError(f"Unknown cell type {cell_type}")
-
-
-def prior_vector(cell_type: int, *, lambda_table: float, lambda_floor: float, rho: float) -> np.ndarray:
-    """Prior over (empty, bottle, can) for a cell of the given surface type."""
-    lam = prior_present(cell_type, lambda_table=lambda_table, lambda_floor=lambda_floor, rho=rho)
-    return np.array([1.0 - lam, 0.5 * lam, 0.5 * lam], dtype=np.float64)
-
-
-def table_probability_given_target(
-    cell_type: int, *, lambda_table: float, lambda_floor: float, rho: float
-) -> float:
-    """pi_c = P(target on a table | target present in the cell, cell type)."""
-    cell_type = int(cell_type)
-    if cell_type == CELL_TABLE:
-        return 1.0
-    if cell_type == CELL_FLOOR:
-        return 0.0
-    if cell_type == CELL_UNOBSERVED:
-        on_table = rho * lambda_table
-        total = on_table + (1.0 - rho) * lambda_floor
-        return float(on_table / total) if total > 0.0 else 0.0
-    raise ValueError(f"Unknown cell type {cell_type}")
-
-
-def object_visibility(
-    cell_type: int,
-    v_table: float,
-    v_floor: float,
-    *,
-    lambda_table: float,
-    lambda_floor: float,
-    rho: float,
-) -> float:
-    """v = P(target in image | target present), mixing table and floor planes."""
-    pi_c = table_probability_given_target(
-        cell_type, lambda_table=lambda_table, lambda_floor=lambda_floor, rho=rho)
-    return float(pi_c * float(v_table) + (1.0 - pi_c) * float(v_floor))
-
 
 def likelihood_matrix(visibility: float, *, recall: float, class_accuracy: float, false_alarm: float) -> np.ndarray:
     """A[o, s] = P(observation o | state s) for a cell with the given visibility."""
@@ -146,33 +66,6 @@ def likelihood_matrix(visibility: float, *, recall: float, class_accuracy: float
     A[O_BOTTLE, :] = [0.5 * f, p * a, p * (1.0 - a)]
     A[O_CAN, :] = [0.5 * f, p * (1.0 - a), p * a]
     return A
-
-
-def bayes_update(q: np.ndarray, A: np.ndarray, obs_index: int) -> np.ndarray:
-    """q_post proportional to A[o, :] * q. Returns q unchanged if the evidence is 0."""
-    q = np.asarray(q, dtype=np.float64)
-    post = A[int(obs_index), :] * q
-    z = float(post.sum())
-    if z <= 0.0:
-        return q.copy()
-    return post / z
-
-
-def reweight(q: np.ndarray, prior_old: np.ndarray, prior_new: np.ndarray) -> np.ndarray:
-    """Swap the prior under a posterior while keeping its evidence.
-
-    If q is proportional to L * prior_old, then q * prior_new / prior_old is
-    proportional to L * prior_new.
-    """
-    q = np.asarray(q, dtype=np.float64)
-    prior_old = np.asarray(prior_old, dtype=np.float64)
-    prior_new = np.asarray(prior_new, dtype=np.float64)
-    ratio = np.divide(prior_new, prior_old, out=np.zeros_like(prior_new), where=prior_old > 0.0)
-    post = q * ratio
-    z = float(post.sum())
-    if z <= 0.0:
-        return q.copy()
-    return post / z
 
 
 def predictive(q: np.ndarray, A: np.ndarray) -> np.ndarray:
@@ -220,13 +113,6 @@ def joint_obs_index(desk_covered: bool, target_obs: int) -> int:
     return (D_COVERED if desk_covered else D_NONE) * 3 + int(target_obs)
 
 
-def joint_prior(*, lambda_table: float, lambda_floor: float, rho: float) -> np.ndarray:
-    """Prior over the 6 joint states."""
-    table = float(rho) * np.array([1.0 - lambda_table, 0.5 * lambda_table, 0.5 * lambda_table])
-    floor = (1.0 - float(rho)) * np.array([1.0 - lambda_floor, 0.5 * lambda_floor, 0.5 * lambda_floor])
-    return np.concatenate([table, floor]).astype(np.float64)
-
-
 def desk_likelihood(desk_in_view: bool, *, desk_recall: float, desk_false_alarm: float) -> np.ndarray:
     """D[o_d, s] = P(desk observation | joint state), o_d in (none, covered).
 
@@ -266,6 +152,72 @@ def joint_likelihood(
     return (D[:, None, :] * T[None, :, :]).reshape(N_JOINT, N_JOINT)
 
 
+# Batched versions for the vectorized planner (policies/aif_zoi_v2_vectorized.py):
+# the same formulas on N cells at once, element by element.
+
+
+def likelihood_matrix_batch(
+    visibility: np.ndarray, *, recall: float, class_accuracy: float, false_alarm: float
+) -> np.ndarray:
+    """(N, 3, 3): likelihood_matrix for each of N visibilities."""
+    v = np.clip(np.asarray(visibility, dtype=np.float64), 0.0, 1.0)
+    r, a, f = float(recall), float(class_accuracy), float(false_alarm)
+    p = np.maximum(f, v * r)
+    A = np.empty(v.shape + (3, 3), dtype=np.float64)
+    A[..., O_NOTHING, 0] = 1.0 - f
+    A[..., O_NOTHING, 1] = 1.0 - p
+    A[..., O_NOTHING, 2] = 1.0 - p
+    A[..., O_BOTTLE, 0] = 0.5 * f
+    A[..., O_BOTTLE, 1] = p * a
+    A[..., O_BOTTLE, 2] = p * (1.0 - a)
+    A[..., O_CAN, 0] = 0.5 * f
+    A[..., O_CAN, 1] = p * (1.0 - a)
+    A[..., O_CAN, 2] = p * a
+    return A
+
+
+def joint_likelihood_batch(
+    w_table: np.ndarray,
+    w_floor: np.ndarray,
+    *,
+    desk_in_view: np.ndarray,
+    recall: float,
+    class_accuracy: float,
+    false_alarm: float,
+    desk_recall: float,
+    desk_false_alarm: float,
+) -> np.ndarray:
+    """(N, 6, 6): joint_likelihood for each of N cells."""
+    kw = {"recall": recall, "class_accuracy": class_accuracy, "false_alarm": false_alarm}
+    w_table = np.asarray(w_table, dtype=np.float64)
+    n = w_table.shape[0]
+    T = np.empty((n, 3, N_JOINT), dtype=np.float64)
+    T[:, :, 0:3] = likelihood_matrix_batch(w_table, **kw)
+    T[:, :, 3:6] = likelihood_matrix_batch(w_floor, **kw)
+    in_view = np.asarray(desk_in_view, dtype=bool)
+    covered = np.zeros((n, N_JOINT), dtype=np.float64)
+    covered[in_view] = np.array([float(desk_recall)] * 3 + [float(desk_false_alarm)] * 3)
+    D = np.stack([1.0 - covered, covered], axis=1)                  # (N, 2, 6)
+    return (D[:, :, None, :] * T[:, None, :, :]).reshape(n, N_JOINT, N_JOINT)
+
+
+def expected_information_gain_batch(q: np.ndarray, A: np.ndarray) -> np.ndarray:
+    """(N,): expected_information_gain for N beliefs q (N, S) and likelihoods A (N, O, S)."""
+    q = np.asarray(q, dtype=np.float64)
+    z = q.sum(axis=1)
+    ok_z = z > 0.0
+    q = q / np.where(ok_z, z, 1.0)[:, None]
+    p_o = np.matmul(A, q[:, :, None])[:, :, 0]  # same kernel as A @ q in expected_information_gain
+    log_q = np.log(q + 1e-12)
+    ig = np.zeros(q.shape[0], dtype=np.float64)
+    for o in range(A.shape[1]):
+        po = p_o[:, o]
+        ok = po > 1e-12
+        post = A[:, o, :] * q / np.where(ok, po, 1.0)[:, None]
+        ig += np.where(ok, po * np.sum(post * (np.log(post + 1e-12) - log_q), axis=1), 0.0)
+    return np.where(ok_z, ig, 0.0)
+
+
 def content_marginal(q_joint: np.ndarray) -> np.ndarray:
     """P(empty), P(bottle), P(can) summed over the surface."""
     q = np.asarray(q_joint, dtype=np.float64)
@@ -278,82 +230,28 @@ def table_probability(q_joint: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Joint surface model with the share of desk cells rho learned in flight
+# Prior with rho and theta learned in flight
 # ---------------------------------------------------------------------------
 #
-# The target part of the joint prior does not depend on rho:
-#     P(table, target) = rho * lambda_T = N * pi / M
-#     P(floor, target) = (1 - rho) * lambda_F = N * (1 - pi) / M
-# so the prior of a cell is linear in rho: prior(rho) = base + rho * d, with
-# d = e(table, empty) - e(floor, empty). All entries are positive for rho in
-# (N*pi/M, 1 - N*(1-pi)/M). With rho uniform on that range and cells independent
-# given rho, the evidence for rho is the product over cells of
-#     Z_j(rho) = ell_j . base + rho * (ell_j . d),
-# ell_j being the product of the likelihood rows a cell has received, and each
-# cell's belief is the exact average of its posterior over p(rho | data).
-
-
-def rho_support(*, n_targets: float, p_on_table: float, n_cells: int) -> tuple:
-    """Feasible range of rho: enough desk cells for the on-table targets, and
-    enough floor cells for the floor targets."""
-    lo = float(n_targets) * float(p_on_table) / float(n_cells)
-    hi = 1.0 - float(n_targets) * (1.0 - float(p_on_table)) / float(n_cells)
-    return lo, hi
-
-
-def joint_prior_base_and_slope(*, n_targets: float, p_on_table: float, n_cells: int) -> tuple:
-    """(base, d) with prior(rho) = base + rho * d over the 6 joint states."""
-    m_table = float(n_targets) * float(p_on_table) / float(n_cells)
-    m_floor = float(n_targets) * (1.0 - float(p_on_table)) / float(n_cells)
-    base = np.array([-m_table, 0.5 * m_table, 0.5 * m_table, 1.0 - m_floor, 0.5 * m_floor, 0.5 * m_floor])
-    d = np.array([1.0, 0.0, 0.0, -1.0, 0.0, 0.0])
-    return base, d
-
-
-def rho_grid(lo: float, hi: float, size: int) -> np.ndarray:
-    """Midpoints of `size` equal bins of (lo, hi): a numerical resolution, not a model choice."""
-    return lo + (np.arange(int(size)) + 0.5) * (hi - lo) / int(size)
-
-
-def rho_posterior(ell: np.ndarray, base: np.ndarray, d: np.ndarray, grid: np.ndarray) -> np.ndarray:
-    """Weights of p(rho | data) on the grid, from a uniform prior. ell: (cells, 6)."""
-    ell = np.asarray(ell, dtype=np.float64).reshape(-1, N_JOINT)
-    a = ell @ base
-    b = ell @ d
-    log_z = np.log(a[:, None] + b[:, None] * grid[None, :]).sum(axis=0)
-    w = np.exp(log_z - log_z.max())
-    return w / w.sum()
-
-
-def marginal_beliefs(
-    ell: np.ndarray, base: np.ndarray, d: np.ndarray, grid: np.ndarray, weights: np.ndarray
-) -> np.ndarray:
-    """Each cell's belief averaged over p(rho | data). ell: (cells, 6) -> (cells, 6)."""
-    ell = np.asarray(ell, dtype=np.float64).reshape(-1, N_JOINT)
-    prior = base[None, :] + grid[:, None] * d[None, :]        # (G, 6)
-    post = ell[:, None, :] * prior[None, :, :]                  # (cells, G, 6)
-    post /= post.sum(axis=2, keepdims=True)
-    return np.einsum("g,cgs->cs", weights, post)
-
-
-# ---------------------------------------------------------------------------
-# Joint surface model with rho and the target density theta both learned
-# ---------------------------------------------------------------------------
-#
-# theta is the fraction of cells holding a target (N / M when N is known). With
-# both unknown, the prior of a cell is linear in each:
+# rho is the share of desk cells and theta the fraction of cells holding a
+# target (N / M if the number of targets N were known). The prior of a cell is
+# linear in each:
 #     P(table, target) = theta * pi            (split evenly bottle / can)
 #     P(floor, target) = theta * (1 - pi)
 #     P(table, empty)  = rho - theta * pi
 #     P(floor, empty)  = 1 - rho - theta * (1 - pi)
 # i.e. prior = base + rho * d_rho + theta * d_theta. All entries are positive on
 # the feasible region theta * pi < rho < 1 - theta * (1 - pi); the prior over
-# (rho, theta) is uniform on it. Each cell's evidence is linear too:
+# (rho, theta) is uniform on it. Cells are independent given (rho, theta). Each
+# cell keeps ell_j, the product of the likelihood rows it has received, and its
+# evidence is linear too:
 #     Z_j = a_j + rho * b_j + theta * c_j,  (a, b, c) = ell_j . (base, d_rho, d_theta)
-# and each cell's belief is the exact average over p(rho, theta | data), which
+# The posterior over (rho, theta) is proportional to the product of the Z_j, and
+# each cell's belief is the exact average of its posterior over it, which
 # reduces to three sums per cell:
 #     q_j(s) = ell_j(s) * (base_s * S0 + d_rho_s * S1 + d_theta_s * S2),
 #     S0 = sum_g w_g / Z_j(g),  S1 = sum_g w_g rho_g / Z_j(g),  S2 = sum_g w_g theta_g / Z_j(g).
+# Without desks in the environment, rho = 0 and pi = 0 and only theta is learned.
 
 
 def joint_prior_terms(*, p_on_table: float) -> tuple:
@@ -374,6 +272,13 @@ def feasible_grid(*, p_on_table: float, n_rho: int, n_theta: int) -> tuple:
     rr, tt = np.meshgrid(rho, theta, indexing="ij")
     ok = (rr > tt * pi) & (rr < 1.0 - tt * (1.0 - pi))
     return rr[ok], tt[ok]
+
+
+def floor_only_grid(*, n_theta: int) -> tuple:
+    """(rho, theta) grid for an environment without desks: rho = 0, theta on the
+    midpoints of equal bins of (0, 1). Use with joint_prior_terms(p_on_table=0)."""
+    theta = (np.arange(int(n_theta)) + 0.5) / int(n_theta)
+    return np.zeros_like(theta), theta
 
 
 def evidence_coefficients(ell: np.ndarray, base: np.ndarray, d_rho: np.ndarray, d_theta: np.ndarray) -> np.ndarray:

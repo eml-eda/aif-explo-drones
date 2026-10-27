@@ -5,20 +5,17 @@ from __future__ import annotations
 import json
 import math
 import os
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from configuration.aif_zoi_v2_params import AIFZOIV2Params
+from configuration.aif_zoi_v2_params import DEFAULT_GRID_SIZE, AIFZOIV2Params
 from env.env_manager import FoVSpec, GridEnvManager, GridSpec
-from env.surface_projection import event_bbox_xyxy
 from policies.planner_time import NavigatorTimeModel
 from policies.zoi_v2_model import (
-    CELL_FLOOR,
-    CELL_TABLE,
-    CELL_TYPE_NAMES,
-    CELL_UNOBSERVED,
+    JOINT_STATE_NAMES,
     O_BOTTLE,
     O_CAN,
     O_NOTHING,
@@ -27,14 +24,16 @@ from policies.zoi_v2_model import (
     S_CAN,
     S_EMPTY,
     STATE_NAMES,
-    bayes_update,
+    evidence_coefficients,
     expected_information_gain,
-    likelihood_matrix,
-    object_visibility,
-    predictive,
-    prior_present,
-    prior_vector,
-    reweight,
+    feasible_grid,
+    floor_only_grid,
+    grid_weights,
+    joint_likelihood,
+    joint_obs_index,
+    joint_prior_terms,
+    log_evidence,
+    marginal_beliefs_2d,
 )
 from utils.navigator import Navigator
 
@@ -50,6 +49,11 @@ NAVIGATOR_KWARGS = {
     "min_cell_coverage": 0.60,
 }
 
+# Default grid over (rho, theta): points per side over (0, 1), feasible points
+# only (~8 k). A numerical resolution, not a model choice: 256 per side changes
+# beliefs by < 0.5 percentage points (tests). Set by params.grid_size.
+RHO_THETA_GRID_SIZE = DEFAULT_GRID_SIZE
+
 Cell = Tuple[int, int]  # policy/report convention: (cx, cy)
 
 TARGET_CLASS_NAMES = {"target_bottle", "target_can"}
@@ -58,27 +62,31 @@ CLASS_NAME_TO_OBS = {"target_bottle": O_BOTTLE, "target_can": O_CAN}
 
 
 class AIFZOIV2Policy:
-    """Table-aware active-inference saccade policy with a derived/measured model.
+    """Active-inference search with a calibrated observation model and no weights.
 
-    Same planner and controller-facing structure as AIFZOIPolicy. The belief
-    model is replaced by the one in policies/zoi_v2_model.py:
+    Belief (policies/zoi_v2_model.py): each cell holds a belief over
+    {table, floor} x {empty, bottle, can}. Every processed frame, each visible
+    cell gets a desk observation (a desk box covers it or not, informative when
+    its table-plane coverage passes the update gate) and a target observation
+    (nothing, "bottle" box, "can" box), with the joint likelihood: table-plane
+    coverage for the table states, floor-plane coverage for the floor states.
+    Detector confidence never enters the likelihood.
 
-    - per-cell belief over {empty, bottle, can};
-    - prior from the cell surface type (unobserved, floor, table), with the
-      evidence kept by q * P_new / P_old when a cell's type becomes known;
-    - one observation per visible cell per processed frame (nothing, "bottle"
-      box, "can" box) with a single likelihood A(v), where v is the probability
-      that a target present in the cell is inside the camera image: the cell's
-      coverage at table and at floor height, mixed by the probability that the
-      target is on a table given the cell type;
-    - a cell is typed table when its centre, projected at table height, falls
-      inside a desk box (the policy's own table map; the "touched" rule uses the
-      controller's map instead, to reproduce older campaigns);
-    - a cell is typed floor only when its centre has been seen at table height
-      without the cell entering the table map;
-    - detector confidence never enters the likelihood;
-    - the planner's information gain and classification utility use the same
-      A(w) as the belief update.
+    Prior: the share of desk cells rho and the fraction of cells holding a
+    target theta are unknown, with a uniform prior over their feasible region,
+    and inferred every frame from all the evidence. Each cell keeps the product
+    of the likelihood rows it has received (ell), and its belief is the exact
+    average of its posterior over p(rho, theta | data). Only the share of targets
+    on desks pi is given. Without desks in the environment rho = 0, pi = 0.
+
+    Planner: every (cell, yaw) candidate is ranked by its expected information
+    gain over the cells the controller would update from there, divided by the
+    flight time to it (policies/planner_time.py, from the navigator's control
+    law) plus one detector period. Ties go to the shorter flight. The
+    controller's table map (grid["table_cells"]) is used only to predict which
+    cells the controller's visible mask will update.
+
+    q_s holds the content marginal of the belief, for logs and snapshots.
     """
 
     def __init__(
@@ -86,33 +94,22 @@ class AIFZOIV2Policy:
         debug: Optional[dict] = None,
         *,
         params: Optional[AIFZOIV2Params] = None,
-        # Action scoring.
-        beta_info: float = 1.0,
-        classification_preference_strength: float = 2.0,
-        table_exploration_weight: float = 0.0,
-        distance_cost_epsilon: float = 0.04,
-        # Replanning/nav.
         yaw_options: Optional[List[float]] = None,
         replan_cooldown_s: float = 0.4,
         classified_confidence_threshold: float = 0.80,
-        # Detector period of the controller (DETECTION_EVERY_S), for the "rate" planner.
+        # Detector period of the controller (DETECTION_EVERY_S).
         detector_period_s: float = 0.625,
     ):
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
 
-        self.params = params if params is not None else AIFZOIV2Params()
+        self.params = params if params is not None else AIFZOIV2Params.calibrated()
         self.table_context_enabled = bool(self.params.table_context_enabled)
-
-        self.beta_info = float(beta_info)
-        self.classification_preference_strength = float(
-            classification_preference_strength)
-        self.table_exploration_weight = float(table_exploration_weight)
-        self.distance_cost_epsilon = float(distance_cost_epsilon)
 
         self.replan_cooldown_s = float(replan_cooldown_s)
         # Flight time of a move, derived from the navigator's control law.
         self.time_model = NavigatorTimeModel.from_navigator(NAVIGATOR_KWARGS, detector_period_s)
+        # Only for the classified-cells payload of snapshots.
         self.classified_confidence_threshold = float(
             np.clip(classified_confidence_threshold, 0.0, 1.0))
 
@@ -129,17 +126,17 @@ class AIFZOIV2Policy:
         self.env_mgr_table: Optional[GridEnvManager] = None
         self.navigator: Optional[Navigator] = None
 
-        # q_s[cy, cx, :] is Cat(empty, bottle, can).
+        # q_joint[cy, cx, :] over the 6 joint states; q_s[cy, cx, :] its content
+        # marginal Cat(empty, bottle, can).
+        self.q_joint: Optional[np.ndarray] = None
         self.q_s: Optional[np.ndarray] = None
 
-        # cell_type[cy, cx] is CELL_UNOBSERVED / CELL_FLOOR / CELL_TABLE, and
-        # _applied_prior[cy, cx, :] is the prior that q_s currently encodes.
-        self.cell_type: Optional[np.ndarray] = None
-        self._applied_prior: Optional[np.ndarray] = None
-
-        # Table map for the "centre" rule: cells whose centre, projected at
-        # table height, fell inside a desk box on some processed frame.
-        self._table_map: set[Cell] = set()
+        # Learned prior: per-cell evidence records ell, prior terms (base, d_rho,
+        # d_theta), grid points, per-cell evidence coefficients (a, b, c), the
+        # running sum of log Z over cells and the posterior weights of the points.
+        self._ell: Optional[np.ndarray] = None
+        self._terms = self._rho_grid = self._theta_grid = None
+        self._coef = self._log_ev = self._rho_weights = None
 
         # Coverage threshold the controller uses for its visible mask. Planning
         # only predicts observations for cells that would actually be updated.
@@ -155,9 +152,12 @@ class AIFZOIV2Policy:
         self._last_chosen: Optional[Tuple[Cell, float]] = None
         self._last_scored_actions: Optional[list] = None
 
-        # Candidate FoV coverage cache, exactly mirroring the old policy idea:
-        # cache floor/table projections for each candidate cell and yaw. Runtime
-        # table_cells only select which surface-specific coverage to use per cell.
+        # Planner cost: number of replans and wall-clock time spent choosing them.
+        self._n_replans: int = 0
+        self._planner_s_total: float = 0.0
+        self._planner_ms_last: float = 0.0
+
+        # Floor and table plane coverages of every candidate (cell, yaw), cached.
         self._candidate_coverage_cache: Dict[Tuple[int, int,
                                                    int], Dict[str, Dict[Tuple[int, int], float]]] = {}
 
@@ -167,28 +167,54 @@ class AIFZOIV2Policy:
             "policy": "aif_zoi_v2",
             "model": self.params.as_dict(),
             "observation_model": {
-                "visibility": "type-mixed plane coverage",
-                "floor_typing": "cell centre in table-plane footprint",
-                "table_map": (
-                    "cell centre in desk box at table height"
-                    if self.params.table_map_rule == "centre"
-                    else "controller map (cells hit by desk-box probes)"
-                ),
+                "surface": "joint belief over {table, floor} x {empty, bottle, can}",
+                "visibility": "table-plane coverage for table states, floor-plane coverage for floor states",
+                "desk_evidence": "desk box covers the cell; informative when table-plane coverage >= update gate",
+                "prior": ("rho and theta learned in flight, uniform prior on the feasible region"
+                          if self.table_context_enabled else "theta learned in flight, rho = 0 (no desks)"),
+                "rho_theta_grid_size": int(self.params.grid_size),
+                "rho_theta_grid_points": None if self._rho_grid is None else int(self._rho_grid.size),
             },
             "planning": {
-                "beta_info": float(self.beta_info),
-                "classification_preference_strength": float(self.classification_preference_strength),
-                "table_exploration_weight": float(self.table_exploration_weight),
-                "distance_cost_epsilon": float(self.distance_cost_epsilon),
+                "score": "expected information gain / flight time",
+                "implementation": "loop",
                 "yaw_options": [float(y) for y in self.yaw_options],
                 "replan_cooldown_s": float(self.replan_cooldown_s),
                 "classified_confidence_threshold": float(self.classified_confidence_threshold),
                 "navigator": dict(NAVIGATOR_KWARGS),
-                "objective": self.params.planner_objective,
-                "terms": self.params.planner_terms,
-                "time_model": self.time_model.as_dict() if self.params.planner_objective == "rate" else None,
+                "time_model": self.time_model.as_dict(),
             },
         }
+
+    def diagnostics(self) -> dict:
+        """Per-frame values for the perception log: rho and theta estimates, and the
+        planner's cost so far (replans, total and last wall-clock time)."""
+        if self._rho_weights is None:
+            return {}
+        mean, sd = self.rho_estimate()
+        t_mean, t_sd = self.theta_estimate()
+        return {"rho_mean": round(mean, 5), "rho_sd": round(sd, 5),
+                "theta_mean": round(t_mean, 5), "theta_sd": round(t_sd, 5),
+                "replans": self._n_replans, "planner_s_total": round(self._planner_s_total, 4),
+                "planner_ms_last": round(self._planner_ms_last, 2)}
+
+    @staticmethod
+    def _mean_sd(w: np.ndarray, g: np.ndarray) -> tuple:
+        mean = float(w @ g)
+        return mean, float(np.sqrt(max(0.0, w @ (g - mean) ** 2)))
+
+    def rho_estimate(self) -> tuple:
+        """(mean, sd) of p(rho | data), the share of desk cells."""
+        return self._mean_sd(self._rho_weights, self._rho_grid)
+
+    def theta_estimate(self) -> tuple:
+        """(mean, sd) of p(theta | data), the fraction of cells holding a target."""
+        return self._mean_sd(self._rho_weights, self._theta_grid)
+
+    def table_probability_map(self) -> np.ndarray:
+        """P(table) per cell, [cy, cx]."""
+        assert self.q_joint is not None
+        return self.q_joint[:, :, 0:3].sum(axis=2)
 
     # ---------------------------------------------------------------------
     # Public controller API
@@ -224,22 +250,12 @@ class AIFZOIV2Policy:
             grid.get("coverages", {}) or {})
         perception_step = bool(
             grid.get("perception_processed_this_step", False))
-        table_cells = self._table_cells(observation, update=perception_step)
+        # The controller's table map: only to predict its visible mask when planning.
+        table_cells = self._table_cells_from_grid(grid)
         if grid.get("coverage_threshold", None) is not None:
             self._coverage_threshold = float(grid["coverage_threshold"])
 
-        # Cell types first (table cells from the table map, floor cells from
-        # this frame's table-height view), so the prior is
-        # current before this frame's target observations are assimilated.
-        # Floor typing only happens on processed frames, when the table map
-        # reflects this frame's desk detections.
-        if self.table_context_enabled:
-            self._update_cell_types(
-                table_cells=table_cells,
-                pose=pose if perception_step else None,
-            )
-
-        # Only target-belief updates on processed perception steps because the
+        # Belief updates only on processed perception steps, because the
         # controller sends empty visible/evidence fields on throttled frames.
         if perception_step:
             self._update_beliefs_from_observation(
@@ -262,12 +278,16 @@ class AIFZOIV2Policy:
         should_replan = (not has_target) or (arrived and cooldown_elapsed)
 
         if should_replan and current_cell is not None:
+            t_plan = time.perf_counter()
             (next_cell, next_yaw), scored_actions = self._pick_next_action(
                 current_cell=current_cell,
                 table_cells=table_cells,
                 return_scores=True,
                 pose=pose,
             )
+            self._planner_ms_last = 1000.0 * (time.perf_counter() - t_plan)
+            self._planner_s_total += self._planner_ms_last / 1000.0
+            self._n_replans += 1
 
             target_distance_m = self._cell_distance_m(current_cell, next_cell)
             target_selection = {
@@ -280,7 +300,9 @@ class AIFZOIV2Policy:
                 "target_p_present": float(self._belief_present(next_cell[0], next_cell[1])),
                 "target_classification_confidence": float(self._classification_confidence(next_cell[0], next_cell[1])),
                 "target_classification_need": float(self._classification_need(self.q_s[next_cell[1], next_cell[0], :])),
+                "target_p_table": float(self.table_probability_map()[next_cell[1], next_cell[0]]),
                 "target_is_table": bool(next_cell in table_cells),
+                "planner_ms": float(self._planner_ms_last),
             }
 
             self.navigator.set_target(next_cell, next_yaw)
@@ -318,7 +340,7 @@ class AIFZOIV2Policy:
                     f"[AIF-ZOI-V2] picked target cell={next_cell} yaw={next_yaw:.3f} "
                     f"p_present={self._belief_present(next_cell[0], next_cell[1]):.2f} "
                     f"class_conf={self._classification_confidence(next_cell[0], next_cell[1]):.2f} "
-                    f"table={next_cell in table_cells}",
+                    f"p_table={self.table_probability_map()[next_cell[1], next_cell[0]]:.2f}",
                     flush=True,
                 )
 
@@ -382,7 +404,7 @@ class AIFZOIV2Policy:
         grid = observation.get("grid", {}) or {}
 
         current_cell = self._parse_cell(grid.get("current_cell", None))
-        table_cells = self._table_cells(observation, update=False)
+        table_cells = self._table_cells_from_grid(grid)
         visible_mask = self._normalize_bool_cell_map(
             grid.get("visible_mask", {}) or {})
         coverages = self._normalize_float_cell_map(
@@ -454,16 +476,22 @@ class AIFZOIV2Policy:
         self.env_mgr = self.env_mgr_floor
 
         self.navigator = Navigator(self.grid_spec, **NAVIGATOR_KWARGS)
-
-        # Without table context every cell is floor from the start.
-        initial_type = CELL_UNOBSERVED if self.table_context_enabled else CELL_FLOOR
-        rows, cols = self.grid_spec.rows, self.grid_spec.cols
-        self.cell_type = np.full((rows, cols), initial_type, dtype=np.int8)
-        initial_prior = self._prior_for_type(initial_type)
-        self.q_s = np.tile(initial_prior.reshape(1, 1, 3), (rows, cols, 1))
-        self._applied_prior = self.q_s.copy()
-
         self._precompute_candidate_coverages()
+
+        # Learned prior: uniform over the feasible (rho, theta) grid, no evidence yet.
+        rows, cols = self.grid_spec.rows, self.grid_spec.cols
+        if self.table_context_enabled:
+            pi = self.params.p_target_on_table
+            self._rho_grid, self._theta_grid = feasible_grid(
+                p_on_table=pi, n_rho=self.params.grid_size, n_theta=self.params.grid_size)
+        else:
+            pi = 0.0
+            self._rho_grid, self._theta_grid = floor_only_grid(n_theta=self.params.grid_size)
+        self._terms = joint_prior_terms(p_on_table=pi)
+        self._ell = np.ones((rows, cols, 6))
+        self._coef = evidence_coefficients(self._ell, *self._terms)
+        self._log_ev = np.zeros_like(self._rho_grid)  # unseen cells have Z = 1
+        self._refresh_beliefs()
 
     @staticmethod
     def _fov_spec_from_dict(fs: dict) -> FoVSpec:
@@ -540,159 +568,36 @@ class AIFZOIV2Policy:
         return out
 
     # ---------------------------------------------------------------------
-    # Belief model (see policies/zoi_v2_model.py)
+    # Belief (see policies/zoi_v2_model.py)
     # ---------------------------------------------------------------------
 
-    def _prior_for_type(self, cell_type: int) -> np.ndarray:
-        return prior_vector(
-            cell_type,
-            lambda_table=self.params.lambda_table,
-            lambda_floor=self.params.lambda_floor,
-            rho=self.params.rho,
+    def _desk_in_view(self, w_table: float) -> bool:
+        return w_table > 0.0 and w_table >= self._coverage_threshold
+
+    def _joint_likelihood(self, w_table: float, w_floor: float) -> np.ndarray:
+        p = self.params
+        return joint_likelihood(
+            w_table,
+            w_floor,
+            desk_in_view=self._desk_in_view(w_table) and self.table_context_enabled,
+            recall=p.recall,
+            class_accuracy=p.class_accuracy,
+            false_alarm=p.false_alarm,
+            desk_recall=p.desk_recall,
+            desk_false_alarm=p.desk_false_alarm,
         )
 
-    def _likelihood(self, visibility: float) -> np.ndarray:
-        return likelihood_matrix(
-            visibility,
-            recall=self.params.recall,
-            class_accuracy=self.params.class_accuracy,
-            false_alarm=self.params.false_alarm,
-        )
-
-    def _visibility(self, cell: Cell, v_table: float, v_floor: float) -> float:
-        """P(target in image | target present) for a cell, given its type.
-
-        Used by both the belief update and planning.
-        """
-        assert self.cell_type is not None
-        return object_visibility(
-            int(self.cell_type[int(cell[1]), int(cell[0])]),
-            v_table,
-            v_floor,
-            lambda_table=self.params.lambda_table,
-            lambda_floor=self.params.lambda_floor,
-            rho=self.params.rho,
-        )
-
-    def _table_cells(self, observation: dict, *, update: bool) -> set[Cell]:
-        """Cells typed table, under the configured table-map rule.
-
-        "centre": the policy's own map; with update=True this frame's desk
-        boxes are added first. "touched": the controller's map, where every cell
-        hit by a desk-box probe is a table cell.
-        """
-        if self.params.table_map_rule == "touched":
-            return self._table_cells_from_grid(observation.get("grid", {}) or {})
-        if update:
-            self._add_desk_boxes_to_table_map(observation)
-        return set(self._table_map)
-
-    def _add_desk_boxes_to_table_map(self, observation: dict) -> None:
-        """Add the cells whose centre, at table height, is inside a desk box.
-
-        The desk top is at table height, so a cell centre lies on a detected desk
-        when its table-plane image position falls inside the desk box.
-        """
-        camera = observation.get("camera", {}) or {}
-        img_w = float(camera.get("width", 0) or 0)
-        img_h = float(camera.get("height", 0) or 0)
-        if img_w <= 0.0 or img_h <= 0.0:
-            return
-        boxes = []
-        for event in (observation.get("grid", {}) or {}).get("detections_all", []) or []:
+    def _desk_covered_cells(self, grid: dict) -> set[Cell]:
+        """Cells covered by this frame's desk boxes (the controller's projection)."""
+        out: set[Cell] = set()
+        for event in grid.get("detections_all", []) or []:
             if self._event_class_name(event) not in DESK_CLASS_NAMES:
                 continue
-            bbox = event_bbox_xyxy(event)
-            if bbox is not None:
-                boxes.append(bbox)
-        if not boxes:
-            return
-
-        assert self.grid_spec is not None
-        pose = observation["pose"]
-        for cy in range(self.grid_spec.rows):
-            for cx in range(self.grid_spec.cols):
-                if (cx, cy) in self._table_map:
-                    continue
-                u, v = self._table_plane_pixel((cx, cy), pose, img_w, img_h)
-                if any(x1 <= u <= x2 and y1 <= v <= y2 for (x1, y1, x2, y2) in boxes):
-                    self._table_map.add((cx, cy))
-
-    def _table_plane_pixel(self, cell: Cell, pose: dict, img_w: float, img_h: float) -> Tuple[float, float]:
-        """Image position of the cell centre at table height.
-
-        Inverse of GridEnvManager.detection_cell_from_bbox: the footprint maps
-        linearly to the image, left edge (+half_left) at u = 0 and front edge
-        (+forward) at v = 0.
-        """
-        assert self.table_fov_spec is not None
-        x, y = self._cell_center_xy(int(cell[0]), int(cell[1]))
-        dx, dy = x - float(pose["x"]), y - float(pose["y"])
-        yaw = float(pose["yaw"])
-        c, s = math.cos(yaw), math.sin(yaw)
-        xb = c * dx + s * dy
-        yb = -s * dx + c * dy
-        fov = self.table_fov_spec
-        un = (fov.half_left - yb) / (fov.half_left + fov.half_right)
-        vn = (fov.forward - xb) / (fov.forward + fov.backward)
-        return un * img_w, vn * img_h
-
-    def _centre_in_table_footprint(self, cell: Cell, pose: dict) -> bool:
-        """Whether the cell centre is inside the camera footprint at table height."""
-        assert self.table_fov_spec is not None
-        x, y = self._cell_center_xy(int(cell[0]), int(cell[1]))
-        dx, dy = x - float(pose["x"]), y - float(pose["y"])
-        yaw = float(pose["yaw"])
-        c, s = math.cos(yaw), math.sin(yaw)
-        # World -> body frame (inverse of GridEnvManager._fov_polygon_world).
-        xb = c * dx + s * dy
-        yb = -s * dx + c * dy
-        fov = self.table_fov_spec
-        return (-fov.backward <= xb <= fov.forward) and (-fov.half_right <= yb <= fov.half_left)
-
-    def _update_cell_types(
-        self,
-        *,
-        table_cells: set[Cell],
-        pose: Optional[dict],
-    ) -> None:
-        """Type cells as table/floor and move their prior without losing evidence.
-
-        Table: the cell is in the controller's persistent table map (monotone,
-        so a table cell never reverts). Floor: on a processed frame (pose given),
-        the cell centre is inside the camera footprint at table height and the
-        cell is not in the table map, so a desk covering the cell centre would
-        have been in view. A floor cell can later become a table cell.
-        """
-        assert self.cell_type is not None
-        rows, cols = self.cell_type.shape
-
-        new_types: Dict[Cell, int] = {}
-        for (cx, cy) in table_cells:
-            if 0 <= int(cx) < cols and 0 <= int(cy) < rows:
-                if int(self.cell_type[int(cy), int(cx)]) != CELL_TABLE:
-                    new_types[(int(cx), int(cy))] = CELL_TABLE
-
-        if pose is not None:
-            for cy in range(rows):
-                for cx in range(cols):
-                    if (cx, cy) in table_cells or int(self.cell_type[cy, cx]) != CELL_UNOBSERVED:
-                        continue
-                    if self._centre_in_table_footprint((cx, cy), pose):
-                        new_types[(cx, cy)] = CELL_FLOOR
-
-        for (cx, cy), cell_type in new_types.items():
-            self._set_cell_type((cx, cy), cell_type)
-
-    def _set_cell_type(self, cell: Cell, cell_type: int) -> None:
-        assert self.q_s is not None and self.cell_type is not None
-        assert self._applied_prior is not None
-        cx, cy = int(cell[0]), int(cell[1])
-        prior_new = self._prior_for_type(cell_type)
-        self.q_s[cy, cx, :] = reweight(
-            self.q_s[cy, cx, :], self._applied_prior[cy, cx, :], prior_new)
-        self._applied_prior[cy, cx, :] = prior_new
-        self.cell_type[cy, cx] = int(cell_type)
+            for cell in event.get("covered_cells", []) or []:
+                parsed = self._parse_cell(cell)
+                if parsed is not None:
+                    out.add(parsed)
+        return out
 
     def _update_beliefs_from_observation(
         self,
@@ -701,11 +606,13 @@ class AIFZOIV2Policy:
         visible_mask: Dict[Cell, bool],
         coverages: Dict[Cell, float],
     ) -> None:
-        """One Bayesian update per visible cell with that cell's observation."""
-        assert self.q_s is not None
-        rows, cols = self.q_s.shape[0], self.q_s.shape[1]
+        """Add each visible cell's desk and target observation to its evidence
+        record, then refresh p(rho, theta | data) and every belief once."""
+        assert self._ell is not None
+        rows, cols = self._ell.shape[0], self._ell.shape[1]
 
         target_events_by_cell = self._target_events_by_cell(grid)
+        desk_cells = self._desk_covered_cells(grid)
 
         # Coverage of each cell by the camera footprint at floor and at table
         # height. Older payloads without them fall back to the merged coverage.
@@ -719,29 +626,56 @@ class AIFZOIV2Policy:
 
         visible_cells = set()
         for (cx, cy), vis in visible_mask.items():
-            if not vis:
-                continue
-            if not (0 <= int(cx) < cols and 0 <= int(cy) < rows):
+            if not vis or not (0 <= int(cx) < cols and 0 <= int(cy) < rows):
                 continue
             cell = (int(cx), int(cy))
             visible_cells.add(cell)
+            w_table = float(table_plane.get(cell, 0.0))
+            w_floor = float(floor_plane.get(cell, 0.0))
+            covered = cell in desk_cells and self._desk_in_view(w_table) and self.table_context_enabled
+            obs_index = joint_obs_index(covered, self._cell_observation(target_events_by_cell.get(cell, [])))
+            row = self._joint_likelihood(w_table, w_floor)[obs_index]
+            ell = self._ell[cell[1], cell[0], :] * row
+            self._ell[cell[1], cell[0], :] = ell / ell.max()
 
-            visibility = self._visibility(
-                cell,
-                float(table_plane.get(cell, 0.0)),
-                float(floor_plane.get(cell, 0.0)),
-            )
-            obs_index = self._cell_observation(
-                target_events_by_cell.get(cell, []))
-            self.q_s[cell[1], cell[0], :] = bayes_update(
-                self.q_s[cell[1], cell[0], :],
-                self._likelihood(visibility),
-                obs_index,
-            )
+        if visible_cells:
+            self._update_evidence(sorted(visible_cells))
+            self._refresh_beliefs()
 
         for cell, events in target_events_by_cell.items():
             if cell not in visible_cells:
                 self._dropped_target_events += len(events)
+
+    def _update_evidence(self, cells: list) -> None:
+        """Swap the updated cells' terms in the running sum of log Z over cells."""
+        cols = self._ell.shape[1]
+        idx = np.array([cy * cols + cx for cx, cy in cells], dtype=int)
+        new = evidence_coefficients(self._ell.reshape(-1, 6)[idx], *self._terms)
+        self._log_ev += (log_evidence(new, self._rho_grid, self._theta_grid)
+                         - log_evidence(self._coef[idx], self._rho_grid, self._theta_grid))
+        self._coef[idx] = new
+
+    def _refresh_beliefs(self) -> None:
+        """p(rho, theta | data) from the running log evidence; each cell's belief is the
+        exact average over it. Unseen cells (ell = 1) share one belief."""
+        rows, cols = self._ell.shape[0], self._ell.shape[1]
+        self._rho_weights = grid_weights(self._log_ev)
+        ell = self._ell.reshape(-1, 6)
+        seen = np.flatnonzero(np.any(ell != 1.0, axis=1))
+        unseen_q = marginal_beliefs_2d(np.ones((1, 6)), evidence_coefficients(np.ones((1, 6)), *self._terms),
+                                       self._terms, self._rho_grid, self._theta_grid, self._rho_weights)[0]
+        q = np.tile(unseen_q, (rows * cols, 1))
+        if seen.size:
+            # Average only over grid points that carry weight: after a few frames the
+            # posterior sits on a few hundred of the ~8 k points. The dropped mass is
+            # below 1e-12 of the largest weight per point, so beliefs change by < 1e-8.
+            w = self._rho_weights
+            active = np.flatnonzero(w > 1e-12 * w.max())
+            w_act = w[active] / w[active].sum()
+            q[seen] = marginal_beliefs_2d(ell[seen], self._coef[seen], self._terms,
+                                          self._rho_grid[active], self._theta_grid[active], w_act)
+        self.q_joint = q.reshape(rows, cols, 6)
+        self.q_s = (self.q_joint[:, :, 0:3] + self.q_joint[:, :, 3:6]).copy()
 
     def _cell_observation(self, events: List[dict]) -> int:
         """Reduce a cell's target boxes in one frame to a single observation.
@@ -771,7 +705,7 @@ class AIFZOIV2Policy:
         return q / z
 
     # ---------------------------------------------------------------------
-    # Action selection / EFE-style scoring
+    # Planner: expected information gain per second of flight
     # ---------------------------------------------------------------------
 
     def _all_cells(self) -> List[Cell]:
@@ -798,88 +732,63 @@ class AIFZOIV2Policy:
         return_scores: bool = False,
         pose: Optional[dict] = None,
     ):
+        """Best (cell, yaw) by IG / T, T the navigator's flight time plus one
+        detector period; ties go to the shorter flight."""
         assert self.grid_spec is not None
-        assert self.q_s is not None
+        assert self.q_joint is not None
 
         candidates = self._all_cells()
         table_cells = table_cells or set()
         scores = [] if return_scores else None
 
-        best_G = float("inf")
         best = (candidates[0], self.yaw_options[0])
+        best_key = (-float("inf"), -float("inf"))
 
         cx0, cy0 = current_cell
         x0, y0 = self._cell_center_xy(cx0, cy0)
-
-        # "rate": rank by (beta*IG + utility) / T, T the navigator's flight time plus
-        # one detector period; ties go to the shorter flight.
-        use_rate = self.params.planner_objective == "rate"
-        # "info_only": no classification bonus; the ranking uses the information gain alone.
-        info_only = self.params.planner_terms == "info_only"
-        if use_rate and pose is None:
+        if pose is None:
             pose = {"x": x0, "y": y0, "yaw": 0.0}
-        best_key = (-float("inf"), -float("inf"))
 
         for cell in candidates:
             tx, ty = self._cell_center_xy(cell[0], cell[1])
-            dist = math.hypot(tx - x0, ty - y0)
-            distance_cost = self.distance_cost_epsilon * dist
-
             for yaw_idx, yaw in enumerate(self.yaw_options):
-                comps = self._efe_components(
-                    target_cell=cell,
-                    target_yaw_index=yaw_idx,
-                    table_cells=table_cells,
-                )
-                risk = 0.0 if info_only else comps["risk"]
-                goal = 0.0 if info_only else comps["utility"]
-                IG = comps["IG"]
-                G = float(risk - self.beta_info * IG + distance_cost)
-                if use_rate:
-                    T, t_turn, t_move = self.time_model.time_to(pose, (tx, ty), yaw)
-                    rate = float((self.beta_info * IG + goal) / T)
+                IG = self._candidate_information_gain(
+                    target_cell=cell, target_yaw_index=yaw_idx, table_cells=table_cells)
+                T, t_turn, t_move = self.time_model.time_to(pose, (tx, ty), yaw)
+                rate = float(IG / T)
 
                 if return_scores:
-                    record = {
+                    scores.append({
                         "cell": [int(cell[0]), int(cell[1])],
                         "yaw": float(yaw),
-                        "risk": float(risk),
-                        "utility": float(comps["utility"]),
                         "IG": float(IG),
-                        "table_bonus": float(comps["table_bonus"]),
-                        "center_classification_need": float(comps["center_classification_need"]),
-                        "center_p_present": float(comps["center_p_present"]),
-                        "center_class_confidence": float(comps["center_class_confidence"]),
-                        "distance": float(dist),
-                        "distance_cost": float(distance_cost),
-                        "G": float(G),
-                    }
-                    if use_rate:
-                        record.update({"T": float(T), "T_turn": float(t_turn), "T_move": float(t_move),
-                                       "rate": rate})
-                    scores.append(record)
+                        "distance": float(math.hypot(tx - x0, ty - y0)),
+                        "T": float(T),
+                        "T_turn": float(t_turn),
+                        "T_move": float(t_move),
+                        "rate": rate,
+                        # Minimised by utils/snapshot_analyzer.py.
+                        "G": -rate,
+                    })
 
-                if use_rate:
-                    key = (rate, -T)
-                    if key > best_key:
-                        best_key = key
-                        best = (cell, yaw)
-                elif G < best_G:
-                    best_G = G
+                key = (rate, -T)
+                if key > best_key:
+                    best_key = key
                     best = (cell, yaw)
 
         return (best, scores) if return_scores else best
 
-    def _efe_components(
+    def _candidate_information_gain(
         self,
         *,
         target_cell: Cell,
         target_yaw_index: int,
         table_cells: Optional[set[Cell]] = None,
-    ) -> Dict[str, float]:
-        assert self.q_s is not None
+    ) -> float:
+        """Expected information gain of one view from a candidate (cell, yaw), summed
+        over the cells the controller would update: coverage at or above its
+        visible-mask threshold, with the table-plane coverage on its table-map cells."""
         table_cells = table_cells or set()
-
         cov_rc = self._merged_candidate_coverages_rc(
             target_cell=target_cell,
             target_yaw_index=int(target_yaw_index),
@@ -891,83 +800,22 @@ class AIFZOIV2Policy:
         )
 
         IG = 0.0
-        table_bonus = 0.0
-
         for (r, c), frac in cov_rc.items():
-            frac = float(frac)
-            # Same cells the controller would update: coverage at or above its
-            # visible-mask threshold.
-            if frac < self._coverage_threshold:
+            if float(frac) < self._coverage_threshold:
                 continue
-
-            cy = int(r)
-            cx = int(c)
-            cell = (cx, cy)
-            q = self.q_s[cy, cx, :]
             IG += self._cell_information_gain(
-                cell,
-                float(table_cov_rc.get((cy, cx), 0.0)),
-                float(floor_cov_rc.get((cy, cx), 0.0)),
+                (int(c), int(r)),
+                float(table_cov_rc.get((int(r), int(c)), 0.0)),
+                float(floor_cov_rc.get((int(r), int(c)), 0.0)),
             )
-
-            if cell in table_cells:
-                # Extra value for inspecting perceived table cells that still
-                # have target/class uncertainty. This is deliberately grounded
-                # in the controller's table_cells only; no neighbors or GT table
-                # geometry are injected.
-                table_bonus += frac * \
-                    self._present_prob(q) * self._classification_need(q)
-
-        cx_t, cy_t = int(target_cell[0]), int(target_cell[1])
-        q_t = self.q_s[cy_t, cx_t, :]
-        center_utility = self._center_utility(
-            (cx_t, cy_t),
-            float(table_cov_rc.get((cy_t, cx_t), 0.0)),
-            float(floor_cov_rc.get((cy_t, cx_t), 0.0)),
-            is_table=(target_cell in table_cells),
-        )
-        utility = center_utility + self.table_exploration_weight * table_bonus
-
-        # In the old code this term was named risk and minimized. Here risk is
-        # negative utility; the final score is still G = risk - beta_info*IG + d.
-        risk = -float(utility)
-
-        return {
-            "risk": float(risk),
-            "utility": float(utility),
-            "IG": float(IG),
-            "table_bonus": float(table_bonus),
-            "center_classification_need": float(self._classification_need(q_t)),
-            "center_p_present": float(self._present_prob(q_t)),
-            "center_class_confidence": float(self._classification_confidence_from_q(q_t)),
-        }
+        return float(IG)
 
     def _cell_information_gain(self, cell: Cell, w_table: float, w_floor: float) -> float:
-        """Expected information gain of one view of a cell with these plane coverages.
-
-        Visibility from the candidate pose enters through A(v), the same
-        likelihood as the update, so the information gain is not weighted by
-        coverage again.
-        """
-        q = self.q_s[int(cell[1]), int(cell[0]), :]
-        visibility = self._visibility(cell, w_table, w_floor)
-        return expected_information_gain(q, self._likelihood(visibility))
-
-    def _center_utility(self, cell: Cell, w_table: float, w_floor: float, *, is_table: bool) -> float:
-        """Classification utility of the destination cell."""
-        q = self.q_s[int(cell[1]), int(cell[0]), :]
-        visibility = self._visibility(cell, w_table, w_floor)
-        return self._center_classification_utility(q, visibility=visibility, is_table=is_table)
-
-    def _center_classification_utility(self, q: np.ndarray, *, visibility: float, is_table: bool) -> float:
-        q = self._normalize(q)
-        p_o = predictive(q, self._likelihood(visibility))
-
-        p_class_obs = float(p_o[O_BOTTLE] + p_o[O_CAN])
-        need = self._classification_need(q)
-
-        return float(self.classification_preference_strength * need * p_class_obs)
-
+        """Expected information gain of one view of a cell with these plane coverages,
+        with the same joint likelihood as the update."""
+        assert self.q_joint is not None
+        q = self.q_joint[int(cell[1]), int(cell[0]), :]
+        return expected_information_gain(q, self._joint_likelihood(w_table, w_floor))
 
     @staticmethod
     def _present_prob(q: np.ndarray) -> float:
@@ -1196,18 +1044,19 @@ class AIFZOIV2Policy:
         print(
             f"[AIF-ZOI-V2 GRID] step={step} cc={cc} "
             f"cover={len(coverages)} visible={num_vis} table_cells={len(table_cells)} "
-            f"dropped_target_events={self._dropped_target_events}",
+            f"dropped_target_events={self._dropped_target_events} {self.diagnostics()}",
             flush=True,
         )
 
+        p_table = self.table_probability_map() if self.q_joint is not None else None
         top_cov = sorted(coverages.items(),
                          key=lambda kv: kv[1], reverse=True)[:9]
         for (cx, cy), frac in top_cov:
             q = self.q_s[cy, cx, :] if self.q_s is not None else np.zeros(3)
-            ctype = CELL_TYPE_NAMES[int(self.cell_type[cy, cx])] if self.cell_type is not None else "?"
+            pt = float(p_table[cy, cx]) if p_table is not None else float("nan")
             print(
                 f"  cell=({cx},{cy}) cov={frac*100:5.1f}% vis={visible_mask.get((cx, cy), None)} "
-                f"type={ctype} p={self._present_prob(q):.2f} "
+                f"p_table={pt:.2f} p={self._present_prob(q):.2f} "
                 f"q=[empty={q[S_EMPTY]:.2f}, bot={q[S_BOTTLE]:.2f}, can={q[S_CAN]:.2f}]",
                 flush=True,
             )
@@ -1225,7 +1074,6 @@ class AIFZOIV2Policy:
         if self.navigator is not None and self.navigator.has_target():
             print(
                 f"  target={self.navigator.target_cell} target_yaw={self.navigator.target_yaw:.3f}", flush=True)
-
 
     def _maybe_init_snapshot_dir(self, snap_dir: Optional[str]) -> Optional[str]:
         if not snap_dir:
@@ -1257,19 +1105,6 @@ class AIFZOIV2Policy:
                 })
         return out
 
-    def _prior_present_map(self) -> np.ndarray:
-        assert self.cell_type is not None
-        out = np.zeros(self.cell_type.shape, dtype=np.float64)
-        for cy in range(out.shape[0]):
-            for cx in range(out.shape[1]):
-                out[cy, cx] = prior_present(
-                    int(self.cell_type[cy, cx]),
-                    lambda_table=self.params.lambda_table,
-                    lambda_floor=self.params.lambda_floor,
-                    rho=self.params.rho,
-                )
-        return out
-
     def _save_snapshot_npz(
         self,
         *,
@@ -1285,8 +1120,8 @@ class AIFZOIV2Policy:
         scored_actions: list,
         reason: str,
     ) -> str:
-        if self.q_s is None:
-            raise RuntimeError("q_s is None; cannot save snapshot")
+        if self.q_s is None or self.q_joint is None:
+            raise RuntimeError("beliefs not initialised; cannot save snapshot")
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fname = f"snapshot_step{int(step):06d}_{reason}_{ts}.npz"
@@ -1307,8 +1142,8 @@ class AIFZOIV2Policy:
             "step": int(step),
             "reason": str(reason),
             "state_names": STATE_NAMES,
+            "joint_state_names": JOINT_STATE_NAMES,
             "obs_names": OBS_NAMES,
-            "cell_type_names": CELL_TYPE_NAMES,
             "pose": {"x": float(pose["x"]), "y": float(pose["y"]), "yaw": float(pose["yaw"])},
             "current_cell": list(current_cell) if current_cell is not None else None,
             "chosen_cell": [int(chosen_cell[0]), int(chosen_cell[1])] if chosen_cell is not None else None,
@@ -1321,6 +1156,7 @@ class AIFZOIV2Policy:
             "coverages": {f"{k[0]},{k[1]}": float(v) for k, v in coverages.items()},
             "coverage_threshold": float(self._coverage_threshold),
             "dropped_target_events": int(self._dropped_target_events),
+            "rho_theta": self.diagnostics(),
             "params": self.parameters(),
             "scored_actions": scored_actions,
         }
@@ -1328,9 +1164,8 @@ class AIFZOIV2Policy:
         np.savez_compressed(
             path,
             q_s=self.q_s.astype(np.float32),
-            cell_type=(self.cell_type if self.cell_type is not None else np.zeros_like(
-                q_present)).astype(np.uint8),
-            prior_present=self._prior_present_map().astype(np.float32),
+            q_joint=self.q_joint.astype(np.float32),
+            p_table=self.table_probability_map().astype(np.float32),
             q_present=q_present.astype(np.float32),
             q_class_confidence=q_class_conf.astype(np.float32),
             q_classification_need=q_need.astype(np.float32),
@@ -1340,7 +1175,6 @@ class AIFZOIV2Policy:
         )
         print(f"[SNAPSHOT] wrote {path}", flush=True)
         return path
-
 
     def _table_map_array(self, table_cells: set[Cell]) -> np.ndarray:
         assert self.grid_spec is not None

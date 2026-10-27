@@ -11,6 +11,8 @@ if str(CONTROLLER_DIR) not in sys.path:
 
 from env.env_manager import GridSpec
 from policies.aif_zoi_v2 import NAVIGATOR_KWARGS
+import numpy as np
+
 from policies.planner_time import NavigatorTimeModel, saturated_p_error, saturated_p_time_to
 from utils.navigator import Navigator
 
@@ -95,6 +97,24 @@ class NavigatorTimeModelTests(unittest.TestCase):
         _, t_fast, _ = MODEL.time_to(pose, cell_xy(cell), math.pi)
         self.assertGreater(t_slow, t_fast)
         self.assertAlmostEqual(t_slow, fly(pose, cell, math.pi, kwargs=slow), delta=3 * DT)
+
+
+class TimeToBatchTests(unittest.TestCase):
+    def test_batch_equals_scalar_bit_for_bit(self):
+        rng = np.random.default_rng(4)
+        cells = [(cx, cy) for cy in range(13) for cx in range(11)]
+        xs = np.array([cell_xy(c)[0] for c in cells for _ in range(8)])
+        ys = np.array([cell_xy(c)[1] for c in cells for _ in range(8)])
+        yaws = np.array([k * math.pi / 4 for _ in cells for k in range(8)])
+        poses = [{"x": float(rng.uniform(-2.7, 2.7)), "y": float(rng.uniform(-3.2, 3.2)),
+                  "yaw": float(rng.uniform(-3.2, 3.2))} for _ in range(8)]
+        # Arrival poses: exactly on cell centres and yaw options.
+        poses += [{"x": cell_xy(c)[0], "y": cell_xy(c)[1], "yaw": k * math.pi / 4} for c, k in (((5, 6), 0), ((0, 12), 3))]
+        for pose in poses:
+            batch = MODEL.time_to_batch(pose, xs, ys, yaws)
+            ref = np.array([MODEL.time_to(pose, (x, y), w) for x, y, w in zip(xs, ys, yaws)]).T
+            for got, want in zip(batch, ref):
+                np.testing.assert_array_equal(got, want)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ import math
 from dataclasses import dataclass
 from typing import Mapping, Tuple
 
+import numpy as np
+
 from utils.navigator import wrap_to_pi
 
 
@@ -50,6 +52,45 @@ def saturated_p_time_to(e0: float, gain: float, limit: float, tol: float) -> flo
             return (a - tol) / limit
         return (a - knee) / limit + math.log(knee / tol) / gain
     return math.log(a / tol) / gain
+
+
+# Vectorized versions (same formulas, element by element) for the vectorized planner.
+
+
+def saturated_p_error_batch(e0: np.ndarray, gain: float, limit: float, t: np.ndarray) -> np.ndarray:
+    """saturated_p_error for arrays of e0 and t."""
+    a = np.abs(np.asarray(e0, dtype=np.float64))
+    t = np.asarray(t, dtype=np.float64)
+    knee = limit / gain
+    t_linear = (a - knee) / limit
+    linear = a - limit * t
+    with np.errstate(over="ignore"):
+        after_knee = knee * np.exp(-gain * (t - t_linear))
+        below_knee = a * np.exp(-gain * t)
+    out = np.where(a > knee, np.where(t <= t_linear, linear, after_knee), below_knee)
+    return np.where((t <= 0.0) | (a == 0.0), a, out)
+
+
+def saturated_p_time_to_batch(e0: np.ndarray, gain: float, limit: float, tol: float) -> np.ndarray:
+    """saturated_p_time_to for an array of e0."""
+    a = np.abs(np.asarray(e0, dtype=np.float64))
+    knee = limit / gain
+    with np.errstate(divide="ignore", invalid="ignore"):
+        above = ((a - tol) / limit if tol >= knee
+                 else (a - knee) / limit + math.log(knee / tol) / gain)
+        below = np.log(a / tol) / gain
+    return np.where(a <= tol, 0.0, np.where(a > knee, above, below))
+
+
+def hypot_le_batch(x: np.ndarray, y: np.ndarray, eps: float) -> np.ndarray:
+    """hypot(x, y) <= eps as math.hypot decides it. np.hypot can round differently in
+    the last digit, so values within a few ulps of eps are re-checked with math.hypot."""
+    h = np.hypot(x, y)
+    out = h <= eps
+    close = np.flatnonzero(np.abs(h - eps) <= 8.0 * np.spacing(eps))
+    for i in close:
+        out[i] = math.hypot(float(x[i]), float(y[i])) <= eps
+    return out
 
 
 @dataclass(frozen=True)
@@ -117,6 +158,37 @@ class NavigatorTimeModel:
         dy = float(target_xy[1]) - float(pose["y"])
         c, s = math.cos(heading), math.sin(heading)
         t_move = self.move_time(c * dx + s * dy, -s * dx + c * dy)
+        return t_turn + t_move + self.detector_period_s, t_turn, t_move
+
+    def time_to_batch(
+        self, pose: Mapping[str, float], target_x: np.ndarray, target_y: np.ndarray, target_yaw: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """time_to for N targets at once: (T, T_turn, T_move), each (N,)."""
+        yaw = float(pose["yaw"])
+        target_yaw = np.asarray(target_yaw, dtype=np.float64)
+        # Turn (turn_time): wrap_to_pi, then the saturated P time to the tolerance.
+        err = np.remainder(target_yaw - yaw + math.pi, 2.0 * math.pi) - math.pi
+        turning = np.abs(err) > self.yaw_eps_rad
+        t_turn = np.where(turning, saturated_p_time_to_batch(err, self.k_yaw, self.max_yaw_rate, self.yaw_eps_rad), 0.0)
+        heading = np.where(turning, target_yaw - np.copysign(self.yaw_eps_rad, err), yaw)
+        # Move (move_time) in the body frame at the end of the turn.
+        dx = np.asarray(target_x, dtype=np.float64) - float(pose["x"])
+        dy = np.asarray(target_y, dtype=np.float64) - float(pose["y"])
+        c, s = np.cos(heading), np.sin(heading)
+        ex, ey = c * dx + s * dy, -s * dx + c * dy
+        eps = self.dist_eps_m
+        moving = ~hypot_le_batch(ex, ey, eps)
+        lo = np.zeros_like(ex)
+        hi = np.maximum(
+            saturated_p_time_to_batch(ex, self.k_pos, self.max_forward, eps / math.sqrt(2.0)),
+            saturated_p_time_to_batch(ey, self.k_pos, self.max_sideways, eps / math.sqrt(2.0)))
+        for _ in range(50):
+            mid = 0.5 * (lo + hi)
+            arrived = hypot_le_batch(saturated_p_error_batch(ex, self.k_pos, self.max_forward, mid),
+                                     saturated_p_error_batch(ey, self.k_pos, self.max_sideways, mid), eps)
+            hi = np.where(arrived, mid, hi)
+            lo = np.where(arrived, lo, mid)
+        t_move = np.where(moving, hi, 0.0)
         return t_turn + t_move + self.detector_period_s, t_turn, t_move
 
     def as_dict(self) -> dict:

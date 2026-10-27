@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import sys
 import unittest
 from pathlib import Path
@@ -10,225 +9,104 @@ if str(CONTROLLER_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_DIR))
 
 from configuration.aif_zoi_v2_params import (
-    SUCCESSION_CLASS_ACCURACY, SUCCESSION_FALSE_ALARM, SUCCESSION_RECALL, TABLE_MAP_RULES,
-    AIFZOIV2Params, resolve_aif_zoi_v2_params, scenario_priors)
+    DETECTOR_CALIBRATIONS, AIFZOIV2Params, resolve_aif_zoi_v2_params, rule_of_succession)
 from configuration.experiment_config import resolve_experiment_selection
 from configuration.registry import ENVIRONMENTS, normalize_policy_id
 
+HARD = ENVIRONMENTS["hard"]
+CALIBRATED = {"AIF_ZOI_V2_RECALL": "0.8", "AIF_ZOI_V2_CLASS_ACCURACY": "0.95", "AIF_ZOI_V2_FALSE_ALARM": "0.002",
+              "AIF_ZOI_V2_DESK_RECALL": "0.9", "AIF_ZOI_V2_DESK_FALSE_ALARM": "0.1"}
 
-class AIFZOIV2ParamsTests(unittest.TestCase):
-    def test_defaults_with_tables(self):
-        # The 73/100 model (eval_aif_zoi_v2_mbnetv2_hard_20261014_160738).
-        for env in ("medium", "hard"):
-            params = resolve_aif_zoi_v2_params(ENVIRONMENTS[env], environ={})
-            self.assertEqual(
-                params.as_dict(),
-                {
-                    "recall": 0.84,
-                    "class_accuracy": 0.98,
-                    "false_alarm": 0.001,
-                    "lambda_table": 0.54,
-                    "lambda_floor": 0.0045,
-                    "rho": 0.07,
-                    "table_map_rule": "touched",
-                    "surface_model": "typed",
-                    "planner_objective": "distance_cost",
-                    "planner_terms": "info_and_class",
-                    "rho_model": "fixed",
-                    "target_model": "known",
-                    "n_targets": 6.0,
-                    "p_target_on_table": 0.9,
-                    "n_desks": 3.0,
-                    "desk_recall": 182 / 191,
-                    "desk_false_alarm": 189 / 1490,
-                    "table_context_enabled": True,
-                    "calibration": "mobilenet_ssd",
-                },
-            )
 
-    def test_succession_values_from_calibration_counts(self):
-        # (k + 1) / (n + 2) on the calibration counts; not defaults yet.
-        self.assertAlmostEqual(SUCCESSION_RECALL, 141 / 169)
-        self.assertAlmostEqual(SUCCESSION_CLASS_ACCURACY, 141 / 142)
-        self.assertAlmostEqual(SUCCESSION_FALSE_ALARM, 3 / 3493)
+class CalibrationTests(unittest.TestCase):
+    def test_rule_of_succession(self):
+        self.assertAlmostEqual(rule_of_succession(0, 0), 0.5)
+        self.assertAlmostEqual(rule_of_succession(140, 167), 141 / 169)
 
-    def test_joint_model_defaults(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_SURFACE_MODEL": "joint"})
-        self.assertEqual(params.surface_model, "joint")
-        # All from the one calibration set and the scenario description.
+    def test_mobilenet_values_from_the_calibration_counts(self):
+        params = resolve_aif_zoi_v2_params(HARD, environ={})
+        self.assertEqual(params, resolve_aif_zoi_v2_params(HARD, environ={}, detector_id="mobilenet_ssd"))
+        self.assertEqual(params.calibration, "hard/mobilenet_ssd")
         self.assertAlmostEqual(params.recall, 141 / 169)
         self.assertAlmostEqual(params.class_accuracy, 141 / 142)
         self.assertAlmostEqual(params.false_alarm, 3 / 3493)
         self.assertAlmostEqual(params.desk_recall, 182 / 191)
         self.assertAlmostEqual(params.desk_false_alarm, 189 / 1490)
-        c = 3 * 1.2 * 0.7 / 0.25
-        self.assertAlmostEqual(params.lambda_table, 5.4 / c)
-        self.assertAlmostEqual(params.lambda_floor, 0.6 / (143 - c))
-        self.assertAlmostEqual(params.rho, c / 143)
+        self.assertEqual(params.p_target_on_table, 0.9)
+        self.assertTrue(params.table_context_enabled)
 
-    def test_joint_calibration_follows_detector(self):
-        joint = {"AIF_ZOI_V2_SURFACE_MODEL": "joint"}
-        mbnet = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint, detector_id="mobilenet_ssd")
-        self.assertEqual(mbnet, resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint))
-        yolo = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint, detector_id="yolo_nano")
-        self.assertEqual(yolo.calibration, "yolo_nano")
-        # Same calibration images; YOLO nano counts from yolo_calib_predictions.py.
-        self.assertAlmostEqual(yolo.recall, 168 / 169)
-        self.assertAlmostEqual(yolo.class_accuracy, 168 / 169)
-        self.assertAlmostEqual(yolo.false_alarm, 7 / 3493)
-        self.assertAlmostEqual(yolo.desk_recall, 183 / 191)
-        self.assertAlmostEqual(yolo.desk_false_alarm, 199 / 1490)
-        self.assertEqual((yolo.lambda_table, yolo.rho), (mbnet.lambda_table, mbnet.rho))
-        # An environment variable still overrides the calibration.
-        override = resolve_aif_zoi_v2_params(
-            ENVIRONMENTS["hard"], environ={**joint, "AIF_ZOI_V2_RECALL": "0.9"}, detector_id="yolo_nano")
-        self.assertAlmostEqual(override.recall, 0.9)
-        with self.assertRaises(ValueError):
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=joint, detector_id="yolo_small")
-        # The typed model keeps its fixed values whatever the detector.
-        typed = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={}, detector_id="yolo_nano")
-        self.assertEqual(typed, resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={}))
+    def test_yolo_nano_values_from_the_same_calibration_images(self):
+        params = resolve_aif_zoi_v2_params(HARD, environ={}, detector_id="yolo_nano")
+        self.assertEqual(params.calibration, "hard/yolo_nano")
+        self.assertAlmostEqual(params.recall, 168 / 169)
+        self.assertAlmostEqual(params.class_accuracy, 168 / 169)
+        self.assertAlmostEqual(params.false_alarm, 7 / 3493)
+        self.assertAlmostEqual(params.desk_recall, 183 / 191)
+        self.assertAlmostEqual(params.desk_false_alarm, 199 / 1490)
+        mbn, yolo = DETECTOR_CALIBRATIONS[("hard", "mobilenet_ssd")], DETECTOR_CALIBRATIONS[("hard", "yolo_nano")]
+        for field in ("targets", "empty_cell_frames", "table_cells", "floor_cells"):
+            self.assertEqual(getattr(mbn, field), getattr(yolo, field))
 
-    def test_planner_objective(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER": "rate"})
-        self.assertEqual(params.planner_objective, "rate")
-        with self.assertRaises(ValueError):
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER": "fastest"})
-        with self.assertRaises(ValueError):
-            AIFZOIV2Params(planner_objective="fastest")
+    def test_calibrated_constructor_matches_the_resolver(self):
+        self.assertEqual(AIFZOIV2Params.calibrated("hard", "yolo_nano"),
+                         resolve_aif_zoi_v2_params(HARD, environ={}, detector_id="yolo_nano"))
 
-    def test_scenario_inputs_drive_the_joint_priors(self):
-        # 4 desks, 8 targets: lambda_T = N*pi/C, lambda_F = N(1-pi)/(M-C), rho = C/M.
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
-            "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_N_DESKS": "4", "AIF_ZOI_V2_N_TARGETS": "8"})
-        c = 4 * 1.2 * 0.7 / 0.25
-        self.assertAlmostEqual(params.lambda_table, 8 * 0.9 / c)
-        self.assertAlmostEqual(params.lambda_floor, 8 * 0.1 / (143 - c))
-        self.assertAlmostEqual(params.rho, c / 143)
-        self.assertEqual((params.n_targets, params.n_desks), (8.0, 4.0))
-
-    def test_scenario_defaults_reproduce_the_current_priors(self):
-        self.assertEqual(scenario_priors("touched", 6, 0.9, 3), scenario_priors("touched"))
-        # Typed model: unchanged 73/100 values unless a scenario variable is given.
-        typed = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={})
-        self.assertEqual((typed.lambda_table, typed.rho), (0.54, 0.07))
-        typed4 = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_N_DESKS": "4"})
-        self.assertAlmostEqual(typed4.rho, 4 * 1.2 * 0.7 / 0.25 / 143)
-
-    def test_rho_model(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
-            "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_RHO_MODEL": "learned"})
-        self.assertEqual(params.rho_model, "learned")
-        with self.assertRaises(ValueError):  # learned needs the joint model
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_RHO_MODEL": "learned"})
-        with self.assertRaises(ValueError):
-            AIFZOIV2Params(rho_model="guessed")
-        for bad in ({"n_targets": 0}, {"p_target_on_table": 1.0}, {"n_desks": -1}):
+    def test_uncalibrated_pair_needs_every_detector_value(self):
+        for env, det in (("hard", "yolo_small"), ("hard", "ground_truth"), ("medium", "mobilenet_ssd")):
             with self.assertRaises(ValueError):
-                AIFZOIV2Params(**bad)
+                resolve_aif_zoi_v2_params(ENVIRONMENTS[env], environ={}, detector_id=det)
+        params = resolve_aif_zoi_v2_params(HARD, environ=CALIBRATED, detector_id="yolo_small")
+        self.assertEqual(params.calibration, "environment variables")
+        self.assertEqual(params.recall, 0.8)
 
-    def test_target_model(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
-            "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_RHO_MODEL": "learned", "AIF_ZOI_V2_TARGET_MODEL": "learned"})
-        self.assertEqual(params.target_model, "learned")
-        with self.assertRaises(ValueError):  # learned theta needs learned rho
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
-                "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_TARGET_MODEL": "learned"})
-        with self.assertRaises(ValueError):
-            AIFZOIV2Params(target_model="guessed")
 
-    def test_planner_terms(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER_TERMS": "info_only"})
-        self.assertEqual(params.planner_terms, "info_only")
-        with self.assertRaises(ValueError):
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER_TERMS": "class_only"})
-        with self.assertRaises(ValueError):
-            AIFZOIV2Params(planner_terms="class_only")
-
-    def test_joint_model_overrides_and_validation(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
-            "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_DESK_RECALL": "0.8",
-            "AIF_ZOI_V2_DESK_FALSE_ALARM": "0.2"})
-        self.assertEqual((params.desk_recall, params.desk_false_alarm), (0.8, 0.2))
-        with self.assertRaises(ValueError):
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_SURFACE_MODEL": "both"})
-        with self.assertRaises(ValueError):
-            AIFZOIV2Params(desk_recall=0.2, desk_false_alarm=0.3)
-        for value in (0.0, 1.0):
-            with self.assertRaises(ValueError):
-                AIFZOIV2Params(desk_recall=value)
-
-    def test_centre_rule_priors(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_TABLE_MAP": "centre"})
-        self.assertEqual(params.table_map_rule, "centre")
-        # C = 3 desks x cells whose centre is inside a desk box.
-        c = 3 * (1.2 * 0.7 + (1.2 ** 2 + 0.7 ** 2) / math.pi) / 0.25
-        self.assertAlmostEqual(params.lambda_table, 5.4 / c)
-        self.assertAlmostEqual(params.lambda_floor, 0.6 / (143 - c))
-        self.assertAlmostEqual(params.rho, c / 143)
-        self.assertEqual(params.recall, 0.84)
-
-    def test_unobserved_prior_is_uniform_for_every_rule(self):
-        # rho * lambda_T + (1 - rho) * lambda_F = N / M whatever C is.
-        for rule in TABLE_MAP_RULES:
-            pr = scenario_priors(rule)
-            self.assertAlmostEqual(
-                pr["rho"] * pr["lambda_table"] + (1 - pr["rho"]) * pr["lambda_floor"], 6 / 143)
-
-    def test_touched_scenario_priors_use_the_centre_on_desk_count(self):
-        pr = scenario_priors("touched")
-        c = 3 * 1.2 * 0.7 / 0.25
-        self.assertAlmostEqual(pr["lambda_table"], 5.4 / c)
-        self.assertAlmostEqual(pr["rho"], c / 143)
-        # The 73/100 defaults are these values rounded.
-        self.assertAlmostEqual(pr["lambda_table"], 0.54, places=2)
-        self.assertAlmostEqual(pr["lambda_floor"], 0.0045, places=4)
-        self.assertAlmostEqual(pr["rho"], 0.07, places=2)
-
-    def test_unknown_table_map_rule_is_rejected(self):
-        with self.assertRaises(ValueError):
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_TABLE_MAP": "corners"})
-        with self.assertRaises(ValueError):
-            AIFZOIV2Params(table_map_rule="corners")
-
-    def test_defaults_without_tables(self):
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["easy"], environ={})
-        self.assertFalse(params.table_context_enabled)
-        self.assertAlmostEqual(params.lambda_floor, 6.0 / 143.0)
-        self.assertEqual(params.rho, 0.0)
-
-    def test_environment_overrides(self):
-        environ = {
-            "AIF_ZOI_V2_RECALL": "0.7",
-            "AIF_ZOI_V2_CLASS_ACCURACY": "0.9",
-            "AIF_ZOI_V2_FALSE_ALARM": "0.02",
-            "AIF_ZOI_V2_LAMBDA_TABLE": "0.4",
-            "AIF_ZOI_V2_LAMBDA_FLOOR": "0.01",
-            "AIF_ZOI_V2_RHO": "0.1",
-        }
-        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ=environ)
+class ScenarioAndOverrideTests(unittest.TestCase):
+    def test_overrides(self):
+        params = resolve_aif_zoi_v2_params(HARD, environ={**CALIBRATED, "AIF_ZOI_V2_P_ON_TABLE": "0.7"})
         self.assertEqual(
-            (params.recall, params.class_accuracy, params.false_alarm,
-             params.lambda_table, params.lambda_floor, params.rho),
-            (0.7, 0.9, 0.02, 0.4, 0.01, 0.1),
-        )
+            (params.recall, params.class_accuracy, params.false_alarm, params.desk_recall,
+             params.desk_false_alarm, params.p_target_on_table),
+            (0.8, 0.95, 0.002, 0.9, 0.1, 0.7))
+        self.assertEqual(params.calibration, "hard/mobilenet_ssd")
+
+    def test_environment_without_desks(self):
+        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["easy"], environ=CALIBRATED)
+        self.assertFalse(params.table_context_enabled)
+
+    def test_removed_model_switches_are_rejected(self):
+        for name in ("AIF_ZOI_V2_SURFACE_MODEL", "AIF_ZOI_V2_RHO_MODEL", "AIF_ZOI_V2_N_TARGETS", "AIF_ZOI_V2_LAMBDA_TABLE"):
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    resolve_aif_zoi_v2_params(HARD, environ={name: "joint"})
 
     def test_rejects_exact_zero_or_one(self):
-        for name in ("recall", "class_accuracy", "false_alarm", "lambda_table", "lambda_floor"):
+        for name in ("recall", "class_accuracy", "false_alarm", "desk_recall", "desk_false_alarm", "p_target_on_table"):
             for value in (0.0, 1.0, -0.1, 1.5):
                 with self.subTest(name=name, value=value):
                     with self.assertRaises(ValueError):
-                        AIFZOIV2Params(**{name: value})
+                        AIFZOIV2Params.calibrated(**{name: value})
 
-    def test_rho_bounds(self):
-        AIFZOIV2Params(rho=0.0)
-        AIFZOIV2Params(rho=1.0)
+    def test_planner_implementation(self):
+        self.assertEqual(resolve_aif_zoi_v2_params(HARD, environ={}).planner_impl, "loop")
+        params = resolve_aif_zoi_v2_params(HARD, environ={"AIF_ZOI_V2_PLANNER_IMPL": "vectorized"})
+        self.assertEqual(params.planner_impl, "vectorized")
         with self.assertRaises(ValueError):
-            AIFZOIV2Params(rho=1.01)
+            resolve_aif_zoi_v2_params(HARD, environ={"AIF_ZOI_V2_PLANNER_IMPL": "gpu"})
+
+    def test_grid_size(self):
+        self.assertEqual(resolve_aif_zoi_v2_params(HARD, environ={}).grid_size, 128)
+        self.assertEqual(resolve_aif_zoi_v2_params(HARD, environ={"AIF_ZOI_V2_GRID_SIZE": "64"}).grid_size, 64)
+        for bad in ("64.5", "4", "big"):
+            with self.assertRaises(ValueError):
+                resolve_aif_zoi_v2_params(HARD, environ={"AIF_ZOI_V2_GRID_SIZE": bad})
+
+    def test_desk_recall_must_exceed_desk_false_alarm(self):
+        with self.assertRaises(ValueError):
+            AIFZOIV2Params.calibrated(desk_recall=0.2, desk_false_alarm=0.3)
 
     def test_non_numeric_value_is_rejected(self):
         with self.assertRaises(ValueError):
-            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_RECALL": "high"})
+            resolve_aif_zoi_v2_params(HARD, environ={"AIF_ZOI_V2_RECALL": "high"})
 
     def test_policy_is_selectable_in_every_environment(self):
         self.assertEqual(normalize_policy_id("AIF_ZOI_V2"), "aif_zoi_v2")

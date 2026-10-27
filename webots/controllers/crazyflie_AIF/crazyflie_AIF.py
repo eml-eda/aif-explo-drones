@@ -17,7 +17,7 @@ from policies.rotate_and_measure import RotateAndMeasurePolicy
 from policies.aif_binary import AIFBinaryPolicy
 from policies.aif_zoi import AIFZOIPolicy
 from policies.aif_zoi_v2 import AIFZOIV2Policy
-from policies.aif_zoi_v2_joint import AIFZOIV2JointPolicy
+from policies.aif_zoi_v2_vectorized import AIFZOIV2VectorizedPolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
 from utils.perception_log import PerceptionFrameLogger
@@ -275,17 +275,17 @@ def load_policy(name, debug=None, seed=None):
         )
 
     if policy_id == "aif_zoi_v2":
-        # Model parameters come from AIF_ZOI_V2_* environment variables, with
-        # per-environment defaults (configuration/aif_zoi_v2_params.py).
+        # Model parameters from the detector's offline calibration and the
+        # scenario (configuration/aif_zoi_v2_params.py, AIF_ZOI_V2_* overrides).
         params = aif_config.AIF_ZOI_V2_PARAMS
         if params is None:
             params = aif_config.resolve_aif_zoi_v2_params(
                 aif_config.EXPERIMENT_SELECTION.environment_spec,
                 detector_id=DETECTOR_SELECTION.detector_id)
-        if params.surface_model == "joint":
-            # Surface in the belief state (roadmap 3.1); same policy ID.
-            policy_cls = AIFZOIV2JointPolicy
-        # The "rate" planner needs the controller's detector period.
+        if params.planner_impl == "vectorized":
+            # Same decisions, planner computed on arrays.
+            policy_cls = AIFZOIV2VectorizedPolicy
+        # The planner's flight time includes the controller's detector period.
         return policy_cls(debug=debug, params=params, detector_period_s=DETECTION_EVERY_S)
 
     return policy_cls(debug=debug)

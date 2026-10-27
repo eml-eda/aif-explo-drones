@@ -37,7 +37,7 @@ Inference policies:
 | `rotate_and_measure` | Rotation-and-translation coverage baseline |
 | `aif_binary` | Active Inference using a binary target-presence belief |
 | `aif_zoi` | Active Inference using target class and zone-of-interest context |
-| `aif_zoi_v2` | `aif_zoi` planner with a fully Bayesian, parameterised observation and prior model |
+| `aif_zoi_v2` | Active Inference with a calibrated joint surface/target belief, learned priors and an information-per-second planner |
 
 `aif_binary` maintains a binary belief over target absence or presence for each
 grid cell.
@@ -46,79 +46,52 @@ grid cell.
 together with a separate belief over desk occupancy. This allows the policy to
 use contextual information when selecting informative observations.
 
-`aif_zoi_v2` keeps the `aif_zoi` planner but replaces its belief model. Each cell
-holds a belief over empty, bottle and can. The prior depends on whether the cell
-is a table cell (`λ_T`), a floor cell (`λ_F`) or not yet typed
-(`ρ·λ_T + (1−ρ)·λ_F`). A cell enters the table map when its centre, projected at
-table height, falls inside a desk box. A cell is typed floor only when its centre
-has been in the camera footprint at table height without the cell entering the
-table map. Each
-visible cell gets one observation per processed frame (nothing, bottle box or can
-box) through a single likelihood with detection probability `max(f, v·r)`. Here
-`v` is the probability that a target in the cell is inside the image: the cell's
-coverage at table height and at floor height, mixed by the probability that the
-target is on a table given the cell type. Detector confidence does not enter the
-likelihood, and the planner uses the same likelihood as the belief update. The
-model is in `webots/controllers/crazyflie_AIF/policies/zoi_v2_model.py`.
+`aif_zoi_v2` is an Active Inference search with a calibrated observation model and
+no hand-set weights (`webots/controllers/crazyflie_AIF/policies/aif_zoi_v2.py`,
+model in `policies/zoi_v2_model.py`).
 
-The parameters are set with environment variables. The defaults are the values
-of the 73/100 campaign: `r`, `a`, `f` from the offline calibration counts (hard
-world, MobileNet SSD, seed 101, 400 images), and `λ_T`, `λ_F`, `ρ` from the
-scenario (6 targets, 90% on tables, 3 desks of about 3.4 cells each, 143 cells).
+- **Belief.** Each cell holds a belief over {table, floor} × {empty, bottle, can}.
+  Every processed frame, each visible cell gets a desk observation (a desk box
+  covers the cell or not, informative when the cell's table-plane coverage passes
+  the update gate) and a target observation (nothing, bottle box or can box), with
+  detection probability `max(f, w·r)`: `w` is the cell's coverage at table height
+  in the table states and at floor height in the floor states. Detector confidence
+  does not enter the likelihood.
+- **Prior.** The share of desk cells `ρ` and the fraction of cells holding a
+  target `θ` are unknown, with a uniform prior on their feasible region, and
+  inferred in flight from all the evidence; each cell's belief is the exact
+  average over `p(ρ, θ | data)`. Only the share of targets on desks `π` is given.
+  Without desks (easy), `ρ = 0` and only `θ` is learned. The estimates are written
+  to each perception-log frame (`policy.rho_mean`, `rho_sd`, `theta_mean`, `theta_sd`).
+- **Planner.** Each (cell, yaw) candidate is ranked by its expected information
+  gain divided by `T`, the navigator's exact arrival time under its own control
+  law plus one detector period (`policies/planner_time.py`).
+  `AIF_ZOI_V2_PLANNER_IMPL=vectorized` computes the same planner on arrays
+  (`policies/aif_zoi_v2_vectorized.py`): identical information gains, flight
+  times and decisions, about 16 ms per decision instead of about 0.8 s. The
+  default, `loop`, is the original Python loop. Each perception-log frame records
+  the number of replans and the planner's wall-clock time (`policy.replans`,
+  `planner_s_total`, `planner_ms_last`).
 
-| Variable | Default (medium/hard) | Default (easy) |
-| --- | --- | --- |
-| `AIF_ZOI_V2_RECALL` (`r`) | 0.84 | 0.84 |
-| `AIF_ZOI_V2_CLASS_ACCURACY` (`a`) | 0.98 | 0.98 |
-| `AIF_ZOI_V2_FALSE_ALARM` (`f`) | 0.001 | 0.001 |
-| `AIF_ZOI_V2_LAMBDA_TABLE` (`λ_T`) | 0.54 | unused |
-| `AIF_ZOI_V2_LAMBDA_FLOOR` (`λ_F`) | 0.0045 | 6/143 |
-| `AIF_ZOI_V2_RHO` (`ρ`) | 0.07 | 0 |
-| `AIF_ZOI_V2_TABLE_MAP` | `touched` | unused |
+The detector values come from an offline calibration of the detector in use, on
+one calibration image set (hard dataset world, seed 101, 400 images; counts from
+`tools/v2_analysis/calibrate_desk.py`), turned into probabilities by the rule of
+succession `(k + 1) / (n + 2)`:
 
-`AIF_ZOI_V2_TABLE_MAP=touched` uses the controller's table map (every cell a
-desk-box probe hits). `centre` is an experimental alternative where a cell is a
-table cell only when its centre falls inside a desk box. It lost most runs in a
-first test, and its default priors are recomputed for that rule.
+| Parameter | Variable | MobileNet SSD | YOLO nano |
+| --- | --- | --- | --- |
+| target recall `r` | `AIF_ZOI_V2_RECALL` | 141/169 | 168/169 |
+| class accuracy `a` | `AIF_ZOI_V2_CLASS_ACCURACY` | 141/142 | 168/169 |
+| false alarm per empty cell `f` | `AIF_ZOI_V2_FALSE_ALARM` | 3/3493 | 7/3493 |
+| desk recall | `AIF_ZOI_V2_DESK_RECALL` | 182/191 | 183/191 |
+| desk false alarm | `AIF_ZOI_V2_DESK_FALSE_ALARM` | 189/1490 | 199/1490 |
+| share of targets on desks `π` | `AIF_ZOI_V2_P_ON_TABLE` | 0.9 | 0.9 |
 
-`AIF_ZOI_V2_SURFACE_MODEL=joint` selects the joint surface model
-(`policies/aif_zoi_v2_joint.py`): each cell holds a belief over {table, floor} ×
-{empty, bottle, can}, updated every frame by the desk evidence (a desk box covers
-the cell or not) and the target evidence, with no table map. Its defaults all come
-from one calibration set (`tools/v2_analysis/calibrate_desk.py`): `r` = 141/169,
-`a` = 141/142, `f` = 3/3493, `AIF_ZOI_V2_DESK_RECALL` = 182/191 ≈ 0.953 and
-`AIF_ZOI_V2_DESK_FALSE_ALARM` = 189/1490 ≈ 0.127, the probabilities that a desk box
-covers a table / floor cell in view. The priors are `λ_T` = 0.536, `λ_F` = 0.0045
-and `ρ` = 0.0705, computed for cells whose centre is on a desk top.
-
-`AIF_ZOI_V2_PLANNER=rate` ranks the planner's candidates by expected information
-per second, `(β·IG + κ·U_class) / T`, instead of `−β·IG − κ·U_class + ε·distance`.
-`T` is the navigator's exact arrival time under its own control law (turn first,
-then each body axis saturated at its limit) plus one detector period
-(`policies/planner_time.py`). It is derived from the navigator settings and the
-detector rate, with no weight of its own. The default, `distance_cost`, is the
-`aif_zoi` planner.
-
-`AIF_ZOI_V2_PLANNER_TERMS=info_only` drops the classification bonus `κ·U_class`
-and ranks by the information gain alone. The belief keeps bottle and can as
-separate states, so the information gain already values resolving the class.
-Together with `AIF_ZOI_V2_PLANNER=rate`, the planner's score is `IG / T`, with no
-weight. The default, `info_and_class`, is the `aif_zoi` scoring.
-
-The scenario description is set with `AIF_ZOI_V2_N_TARGETS` (6),
-`AIF_ZOI_V2_P_ON_TABLE` (0.9) and `AIF_ZOI_V2_N_DESKS` (3); the default priors are
-computed from it. With the joint model, `AIF_ZOI_V2_RHO_MODEL=learned` drops the
-desk count: the share of desk cells `ρ` gets a uniform prior over its feasible
-range and is inferred in flight from the desk evidence. The prior then needs only
-the number of targets and the share on tables. The estimate of `ρ` is written to
-each perception-log frame (`policy.rho_mean`, `policy.rho_sd`).
-`AIF_ZOI_V2_TARGET_MODEL=learned` (with learned `ρ`) also drops the number of
-targets: the fraction of cells holding a target `θ` gets a uniform prior and is
-inferred jointly with `ρ`, so the prior needs only the share on tables. `θ` is
-logged as `policy.theta_mean` / `policy.theta_sd`.
-
-`r`, `a`, `f`, `λ_T` and `λ_F` must lie strictly between 0 and 1. The values
-used in a run are written to `policy_parameters.json` in the run directory.
+Calibrations exist for the hard checkpoints of MobileNet SSD and YOLO nano; any
+other (environment, detector) pair needs all five detector values set through the
+variables. The values used in a run are written to `policy_parameters.json` in the
+run directory. The ablation variants of the model (typed cells, distance-cost
+planner, fixed `ρ` or `θ`) are in git tag `v2-ablation`.
 
 ## Perception backends
 

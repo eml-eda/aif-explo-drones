@@ -11,55 +11,62 @@ if str(CONTROLLER_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_DIR))
 
 from policies.zoi_v2_model import (
-    CELL_FLOOR,
-    CELL_TABLE,
-    CELL_UNOBSERVED,
-    O_BOTTLE,
-    O_CAN,
-    O_NOTHING,
-    bayes_update,
-    expected_information_gain,
-    likelihood_matrix,
-    object_visibility,
-    prior_present,
-    prior_vector,
-    reweight,
-    table_probability_given_target,
-)
-from policies.zoi_v2_model import (
     D_COVERED,
     D_NONE,
     N_JOINT,
+    O_BOTTLE,
+    O_CAN,
+    O_NOTHING,
     SURF_FLOOR,
     SURF_TABLE,
     content_marginal,
     desk_likelihood,
+    evidence_coefficients,
+    expected_information_gain,
+    expected_information_gain_batch,
+    feasible_grid,
+    floor_only_grid,
+    grid_weights,
     joint_index,
     joint_likelihood,
+    joint_likelihood_batch,
     joint_obs_index,
-    joint_prior,
-    table_probability,
-)
-from policies.zoi_v2_model import (
-    evidence_coefficients,
-    feasible_grid,
-    grid_weights,
     joint_prior_terms,
+    likelihood_matrix,
     log_evidence,
     marginal_beliefs_2d,
-    joint_prior_base_and_slope,
-    marginal_beliefs,
-    rho_grid,
-    rho_posterior,
-    rho_support,
+    predictive,
+    table_probability,
 )
 
 R, A_CLS, F = 0.84, 0.98, 0.01
-PRIOR_KW = {"lambda_table": 0.54, "lambda_floor": 0.0045, "rho": 0.07}
+DESK_KW = {"desk_recall": 0.95, "desk_false_alarm": 0.13}
+GATE = 0.05
+OBS_KW = {"recall": R, "class_accuracy": A_CLS, "false_alarm": 0.001}
+PI = 0.9
+TERMS = joint_prior_terms(p_on_table=PI)
 
 
 def A(w: float) -> np.ndarray:
     return likelihood_matrix(w, recall=R, class_accuracy=A_CLS, false_alarm=F)
+
+
+def L(w_table, w_floor, **desk):
+    return joint_likelihood(w_table, w_floor, desk_in_view=w_table >= GATE, **OBS_KW, **(desk or DESK_KW))
+
+
+def prior_at(rho, theta, terms=TERMS):
+    base, d_rho, d_theta = terms
+    return base + rho * d_rho + theta * d_theta
+
+
+def bayes(q, lik, o):
+    post = lik[o] * q
+    return post / post.sum()
+
+
+# 3 desks of 1.2 m x 0.7 m on 0.5 m cells, 6 targets, 143 cells.
+Q0 = prior_at(10.08 / 143, 6 / 143)
 
 
 class LikelihoodTests(unittest.TestCase):
@@ -88,103 +95,9 @@ class LikelihoodTests(unittest.TestCase):
             self.assertTrue(np.all(A(w) > 0.0))
 
 
-class PriorTests(unittest.TestCase):
-    def test_prior_present_by_type(self):
-        self.assertAlmostEqual(prior_present(CELL_TABLE, **PRIOR_KW), 0.54)
-        self.assertAlmostEqual(prior_present(CELL_FLOOR, **PRIOR_KW), 0.0045)
-        self.assertAlmostEqual(
-            prior_present(CELL_UNOBSERVED, **PRIOR_KW), 0.07 * 0.54 + 0.93 * 0.0045)
-
-    def test_prior_vector_is_a_distribution_with_even_class_split(self):
-        configs = (PRIOR_KW, {"lambda_table": 0.54, "lambda_floor": 6.0 / 143.0, "rho": 0.0})
-        for kw in configs:
-            for cell_type in (CELL_UNOBSERVED, CELL_FLOOR, CELL_TABLE):
-                q = prior_vector(cell_type, **kw)
-                self.assertAlmostEqual(float(q.sum()), 1.0)
-                self.assertTrue(np.all((q > 0.0) & (q < 1.0)))
-                self.assertAlmostEqual(q[1], q[2])
-
-    def test_unknown_cell_type_raises(self):
-        with self.assertRaises(ValueError):
-            prior_present(7, **PRIOR_KW)
-
-
-class UpdateTests(unittest.TestCase):
-    def test_hand_computed_posterior(self):
-        # Table prior [0.46, 0.27, 0.27], full coverage, "bottle" box:
-        # unnormalized [0.46*0.005, 0.27*0.84*0.98, 0.27*0.84*0.02] = sum 0.2291.
-        q = bayes_update(prior_vector(CELL_TABLE, **PRIOR_KW), A(1.0), O_BOTTLE)
-        np.testing.assert_allclose(
-            q, [0.01003928415539066, 0.9701615015277171, 0.01979921431689219], atol=1e-12)
-
-    def test_updates_are_order_invariant(self):
-        q0 = prior_vector(CELL_UNOBSERVED, **PRIOR_KW)
-        seq = [(0.3, O_NOTHING), (1.0, O_CAN), (0.7, O_BOTTLE), (0.1, O_NOTHING)]
-        q1 = q0
-        for w, o in seq:
-            q1 = bayes_update(q1, A(w), o)
-        q2 = q0
-        for w, o in reversed(seq):
-            q2 = bayes_update(q2, A(w), o)
-        np.testing.assert_allclose(q1, q2, atol=1e-12)
-
-    def test_reweight_preserves_evidence(self):
-        seq = [(0.4, O_NOTHING), (0.9, O_BOTTLE), (0.2, O_NOTHING), (1.0, O_CAN)]
-        for old_type, new_type in (
-            (CELL_UNOBSERVED, CELL_FLOOR),
-            (CELL_UNOBSERVED, CELL_TABLE),
-            (CELL_FLOOR, CELL_TABLE),
-        ):
-            p_old = prior_vector(old_type, **PRIOR_KW)
-            p_new = prior_vector(new_type, **PRIOR_KW)
-            q_old = p_old
-            q_ref = p_new
-            for w, o in seq:
-                q_old = bayes_update(q_old, A(w), o)
-                q_ref = bayes_update(q_ref, A(w), o)
-            np.testing.assert_allclose(reweight(q_old, p_old, p_new), q_ref, atol=1e-12)
-
-    def test_negative_evidence_lowers_target_probability(self):
-        q0 = prior_vector(CELL_TABLE, **PRIOR_KW)
-        q1 = bayes_update(q0, A(1.0), O_NOTHING)
-        self.assertLess(q1[1] + q1[2], q0[1] + q0[2])
-
-
-class VisibilityTests(unittest.TestCase):
-    def test_table_probability_by_cell_type(self):
-        self.assertEqual(table_probability_given_target(CELL_TABLE, **PRIOR_KW), 1.0)
-        self.assertEqual(table_probability_given_target(CELL_FLOOR, **PRIOR_KW), 0.0)
-        expected = 0.07 * 0.54 / (0.07 * 0.54 + 0.93 * 0.0045)
-        self.assertAlmostEqual(table_probability_given_target(CELL_UNOBSERVED, **PRIOR_KW), expected)
-        self.assertAlmostEqual(expected, 0.9003, places=4)
-
-    def test_no_table_environment_gives_zero_table_probability(self):
-        kw = {"lambda_table": 0.54, "lambda_floor": 6.0 / 143.0, "rho": 0.0}
-        for cell_type in (CELL_UNOBSERVED, CELL_FLOOR):
-            self.assertEqual(table_probability_given_target(cell_type, **kw), 0.0)
-            self.assertEqual(object_visibility(cell_type, 0.2, 0.9, **kw), 0.9)
-
-    def test_visibility_mixes_planes_by_cell_type(self):
-        v_table, v_floor = 0.2, 0.9
-        self.assertEqual(object_visibility(CELL_TABLE, v_table, v_floor, **PRIOR_KW), v_table)
-        self.assertEqual(object_visibility(CELL_FLOOR, v_table, v_floor, **PRIOR_KW), v_floor)
-        pi = table_probability_given_target(CELL_UNOBSERVED, **PRIOR_KW)
-        self.assertAlmostEqual(
-            object_visibility(CELL_UNOBSERVED, v_table, v_floor, **PRIOR_KW),
-            pi * v_table + (1 - pi) * v_floor)
-
-    def test_mixed_visibility_equals_mixed_surface_likelihoods(self):
-        # P(o | target) is linear in v when v * r >= f on both planes.
-        v_table, v_floor = 0.2, 0.9
-        pi = table_probability_given_target(CELL_UNOBSERVED, **PRIOR_KW)
-        v = object_visibility(CELL_UNOBSERVED, v_table, v_floor, **PRIOR_KW)
-        mixed = pi * A(v_table) + (1 - pi) * A(v_floor)
-        np.testing.assert_allclose(A(v)[:, 1:], mixed[:, 1:], atol=1e-15)
-
-
 class InformationGainTests(unittest.TestCase):
     def test_non_negative_and_non_decreasing_in_coverage(self):
-        q = prior_vector(CELL_TABLE, **PRIOR_KW)
+        q = np.array([0.5, 0.25, 0.25])
         gains = [expected_information_gain(q, A(w)) for w in np.linspace(0.0, 1.0, 21)]
         self.assertTrue(all(g >= 0.0 for g in gains))
         self.assertTrue(all(b >= a - 1e-12 for a, b in zip(gains, gains[1:])))
@@ -193,28 +106,20 @@ class InformationGainTests(unittest.TestCase):
         q = np.array([1.0, 0.0, 0.0])
         self.assertAlmostEqual(expected_information_gain(q, A(1.0)), 0.0, places=9)
 
-
-# Joint model: centre-on-desk priors and illustrative desk numbers.
-JOINT_PRIOR_KW = {"lambda_table": 5.4 / 10.08, "lambda_floor": 0.6 / 132.92, "rho": 10.08 / 143}
-DESK_KW = {"desk_recall": 0.95, "desk_false_alarm": 0.13}
-GATE = 0.05
-OBS_KW = {"recall": R, "class_accuracy": A_CLS, "false_alarm": 0.001}
-
-
-def L(w_table, w_floor, **desk):
-    return joint_likelihood(w_table, w_floor, desk_in_view=w_table >= GATE, **OBS_KW, **(desk or DESK_KW))
+    def test_information_gain_counts_desk_evidence(self):
+        no_desk = {"desk_recall": 0.5, "desk_false_alarm": 0.5}
+        self.assertGreater(expected_information_gain(Q0, L(1.0, 1.0)),
+                           expected_information_gain(Q0, L(1.0, 1.0, **no_desk)))
 
 
 class JointModelTests(unittest.TestCase):
-    def setUp(self):
-        self.q0 = joint_prior(**JOINT_PRIOR_KW)
-
     def test_prior_marginals(self):
-        self.assertAlmostEqual(float(self.q0.sum()), 1.0)
-        self.assertAlmostEqual(table_probability(self.q0), JOINT_PRIOR_KW["rho"])
-        # Same unobserved prior as the typed model: N / M.
-        np.testing.assert_allclose(content_marginal(self.q0), prior_vector(CELL_UNOBSERVED, **JOINT_PRIOR_KW))
-        self.assertAlmostEqual(1.0 - content_marginal(self.q0)[0], 6 / 143)
+        self.assertAlmostEqual(float(Q0.sum()), 1.0)
+        self.assertAlmostEqual(table_probability(Q0), 10.08 / 143)
+        self.assertAlmostEqual(1.0 - content_marginal(Q0)[0], 6 / 143)
+        # pi of the targets on desks, split evenly between bottle and can.
+        self.assertAlmostEqual(Q0[1] + Q0[2], PI * 6 / 143)
+        self.assertAlmostEqual(Q0[1], Q0[2])
 
     def test_indexing(self):
         self.assertEqual(joint_index(SURF_TABLE, O_CAN), 2)
@@ -232,20 +137,18 @@ class JointModelTests(unittest.TestCase):
                 desk_likelihood(wt >= GATE, **DESK_KW).sum(axis=0), np.ones(N_JOINT), atol=1e-15)
 
     def test_desk_cover_raises_table_probability(self):
-        # Compare covered and not covered under the same target observation: the
-        # odds of table differ by (d / g) * ((1 - g) / (1 - d)) whenever the desk is in view.
+        # Covered vs not covered under the same target observation: the odds of
+        # table differ by (d / g) * ((1 - g) / (1 - d)) whenever the desk is in view.
         lik = L(1.0, 1.0)
-        q = bayes_update(self.q0, lik, joint_obs_index(True, O_NOTHING))
-        q_none = bayes_update(self.q0, lik, joint_obs_index(False, O_NOTHING))
+        q = bayes(Q0, lik, joint_obs_index(True, O_NOTHING))
+        q_none = bayes(Q0, lik, joint_obs_index(False, O_NOTHING))
         odds = lambda x: table_probability(x) / (1.0 - table_probability(x))
         d, g = DESK_KW["desk_recall"], DESK_KW["desk_false_alarm"]
         self.assertAlmostEqual(odds(q) / odds(q_none), (d / g) * ((1 - g) / (1 - d)))
-        self.assertGreater(table_probability(q), JOINT_PRIOR_KW["rho"])
-        q2 = bayes_update(q, lik, joint_obs_index(True, O_NOTHING))
-        self.assertGreater(table_probability(q2), table_probability(q))
+        self.assertGreater(table_probability(q), table_probability(Q0))
 
     def test_full_view_without_desk_lowers_table_probability(self):
-        q = bayes_update(self.q0, L(1.0, 1.0), joint_obs_index(False, O_NOTHING))
+        q = bayes(Q0, L(1.0, 1.0), joint_obs_index(False, O_NOTHING))
         self.assertLess(table_probability(q), 0.01)
 
     def test_desk_out_of_view_carries_no_desk_information(self):
@@ -256,146 +159,93 @@ class JointModelTests(unittest.TestCase):
         np.testing.assert_allclose(L(0.1, 0.9)[3:].sum(axis=0), L(0.9, 0.9)[3:].sum(axis=0))
 
     def test_glancing_view_changes_little(self):
-        q = bayes_update(self.q0, L(0.02, 0.3), joint_obs_index(False, O_NOTHING))
-        self.assertAlmostEqual(table_probability(q), JOINT_PRIOR_KW["rho"], delta=0.005)
+        q = bayes(Q0, L(0.02, 0.3), joint_obs_index(False, O_NOTHING))
+        self.assertAlmostEqual(table_probability(q), table_probability(Q0), delta=0.005)
 
     def test_target_box_raises_table_probability(self):
-        # Uninformative desk evidence (d = g) and equal visibility on both planes.
+        # Uninformative desk evidence (d = g) and equal visibility on both planes:
+        # close to P(table | target) = pi, a little lower because a false alarm on
+        # an empty cell can also explain the box.
         flat = {"desk_recall": 0.5, "desk_false_alarm": 0.5}
-        q = bayes_update(self.q0, L(0.8, 0.8, **flat), joint_obs_index(False, O_BOTTLE))
-        # Close to P(table | target) = rho*lambda_T / (rho*lambda_T + (1-rho)*lambda_F) = 0.9,
-        # a little lower because a false alarm on an empty cell can also explain the box.
+        q = bayes(Q0, L(0.8, 0.8, **flat), joint_obs_index(False, O_BOTTLE))
         self.assertGreater(table_probability(q), 0.8)
 
-    def test_uninformative_desk_matches_typed_unobserved_update(self):
-        # With d = g the desk observation carries no information, and the content
-        # marginal equals the typed model's update of an unobserved cell.
-        flat = {"desk_recall": 0.6, "desk_false_alarm": 0.6}
-        for wt, wf, o in ((0.3, 0.9, O_NOTHING), (0.8, 1.0, O_CAN), (1.0, 0.5, O_BOTTLE)):
-            for covered in (False, True):
-                q = bayes_update(self.q0, L(wt, wf, **flat), joint_obs_index(covered, o))
-                typed = bayes_update(
-                    prior_vector(CELL_UNOBSERVED, **JOINT_PRIOR_KW),
-                    likelihood_matrix(object_visibility(CELL_UNOBSERVED, wt, wf, **JOINT_PRIOR_KW), **OBS_KW),
-                    o)
-                np.testing.assert_allclose(content_marginal(q), typed, atol=1e-12)
-
-    def test_information_gain_counts_desk_evidence(self):
-        no_desk = {"desk_recall": 0.5, "desk_false_alarm": 0.5}
-        self.assertGreater(
-            expected_information_gain(self.q0, L(1.0, 1.0)),
-            expected_information_gain(self.q0, L(1.0, 1.0, **no_desk)))
+    def test_target_likelihood_uses_each_surface_plane(self):
+        lik = L(0.2, 0.9)
+        np.testing.assert_allclose(lik[0:3, 0:3] + lik[3:6, 0:3], likelihood_matrix(0.2, **OBS_KW))
+        np.testing.assert_allclose(lik[0:3, 3:6] + lik[3:6, 3:6], likelihood_matrix(0.9, **OBS_KW))
+        p_o = predictive(Q0, lik)
+        self.assertAlmostEqual(float(p_o.sum()), 1.0)
 
 
-SCEN = {"n_targets": 6, "p_on_table": 0.9, "n_cells": 143}
+class BatchTests(unittest.TestCase):
+    """The batched functions of the vectorized planner give the scalar results exactly."""
+
+    def test_joint_likelihood_and_information_gain(self):
+        rng = np.random.default_rng(0)
+        n = 500
+        w_t, w_f = rng.random(n), rng.random(n)
+        w_t[:50] = 0.0
+        in_view = w_t >= GATE
+        lik = joint_likelihood_batch(w_t, w_f, desk_in_view=in_view, **OBS_KW, **DESK_KW)
+        q = rng.dirichlet(np.ones(6), n)
+        q[:10] = Q0
+        ig = expected_information_gain_batch(q, lik)
+        for i in range(n):
+            ref = joint_likelihood(w_t[i], w_f[i], desk_in_view=bool(in_view[i]), **OBS_KW, **DESK_KW)
+            np.testing.assert_array_equal(lik[i], ref)
+            self.assertEqual(ig[i], expected_information_gain(q[i], ref))
 
 
-class LearnedRhoTests(unittest.TestCase):
+class LearnedPriorTests(unittest.TestCase):
     def setUp(self):
-        self.base, self.d = joint_prior_base_and_slope(**SCEN)
-        self.lo, self.hi = rho_support(**SCEN)
-        self.grid = rho_grid(self.lo, self.hi, 256)
+        self.rho, self.theta = feasible_grid(p_on_table=PI, n_rho=128, n_theta=128)
 
     def lik(self, covered, target_obs, wt=1.0, wf=1.0):
         return L(wt, wf)[joint_obs_index(covered, target_obs)]
 
-    def test_linear_prior_matches_the_joint_prior(self):
-        rho = 10.08 / 143
-        lam_t, lam_f = 5.4 / (143 * rho), 0.6 / (143 * (1 - rho))
-        np.testing.assert_allclose(self.base + rho * self.d,
-                                   joint_prior(lambda_table=lam_t, lambda_floor=lam_f, rho=rho), atol=1e-15)
-
-    def test_prior_is_positive_inside_the_support(self):
-        self.assertAlmostEqual(self.lo, 5.4 / 143)
-        self.assertAlmostEqual(self.hi, 1 - 0.6 / 143)
-        prior = self.base[None, :] + self.grid[:, None] * self.d[None, :]
-        self.assertTrue(np.all(prior > 0))
-
-    def test_no_evidence_keeps_the_uniform_prior(self):
-        ell = np.ones((143, 6))
-        w = rho_posterior(ell, self.base, self.d, self.grid)
-        np.testing.assert_allclose(w, np.full(256, 1 / 256))
-        q = marginal_beliefs(ell, self.base, self.d, self.grid, w)
-        np.testing.assert_allclose(q.sum(axis=1), np.ones(143))
-        self.assertAlmostEqual(1 - (q[0, 0] + q[0, 3]), 6 / 143)  # target mass does not depend on rho
-
-    def test_floor_evidence_lowers_rho_and_desk_evidence_raises_it(self):
-        mean = lambda w: float(w @ self.grid)
-        floor = np.ones((143, 6)); floor[:100] = self.lik(False, O_NOTHING)
-        desk = np.ones((143, 6)); desk[:100] = self.lik(True, O_NOTHING)
-        self.assertLess(mean(rho_posterior(floor, self.base, self.d, self.grid)), 0.06)
-        self.assertGreater(mean(rho_posterior(desk, self.base, self.d, self.grid)), 0.5)
-
-    def test_concentrated_posterior_reduces_to_the_fixed_update(self):
-        ell = np.ones((143, 6)); ell[7] = self.lik(True, O_BOTTLE, 0.6, 0.9)
-        w = np.zeros(256); w[40] = 1.0
-        q = marginal_beliefs(ell, self.base, self.d, self.grid, w)
-        rho = self.grid[40]
-        expected = bayes_update(self.base + rho * self.d, L(0.6, 0.9), joint_obs_index(True, O_BOTTLE))
-        np.testing.assert_allclose(q[7], expected, atol=1e-12)
-
-    def test_grid_resolution_does_not_matter(self):
-        ell = np.ones((143, 6))
-        ell[:60] = self.lik(False, O_NOTHING)
-        ell[60:66] = self.lik(True, O_NOTHING, 0.4, 0.9)
-        ell[66] = self.lik(True, O_CAN)
-        out = []
-        for size in (256, 1024):
-            g = rho_grid(self.lo, self.hi, size)
-            w = rho_posterior(ell, self.base, self.d, g)
-            out.append((float(w @ g), marginal_beliefs(ell, self.base, self.d, g, w)))
-        self.assertAlmostEqual(out[0][0], out[1][0], places=4)
-        np.testing.assert_allclose(out[0][1], out[1][1], atol=1e-3)
-
-
-
-class LearnedRhoThetaTests(unittest.TestCase):
-    def setUp(self):
-        self.terms = joint_prior_terms(p_on_table=0.9)
-        self.rho, self.theta = feasible_grid(p_on_table=0.9, n_rho=128, n_theta=128)
-
-    def lik(self, covered, target_obs, wt=1.0, wf=1.0):
-        return L(wt, wf)[joint_obs_index(covered, target_obs)]
-
-    def posterior(self, ell, rho=None, theta=None):
+    def posterior(self, ell, rho=None, theta=None, terms=TERMS):
         rho = self.rho if rho is None else rho
         theta = self.theta if theta is None else theta
-        coef = evidence_coefficients(ell, *self.terms)
+        coef = evidence_coefficients(ell, *terms)
         w = grid_weights(log_evidence(coef, rho, theta))
-        return w, marginal_beliefs_2d(ell, coef, self.terms, rho, theta, w)
-
-    def test_prior_terms_match_the_learned_rho_prior_at_known_theta(self):
-        base, d_rho, d_theta = self.terms
-        b1, d1 = joint_prior_base_and_slope(n_targets=6, p_on_table=0.9, n_cells=143)
-        for rho in (0.05, 0.3):
-            np.testing.assert_allclose(base + rho * d_rho + (6 / 143) * d_theta, b1 + rho * d1, atol=1e-15)
+        return w, marginal_beliefs_2d(ell, coef, terms, rho, theta, w)
 
     def test_prior_is_positive_on_the_feasible_grid(self):
-        base, d_rho, d_theta = self.terms
-        prior = base[None, :] + self.rho[:, None] * d_rho[None, :] + self.theta[:, None] * d_theta[None, :]
+        prior = np.array([prior_at(r, t) for r, t in zip(self.rho, self.theta)])
         self.assertTrue(np.all(prior > 0))
         np.testing.assert_allclose(prior.sum(axis=1), 1.0)
+        # Feasible region: theta * pi < rho < 1 - theta * (1 - pi).
+        self.assertTrue(np.all(self.rho > self.theta * PI))
+        self.assertTrue(np.all(self.rho < 1.0 - self.theta * (1.0 - PI)))
 
-    def test_reduces_to_learned_rho_when_theta_is_fixed(self):
-        ell = np.ones((143, 6)); ell[:30] = self.lik(False, O_NOTHING); ell[30:34] = self.lik(True, O_NOTHING, 0.4, 0.9)
-        ell[34] = self.lik(True, O_CAN)
-        lo, hi = rho_support(**SCEN); g = rho_grid(lo, hi, 256)
-        w1 = rho_posterior(ell, *joint_prior_base_and_slope(**SCEN), g)
-        q1 = marginal_beliefs(ell, *joint_prior_base_and_slope(**SCEN), g, w1)
-        w2, q2 = self.posterior(ell, rho=g, theta=np.full_like(g, 6 / 143))
-        np.testing.assert_allclose(w2, w1, atol=1e-12)
-        np.testing.assert_allclose(q2, q1, atol=1e-12)
+    def test_concentrated_posterior_is_the_bayes_update_at_that_point(self):
+        ell = np.ones((3, 6))
+        ell[0] = self.lik(False, O_NOTHING)
+        ell[1] = self.lik(True, O_BOTTLE, 0.4, 0.9)
+        rho, theta = np.array([10.08 / 143]), np.array([6 / 143])
+        w, q = self.posterior(ell, rho, theta)
+        np.testing.assert_allclose(q[0], bayes(Q0, L(1.0, 1.0), joint_obs_index(False, O_NOTHING)), atol=1e-12)
+        np.testing.assert_allclose(q[1], bayes(Q0, L(0.4, 0.9), joint_obs_index(True, O_BOTTLE)), atol=1e-12)
+        np.testing.assert_allclose(q[2], Q0, atol=1e-12)
 
     def test_three_sums_equal_the_explicit_average(self):
         ell = np.ones((5, 6)); ell[0] = self.lik(False, O_NOTHING); ell[1] = self.lik(True, O_BOTTLE)
-        rho, theta = feasible_grid(p_on_table=0.9, n_rho=16, n_theta=16)
+        rho, theta = feasible_grid(p_on_table=PI, n_rho=16, n_theta=16)
         w, q = self.posterior(ell, rho, theta)
-        base, d_rho, d_theta = self.terms
-        prior = base[None, :] + rho[:, None] * d_rho[None, :] + theta[:, None] * d_theta[None, :]
+        prior = np.array([prior_at(r, t) for r, t in zip(rho, theta)])
         post = ell[:, None, :] * prior[None, :, :]
         post /= post.sum(axis=2, keepdims=True)
         np.testing.assert_allclose(q, np.einsum("g,cgs->cs", w, post), atol=1e-12)
         np.testing.assert_allclose(q.sum(axis=1), np.ones(5))
+
+    def test_evidence_is_the_product_of_the_cells_normalisers(self):
+        ell = np.ones((4, 6)); ell[0] = self.lik(False, O_NOTHING); ell[1] = self.lik(True, O_CAN, 0.5, 0.9)
+        coef = evidence_coefficients(ell, *TERMS)
+        for g in (0, 100, 5000):
+            z = [float(e @ prior_at(self.rho[g], self.theta[g])) for e in ell]
+            self.assertAlmostEqual(float(log_evidence(coef, self.rho[g:g + 1], self.theta[g:g + 1])[0]),
+                                   float(np.log(z).sum()), places=12)
 
     def test_empty_cells_lower_theta_and_target_boxes_raise_it(self):
         mean_theta = lambda ell: float(self.posterior(ell)[0] @ self.theta)
@@ -406,8 +256,16 @@ class LearnedRhoThetaTests(unittest.TestCase):
         self.assertLess(mean_theta(empty), start)
         self.assertGreater(mean_theta(found), mean_theta(empty))
 
+    def test_floor_views_lower_rho_and_desk_views_raise_it(self):
+        mean_rho = lambda ell: float(self.posterior(ell)[0] @ self.rho)
+        start = mean_rho(np.ones((143, 6)))
+        floor = np.ones((143, 6)); floor[:60] = self.lik(False, O_NOTHING)
+        desks = floor.copy(); desks[60:75] = self.lik(True, O_NOTHING)
+        self.assertLess(mean_rho(floor), start)
+        self.assertGreater(mean_rho(desks), mean_rho(floor))
+
     def test_unseen_cells_contribute_nothing_to_the_evidence(self):
-        coef = evidence_coefficients(np.ones((10, 6)), *self.terms)
+        coef = evidence_coefficients(np.ones((10, 6)), *TERMS)
         np.testing.assert_allclose(log_evidence(coef, self.rho, self.theta), 0.0, atol=1e-12)
 
     def test_grid_resolution_does_not_matter(self):
@@ -415,13 +273,25 @@ class LearnedRhoThetaTests(unittest.TestCase):
         ell[86:90] = self.lik(True, O_BOTTLE)
         out = []
         for n in (128, 256):
-            rho, theta = feasible_grid(p_on_table=0.9, n_rho=n, n_theta=n)
+            rho, theta = feasible_grid(p_on_table=PI, n_rho=n, n_theta=n)
             w, q = self.posterior(ell, rho, theta)
             out.append((float(w @ rho), float(w @ theta), q))
         self.assertAlmostEqual(out[0][0], out[1][0], delta=2e-3)
         self.assertAlmostEqual(out[0][1], out[1][1], delta=2e-3)
-        # 128 vs 256 points per side: beliefs within 0.5 percentage points (256 vs 512: identical).
+        # 128 vs 256 points per side: beliefs within 0.5 percentage points.
         np.testing.assert_allclose(out[0][2], out[1][2], atol=5e-3)
+
+    def test_floor_only_grid_puts_no_mass_on_tables(self):
+        terms = joint_prior_terms(p_on_table=0.0)
+        rho, theta = floor_only_grid(n_theta=128)
+        np.testing.assert_array_equal(rho, 0.0)
+        prior = np.array([prior_at(r, t, terms) for r, t in zip(rho, theta)])
+        np.testing.assert_array_equal(prior[:, 0:3], 0.0)
+        self.assertTrue(np.all(prior[:, 3:] > 0))
+        ell = np.ones((143, 6)); ell[:100] = self.lik(False, O_NOTHING)
+        w, q = self.posterior(ell, rho, theta, terms)
+        np.testing.assert_array_equal(q[:, 0:3], 0.0)
+        self.assertLess(float(w @ theta), 0.05)
 
 
 if __name__ == "__main__":
