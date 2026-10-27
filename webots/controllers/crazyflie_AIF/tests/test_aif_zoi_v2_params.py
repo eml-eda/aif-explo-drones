@@ -35,6 +35,7 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
                     "planner_objective": "distance_cost",
                     "planner_terms": "info_and_class",
                     "rho_model": "fixed",
+                    "target_model": "known",
                     "n_targets": 6.0,
                     "p_target_on_table": 0.9,
                     "n_desks": 3.0,
@@ -101,6 +102,16 @@ class AIFZOIV2ParamsTests(unittest.TestCase):
         for bad in ({"n_targets": 0}, {"p_target_on_table": 1.0}, {"n_desks": -1}):
             with self.assertRaises(ValueError):
                 AIFZOIV2Params(**bad)
+
+    def test_target_model(self):
+        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
+            "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_RHO_MODEL": "learned", "AIF_ZOI_V2_TARGET_MODEL": "learned"})
+        self.assertEqual(params.target_model, "learned")
+        with self.assertRaises(ValueError):  # learned theta needs learned rho
+            resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
+                "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_TARGET_MODEL": "learned"})
+        with self.assertRaises(ValueError):
+            AIFZOIV2Params(target_model="guessed")
 
     def test_planner_terms(self):
         params = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={"AIF_ZOI_V2_PLANNER_TERMS": "info_only"})

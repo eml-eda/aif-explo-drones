@@ -112,6 +112,10 @@ desk count: the share of desk cells `ρ` gets a uniform prior over its feasible
 range and is inferred in flight from the desk evidence. The prior then needs only
 the number of targets and the share on tables. The estimate of `ρ` is written to
 each perception-log frame (`policy.rho_mean`, `policy.rho_sd`).
+`AIF_ZOI_V2_TARGET_MODEL=learned` (with learned `ρ`) also drops the number of
+targets: the fraction of cells holding a target `θ` gets a uniform prior and is
+inferred jointly with `ρ`, so the prior needs only the share on tables. `θ` is
+logged as `policy.theta_mean` / `policy.theta_sd`.
 
 `r`, `a`, `f`, `λ_T` and `λ_F` must lie strictly between 0 and 1. The values
 used in a run are written to `policy_parameters.json` in the run directory.

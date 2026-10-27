@@ -26,8 +26,14 @@ from policies.zoi_v2_model import (
     joint_likelihood,
     joint_obs_index,
     joint_prior,
+    evidence_coefficients,
+    feasible_grid,
+    grid_weights,
     joint_prior_base_and_slope,
+    joint_prior_terms,
+    log_evidence,
     marginal_beliefs,
+    marginal_beliefs_2d,
     predictive,
     rho_grid,
     rho_posterior,
@@ -219,6 +225,66 @@ class LearnedRhoPolicyTests(unittest.TestCase):
         policy = AIFZOIV2JointPolicy(params=PARAMS)
         policy.compute_action(make_obs(planes={(5, 6): (1.0, 1.0)}))
         self.assertEqual(policy.diagnostics(), {})
+
+
+LEARNED_THETA = resolve_aif_zoi_v2_params(ENVIRONMENTS["hard"], environ={
+    "AIF_ZOI_V2_SURFACE_MODEL": "joint", "AIF_ZOI_V2_RHO_MODEL": "learned", "AIF_ZOI_V2_TARGET_MODEL": "learned"})
+
+
+class LearnedThetaPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.policy = AIFZOIV2JointPolicy(params=LEARNED_THETA)
+        self.terms = joint_prior_terms(p_on_table=0.9)
+        self.rho, self.theta = feasible_grid(p_on_table=0.9, n_rho=128, n_theta=128)
+
+    def fly(self, n_frames=6):
+        cells = [(5, 6), (6, 6), (7, 6), (4, 6), (5, 7), (5, 5)]
+        for i in range(n_frames):
+            c = cells[i % len(cells)]
+            planes = {c: (1.0, 1.0), (c[0], c[1] + 1): (0.4, 0.9)}
+            events = [desk_event([(4, 4)])] if i == 2 else []
+            if i == 3:
+                events.append(box((4, 6), "target_bottle", 0.9))
+            if i == 2:
+                planes[(4, 4)] = (0.6, 0.9)
+            self.policy.compute_action(make_obs(planes=planes, events=events, current_cell=c, time_s=0.1 * (i + 1)))
+
+    def test_starts_from_the_uniform_prior_over_rho_and_theta(self):
+        self.policy.compute_action(make_obs(processed=False))
+        theta, _ = self.policy.theta_estimate()
+        self.assertAlmostEqual(theta, float(self.theta.mean()))
+        # With no evidence an unseen cell's P(target) is the prior mean of theta (~1/3).
+        self.assertAlmostEqual(float(self.policy.q_s[0, 0, 1:].sum()), theta, places=6)
+
+    def test_incremental_evidence_and_shared_unseen_belief_match_a_full_recomputation(self):
+        self.fly()
+        ell = self.policy._ell.reshape(-1, 6)
+        coef = evidence_coefficients(ell, *self.terms)
+        np.testing.assert_allclose(self.policy._log_ev, log_evidence(coef, self.rho, self.theta), atol=1e-9)
+        w = grid_weights(log_evidence(coef, self.rho, self.theta))
+        q = marginal_beliefs_2d(ell, coef, self.terms, self.rho, self.theta, w).reshape(13, 11, 6)
+        # The policy skips grid points with weight < 1e-12 of the largest: differences < 1e-8.
+        np.testing.assert_allclose(self.policy.q_joint, q, atol=1e-8)
+        np.testing.assert_allclose(self.policy.q_s, q[:, :, 0:3] + q[:, :, 3:6], atol=1e-8)
+
+    def test_empty_views_lower_theta_and_are_logged(self):
+        self.policy.compute_action(make_obs(processed=False))
+        start, _ = self.policy.theta_estimate()
+        self.fly()
+        theta, _ = self.policy.theta_estimate()
+        self.assertLess(theta, start)
+        diag = self.policy.diagnostics()
+        for key in ("rho_mean", "rho_sd", "theta_mean", "theta_sd"):
+            self.assertIn(key, diag)
+        obs_model = self.policy.parameters()["observation_model"]
+        self.assertEqual(obs_model["rho_theta_grid_size"], 128)
+        self.assertIn("learned", obs_model["targets"])
+
+    def test_known_target_density_keeps_the_learned_rho_path(self):
+        policy = AIFZOIV2JointPolicy(params=LEARNED)
+        self.assertFalse(policy.theta_learned)
+        policy.compute_action(make_obs(planes={(5, 6): (1.0, 1.0)}))
+        self.assertNotIn("theta_mean", policy.diagnostics())
 
 
 if __name__ == "__main__":

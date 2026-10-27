@@ -41,6 +41,12 @@ from policies.zoi_v2_model import (
     table_probability,
 )
 from policies.zoi_v2_model import (
+    evidence_coefficients,
+    feasible_grid,
+    grid_weights,
+    joint_prior_terms,
+    log_evidence,
+    marginal_beliefs_2d,
     joint_prior_base_and_slope,
     marginal_beliefs,
     rho_grid,
@@ -340,6 +346,82 @@ class LearnedRhoTests(unittest.TestCase):
             out.append((float(w @ g), marginal_beliefs(ell, self.base, self.d, g, w)))
         self.assertAlmostEqual(out[0][0], out[1][0], places=4)
         np.testing.assert_allclose(out[0][1], out[1][1], atol=1e-3)
+
+
+
+class LearnedRhoThetaTests(unittest.TestCase):
+    def setUp(self):
+        self.terms = joint_prior_terms(p_on_table=0.9)
+        self.rho, self.theta = feasible_grid(p_on_table=0.9, n_rho=128, n_theta=128)
+
+    def lik(self, covered, target_obs, wt=1.0, wf=1.0):
+        return L(wt, wf)[joint_obs_index(covered, target_obs)]
+
+    def posterior(self, ell, rho=None, theta=None):
+        rho = self.rho if rho is None else rho
+        theta = self.theta if theta is None else theta
+        coef = evidence_coefficients(ell, *self.terms)
+        w = grid_weights(log_evidence(coef, rho, theta))
+        return w, marginal_beliefs_2d(ell, coef, self.terms, rho, theta, w)
+
+    def test_prior_terms_match_the_learned_rho_prior_at_known_theta(self):
+        base, d_rho, d_theta = self.terms
+        b1, d1 = joint_prior_base_and_slope(n_targets=6, p_on_table=0.9, n_cells=143)
+        for rho in (0.05, 0.3):
+            np.testing.assert_allclose(base + rho * d_rho + (6 / 143) * d_theta, b1 + rho * d1, atol=1e-15)
+
+    def test_prior_is_positive_on_the_feasible_grid(self):
+        base, d_rho, d_theta = self.terms
+        prior = base[None, :] + self.rho[:, None] * d_rho[None, :] + self.theta[:, None] * d_theta[None, :]
+        self.assertTrue(np.all(prior > 0))
+        np.testing.assert_allclose(prior.sum(axis=1), 1.0)
+
+    def test_reduces_to_learned_rho_when_theta_is_fixed(self):
+        ell = np.ones((143, 6)); ell[:30] = self.lik(False, O_NOTHING); ell[30:34] = self.lik(True, O_NOTHING, 0.4, 0.9)
+        ell[34] = self.lik(True, O_CAN)
+        lo, hi = rho_support(**SCEN); g = rho_grid(lo, hi, 256)
+        w1 = rho_posterior(ell, *joint_prior_base_and_slope(**SCEN), g)
+        q1 = marginal_beliefs(ell, *joint_prior_base_and_slope(**SCEN), g, w1)
+        w2, q2 = self.posterior(ell, rho=g, theta=np.full_like(g, 6 / 143))
+        np.testing.assert_allclose(w2, w1, atol=1e-12)
+        np.testing.assert_allclose(q2, q1, atol=1e-12)
+
+    def test_three_sums_equal_the_explicit_average(self):
+        ell = np.ones((5, 6)); ell[0] = self.lik(False, O_NOTHING); ell[1] = self.lik(True, O_BOTTLE)
+        rho, theta = feasible_grid(p_on_table=0.9, n_rho=16, n_theta=16)
+        w, q = self.posterior(ell, rho, theta)
+        base, d_rho, d_theta = self.terms
+        prior = base[None, :] + rho[:, None] * d_rho[None, :] + theta[:, None] * d_theta[None, :]
+        post = ell[:, None, :] * prior[None, :, :]
+        post /= post.sum(axis=2, keepdims=True)
+        np.testing.assert_allclose(q, np.einsum("g,cgs->cs", w, post), atol=1e-12)
+        np.testing.assert_allclose(q.sum(axis=1), np.ones(5))
+
+    def test_empty_cells_lower_theta_and_target_boxes_raise_it(self):
+        mean_theta = lambda ell: float(self.posterior(ell)[0] @ self.theta)
+        start = mean_theta(np.ones((143, 6)))
+        empty = np.ones((143, 6)); empty[:100] = self.lik(False, O_NOTHING)
+        found = empty.copy(); found[100:106] = self.lik(True, O_BOTTLE)
+        self.assertLess(mean_theta(empty), 0.05)
+        self.assertLess(mean_theta(empty), start)
+        self.assertGreater(mean_theta(found), mean_theta(empty))
+
+    def test_unseen_cells_contribute_nothing_to_the_evidence(self):
+        coef = evidence_coefficients(np.ones((10, 6)), *self.terms)
+        np.testing.assert_allclose(log_evidence(coef, self.rho, self.theta), 0.0, atol=1e-12)
+
+    def test_grid_resolution_does_not_matter(self):
+        ell = np.ones((143, 6)); ell[:80] = self.lik(False, O_NOTHING); ell[80:86] = self.lik(True, O_NOTHING, 0.5, 0.9)
+        ell[86:90] = self.lik(True, O_BOTTLE)
+        out = []
+        for n in (128, 256):
+            rho, theta = feasible_grid(p_on_table=0.9, n_rho=n, n_theta=n)
+            w, q = self.posterior(ell, rho, theta)
+            out.append((float(w @ rho), float(w @ theta), q))
+        self.assertAlmostEqual(out[0][0], out[1][0], delta=2e-3)
+        self.assertAlmostEqual(out[0][1], out[1][1], delta=2e-3)
+        # 128 vs 256 points per side: beliefs within 0.5 percentage points (256 vs 512: identical).
+        np.testing.assert_allclose(out[0][2], out[1][2], atol=5e-3)
 
 
 if __name__ == "__main__":

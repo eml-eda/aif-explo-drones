@@ -334,3 +334,82 @@ def marginal_beliefs(
     post = ell[:, None, :] * prior[None, :, :]                  # (cells, G, 6)
     post /= post.sum(axis=2, keepdims=True)
     return np.einsum("g,cgs->cs", weights, post)
+
+
+# ---------------------------------------------------------------------------
+# Joint surface model with rho and the target density theta both learned
+# ---------------------------------------------------------------------------
+#
+# theta is the fraction of cells holding a target (N / M when N is known). With
+# both unknown, the prior of a cell is linear in each:
+#     P(table, target) = theta * pi            (split evenly bottle / can)
+#     P(floor, target) = theta * (1 - pi)
+#     P(table, empty)  = rho - theta * pi
+#     P(floor, empty)  = 1 - rho - theta * (1 - pi)
+# i.e. prior = base + rho * d_rho + theta * d_theta. All entries are positive on
+# the feasible region theta * pi < rho < 1 - theta * (1 - pi); the prior over
+# (rho, theta) is uniform on it. Each cell's evidence is linear too:
+#     Z_j = a_j + rho * b_j + theta * c_j,  (a, b, c) = ell_j . (base, d_rho, d_theta)
+# and each cell's belief is the exact average over p(rho, theta | data), which
+# reduces to three sums per cell:
+#     q_j(s) = ell_j(s) * (base_s * S0 + d_rho_s * S1 + d_theta_s * S2),
+#     S0 = sum_g w_g / Z_j(g),  S1 = sum_g w_g rho_g / Z_j(g),  S2 = sum_g w_g theta_g / Z_j(g).
+
+
+def joint_prior_terms(*, p_on_table: float) -> tuple:
+    """(base, d_rho, d_theta) with prior(rho, theta) = base + rho * d_rho + theta * d_theta."""
+    pi = float(p_on_table)
+    base = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+    d_rho = np.array([1.0, 0.0, 0.0, -1.0, 0.0, 0.0])
+    d_theta = np.array([-pi, 0.5 * pi, 0.5 * pi, -(1.0 - pi), 0.5 * (1.0 - pi), 0.5 * (1.0 - pi)])
+    return base, d_rho, d_theta
+
+
+def feasible_grid(*, p_on_table: float, n_rho: int, n_theta: int) -> tuple:
+    """(rho, theta) of the grid points (midpoints of equal bins of (0, 1) x (0, 1))
+    where every prior entry is positive. The grid sizes are a numerical resolution."""
+    pi = float(p_on_table)
+    rho = (np.arange(int(n_rho)) + 0.5) / int(n_rho)
+    theta = (np.arange(int(n_theta)) + 0.5) / int(n_theta)
+    rr, tt = np.meshgrid(rho, theta, indexing="ij")
+    ok = (rr > tt * pi) & (rr < 1.0 - tt * (1.0 - pi))
+    return rr[ok], tt[ok]
+
+
+def evidence_coefficients(ell: np.ndarray, base: np.ndarray, d_rho: np.ndarray, d_theta: np.ndarray) -> np.ndarray:
+    """(cells, 3): Z_j(rho, theta) = a + rho * b + theta * c for each cell's record."""
+    ell = np.asarray(ell, dtype=np.float64).reshape(-1, N_JOINT)
+    return np.stack([ell @ base, ell @ d_rho, ell @ d_theta], axis=1)
+
+
+def log_evidence(coef: np.ndarray, rho: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    """Sum over the given cells of log Z_j at every grid point."""
+    coef = np.asarray(coef, dtype=np.float64).reshape(-1, 3)
+    if coef.shape[0] == 0:
+        return np.zeros_like(rho)
+    z = coef[:, 0:1] + coef[:, 1:2] * rho[None, :] + coef[:, 2:3] * theta[None, :]
+    return np.log(z).sum(axis=0)
+
+
+def grid_weights(log_ev: np.ndarray) -> np.ndarray:
+    """Posterior weights of the grid points from a uniform prior."""
+    w = np.exp(log_ev - log_ev.max())
+    return w / w.sum()
+
+
+def marginal_beliefs_2d(
+    ell: np.ndarray,
+    coef: np.ndarray,
+    terms: tuple,
+    rho: np.ndarray,
+    theta: np.ndarray,
+    weights: np.ndarray,
+) -> np.ndarray:
+    """Each cell's belief averaged over p(rho, theta | data). ell: (cells, 6) -> (cells, 6)."""
+    base, d_rho, d_theta = terms
+    ell = np.asarray(ell, dtype=np.float64).reshape(-1, N_JOINT)
+    coef = np.asarray(coef, dtype=np.float64).reshape(-1, 3)
+    inv_z = 1.0 / (coef[:, 0:1] + coef[:, 1:2] * rho[None, :] + coef[:, 2:3] * theta[None, :])
+    wz = inv_z * weights[None, :]
+    s0, s1, s2 = wz.sum(axis=1), wz @ rho, wz @ theta
+    return ell * (s0[:, None] * base[None, :] + s1[:, None] * d_rho[None, :] + s2[:, None] * d_theta[None, :])

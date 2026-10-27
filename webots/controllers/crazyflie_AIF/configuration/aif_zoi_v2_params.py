@@ -132,6 +132,13 @@ DEFAULT_SURFACE_MODEL = "typed"
 RHO_MODELS = ("fixed", "learned")
 DEFAULT_RHO_MODEL = "fixed"
 
+# Target density, with learned rho only. "known": theta = N / M from the scenario.
+# "learned": theta (the fraction of cells holding a target) is unknown, with a
+# uniform prior, and inferred in flight together with rho; the prior then needs
+# only the share of targets on tables pi.
+TARGET_MODELS = ("known", "learned")
+DEFAULT_TARGET_MODEL = "known"
+
 # Planner ranking. "distance_cost" (default, as aif_zoi): G = -beta*IG - kappa*U + eps*d.
 # "rate": (beta*IG + kappa*U) / T, with T the navigator's arrival time plus one
 # detector period (policies/planner_time.py), so moves cost seconds, not a weight.
@@ -158,6 +165,7 @@ ENV_VARS = {
 TABLE_MAP_RULE_ENV_VAR = "AIF_ZOI_V2_TABLE_MAP"
 SURFACE_MODEL_ENV_VAR = "AIF_ZOI_V2_SURFACE_MODEL"
 RHO_MODEL_ENV_VAR = "AIF_ZOI_V2_RHO_MODEL"
+TARGET_MODEL_ENV_VAR = "AIF_ZOI_V2_TARGET_MODEL"
 # Scenario description; the default priors follow it.
 SCENARIO_ENV_VARS = {
     "n_targets": "AIF_ZOI_V2_N_TARGETS",
@@ -192,6 +200,7 @@ class AIFZOIV2Params:
     planner_objective: str = DEFAULT_PLANNER_OBJECTIVE
     planner_terms: str = DEFAULT_PLANNER_TERMS
     rho_model: str = DEFAULT_RHO_MODEL
+    target_model: str = DEFAULT_TARGET_MODEL
     n_targets: float = SCENARIO_TARGETS
     p_target_on_table: float = SCENARIO_P_ON_TABLE
     n_desks: float = SCENARIO_TABLES
@@ -225,6 +234,10 @@ class AIFZOIV2Params:
             raise ValueError(f"aif_zoi_v2 rho_model must be one of {RHO_MODELS}, got {self.rho_model!r}")
         if self.rho_model == "learned" and self.surface_model != "joint":
             raise ValueError("aif_zoi_v2 rho_model 'learned' needs surface_model 'joint'")
+        if self.target_model not in TARGET_MODELS:
+            raise ValueError(f"aif_zoi_v2 target_model must be one of {TARGET_MODELS}, got {self.target_model!r}")
+        if self.target_model == "learned" and self.rho_model != "learned":
+            raise ValueError("aif_zoi_v2 target_model 'learned' needs rho_model 'learned'")
         if not float(self.n_targets) > 0.0:
             raise ValueError(f"aif_zoi_v2 n_targets must be positive, got {self.n_targets}")
         if not (0.0 < float(self.p_target_on_table) < 1.0):
@@ -272,6 +285,9 @@ def resolve_aif_zoi_v2_params(
     rho_model = str(environ.get(RHO_MODEL_ENV_VAR, "") or DEFAULT_RHO_MODEL).strip().lower()
     if rho_model not in RHO_MODELS:
         raise ValueError(f"{RHO_MODEL_ENV_VAR} must be one of {RHO_MODELS}, got {rho_model!r}")
+    target_model = str(environ.get(TARGET_MODEL_ENV_VAR, "") or DEFAULT_TARGET_MODEL).strip().lower()
+    if target_model not in TARGET_MODELS:
+        raise ValueError(f"{TARGET_MODEL_ENV_VAR} must be one of {TARGET_MODELS}, got {target_model!r}")
     scenario = {
         "n_targets": _env_float(environ, SCENARIO_ENV_VARS["n_targets"], SCENARIO_TARGETS),
         "p_target_on_table": _env_float(environ, SCENARIO_ENV_VARS["p_target_on_table"], SCENARIO_P_ON_TABLE),
@@ -307,4 +323,4 @@ def resolve_aif_zoi_v2_params(
     }
     return AIFZOIV2Params(
         **values, **scenario, table_map_rule=rule, surface_model=surface_model, planner_objective=planner,
-        planner_terms=terms, rho_model=rho_model, table_context_enabled=has_tables)
+        planner_terms=terms, rho_model=rho_model, target_model=target_model, table_context_enabled=has_tables)
