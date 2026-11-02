@@ -23,7 +23,9 @@ CLASS_NAME_TO_ID = _CLASS_CONFIG.class_name_to_id
 MODEL_TO_CLASS_ID = _CLASS_CONFIG.model_to_class_id
 
 # ---------- Dataset run config ----------
-SEED = 50
+# 50 is the training collection; the aif_zoi_v2 calibration set uses 101
+# (EASY_DATASET_SEED=101), a seed no training or evaluation run uses.
+SEED = int(os.environ.get("EASY_DATASET_SEED", "50"))
 
 WARMUP_SECONDS = 15.0
 DATA_COLLECTION_SECONDS = 10000.0

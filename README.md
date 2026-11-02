@@ -72,26 +72,31 @@ model in `policies/zoi_v2_model.py`).
   default, `loop`, is the original Python loop. Each perception-log frame records
   the number of replans and the planner's wall-clock time (`policy.replans`,
   `planner_s_total`, `planner_ms_last`).
+- **Grid over (`ρ`, `θ`).** `AIF_ZOI_V2_GRID_SIZE` points per side over (0, 1),
+  feasible points only. Default 32 (513 points, ~8 kB, sized for the GAP8); 128,
+  64, 32 and 16 gave the same success rate over 600 runs each. The experiment
+  matrix up to 2026-10-24 used 128 (`AIF_ZOI_V2_GRID_SIZE=128`).
 
-The detector values come from an offline calibration of the detector in use, on
-one calibration image set (hard dataset world, seed 101, 400 images; counts from
-`tools/v2_analysis/calibrate_desk.py`), turned into probabilities by the rule of
+The detector values come from an offline calibration of each environment's checkpoint
+of each detector, on one calibration image set per environment (dataset world, seed 101,
+400 images, never used for training or evaluation; built by
+`tools/v2_analysis/build_calibration.sh`). A target box counts as a detection when its
+centre is inside the label box, as in flight. Counts become probabilities by the rule of
 succession `(k + 1) / (n + 2)`:
 
-| Parameter | Variable | MobileNet SSD | YOLO nano |
-| --- | --- | --- | --- |
-| target recall `r` | `AIF_ZOI_V2_RECALL` | 141/169 | 168/169 |
-| class accuracy `a` | `AIF_ZOI_V2_CLASS_ACCURACY` | 141/142 | 168/169 |
-| false alarm per empty cell `f` | `AIF_ZOI_V2_FALSE_ALARM` | 3/3493 | 7/3493 |
-| desk recall | `AIF_ZOI_V2_DESK_RECALL` | 182/191 | 183/191 |
-| desk false alarm | `AIF_ZOI_V2_DESK_FALSE_ALARM` | 189/1490 | 199/1490 |
-| share of targets on desks `π` | `AIF_ZOI_V2_P_ON_TABLE` | 0.9 | 0.9 |
+| Parameter | Variable | Hard MBN | Hard YOLO-n | Medium MBN | Medium YOLO-n | Easy MBN | Easy YOLO-n |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| target recall `r` | `AIF_ZOI_V2_RECALL` | 0.834 | 0.994 | 0.968 | 0.995 | 0.901 | 0.961 |
+| class accuracy `a` | `AIF_ZOI_V2_CLASS_ACCURACY` | 0.993 | 0.994 | 0.995 | 0.995 | 0.997 | 0.997 |
+| false alarm per empty cell `f` | `AIF_ZOI_V2_FALSE_ALARM` | 0.00086 | 0.0020 | 0.00029 | 0.0012 | 0.0072 | 0.0054 |
+| desk recall | `AIF_ZOI_V2_DESK_RECALL` | 0.953 | 0.958 | 0.950 | 0.958 | — | — |
+| desk false alarm | `AIF_ZOI_V2_DESK_FALSE_ALARM` | 0.127 | 0.134 | 0.179 | 0.184 | — | — |
 
-Calibrations exist for the hard checkpoints of MobileNet SSD and YOLO nano; any
-other (environment, detector) pair needs all five detector values set through the
-variables. The values used in a run are written to `policy_parameters.json` in the
-run directory. The ablation variants of the model (typed cells, distance-cost
-planner, fixed `ρ` or `θ`) are in git tag `v2-ablation`.
+The share of targets on desks `π` (`AIF_ZOI_V2_P_ON_TABLE`) is 0.9 in medium and hard.
+Easy has no desks: only `r`, `a`, `f` are used. Any other (environment, detector) pair
+needs the values set through the variables. The values used in a run are written to
+`policy_parameters.json` in the run directory. The ablation variants of the model (typed
+cells, distance-cost planner, fixed `ρ` or `θ`) are in git tag `v2-ablation`.
 
 ## Perception backends
 

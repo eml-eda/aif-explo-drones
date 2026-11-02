@@ -251,6 +251,21 @@ class NoTableEnvironmentTests(unittest.TestCase):
     def setUp(self):
         self.policy = AIFZOIV2Policy(params=NO_TABLE_PARAMS)
 
+    def test_runs_without_desk_values(self):
+        params = AIFZOIV2Params(recall=PARAMS.recall, class_accuracy=PARAMS.class_accuracy,
+                                false_alarm=PARAMS.false_alarm, table_context_enabled=False)
+        loop, vec = AIFZOIV2Policy(params=params), AIFZOIV2VectorizedPolicy(params=params)
+        for policy in (loop, vec):
+            policy.compute_action(make_obs(
+                planes={(3, 4): (0.1, 0.7), (5, 6): (1.0, 1.0)}, events=[desk_event([(3, 4)])]))
+        # Same beliefs as with (unused) desk values, and the two planners agree.
+        self.policy.compute_action(make_obs(
+            planes={(3, 4): (0.1, 0.7), (5, 6): (1.0, 1.0)}, events=[desk_event([(3, 4)])]))
+        np.testing.assert_array_equal(loop.q_joint, self.policy.q_joint)
+        pose = {"x": 0.1, "y": 0.2, "yaw": 0.3}
+        self.assertEqual(loop._pick_next_action(current_cell=(5, 6), pose=pose),
+                         vec._pick_next_action(current_cell=(5, 6), pose=pose))
+
     def test_rho_is_zero_and_theta_is_learned(self):
         self.policy.compute_action(make_obs(processed=False))
         self.assertEqual(self.policy.rho_estimate(), (0.0, 0.0))
@@ -393,7 +408,8 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(params["policy"], "aif_zoi_v2")
         self.assertEqual(params["model"]["recall"], 0.7)
         self.assertEqual(params["model"]["calibration"], "hard/mobilenet_ssd")
-        self.assertEqual(params["observation_model"]["rho_theta_grid_size"], 128)
+        self.assertEqual(params["observation_model"]["rho_theta_grid_size"], 32)
+        self.assertEqual(params["observation_model"]["rho_theta_grid_points"], 513)  # before the first frame
         self.assertEqual(params["planning"]["time_model"]["detector_period_s"], 0.625)
         json.dumps(params)
 

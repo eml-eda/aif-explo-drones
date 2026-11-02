@@ -50,8 +50,8 @@ NAVIGATOR_KWARGS = {
 }
 
 # Default grid over (rho, theta): points per side over (0, 1), feasible points
-# only (~8 k). A numerical resolution, not a model choice: 256 per side changes
-# beliefs by < 0.5 percentage points (tests). Set by params.grid_size.
+# only. A numerical resolution, not a model choice (configuration/aif_zoi_v2_params.py).
+# Set by params.grid_size.
 RHO_THETA_GRID_SIZE = DEFAULT_GRID_SIZE
 
 Cell = Tuple[int, int]  # policy/report convention: (cx, cy)
@@ -173,7 +173,7 @@ class AIFZOIV2Policy:
                 "prior": ("rho and theta learned in flight, uniform prior on the feasible region"
                           if self.table_context_enabled else "theta learned in flight, rho = 0 (no desks)"),
                 "rho_theta_grid_size": int(self.params.grid_size),
-                "rho_theta_grid_points": None if self._rho_grid is None else int(self._rho_grid.size),
+                "rho_theta_grid_points": self._grid_points(),
             },
             "planning": {
                 "score": "expected information gain / flight time",
@@ -185,6 +185,16 @@ class AIFZOIV2Policy:
                 "time_model": self.time_model.as_dict(),
             },
         }
+
+    def _grid_points(self) -> int:
+        """Number of (rho, theta) grid points, also before the first frame."""
+        if self._rho_grid is not None:
+            return int(self._rho_grid.size)
+        if not self.table_context_enabled:
+            return int(self.params.grid_size)
+        rho, _ = feasible_grid(p_on_table=self.params.p_target_on_table,
+                               n_rho=self.params.grid_size, n_theta=self.params.grid_size)
+        return int(rho.size)
 
     def diagnostics(self) -> dict:
         """Per-frame values for the perception log: rho and theta estimates, and the

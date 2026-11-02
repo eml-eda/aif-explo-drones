@@ -9,7 +9,7 @@ if str(CONTROLLER_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_DIR))
 
 from configuration.aif_zoi_v2_params import (
-    DETECTOR_CALIBRATIONS, AIFZOIV2Params, resolve_aif_zoi_v2_params, rule_of_succession)
+    DETECTOR_CALIBRATIONS, AIFZOIV2Params, DetectorCalibration, resolve_aif_zoi_v2_params, rule_of_succession)
 from configuration.experiment_config import resolve_experiment_selection
 from configuration.registry import ENVIRONMENTS, normalize_policy_id
 
@@ -51,8 +51,31 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(AIFZOIV2Params.calibrated("hard", "yolo_nano"),
                          resolve_aif_zoi_v2_params(HARD, environ={}, detector_id="yolo_nano"))
 
+    def test_medium_calibrations(self):
+        mbn = resolve_aif_zoi_v2_params(ENVIRONMENTS["medium"], environ={}, detector_id="mobilenet_ssd")
+        yolo = resolve_aif_zoi_v2_params(ENVIRONMENTS["medium"], environ={}, detector_id="yolo_nano")
+        self.assertEqual((mbn.calibration, yolo.calibration), ("medium/mobilenet_ssd", "medium/yolo_nano"))
+        self.assertAlmostEqual(mbn.recall, 183 / 189)
+        self.assertAlmostEqual(mbn.false_alarm, 1 / 3417)
+        self.assertAlmostEqual(mbn.desk_recall, 228 / 240)
+        self.assertAlmostEqual(mbn.desk_false_alarm, 253 / 1416)
+        self.assertAlmostEqual(yolo.recall, 188 / 189)
+        self.assertAlmostEqual(yolo.false_alarm, 4 / 3417)
+        self.assertAlmostEqual(yolo.desk_recall, 230 / 240)
+        self.assertAlmostEqual(yolo.desk_false_alarm, 261 / 1416)
+        self.assertTrue(mbn.table_context_enabled)
+
+    def test_easy_calibrations_have_no_desk_values(self):
+        for det, (r, f) in (("mobilenet_ssd", (302 / 335, 24 / 3348)), ("yolo_nano", (322 / 335, 18 / 3348))):
+            params = resolve_aif_zoi_v2_params(ENVIRONMENTS["easy"], environ={}, detector_id=det)
+            self.assertEqual(params.calibration, f"easy/{det}")
+            self.assertAlmostEqual(params.recall, r)
+            self.assertAlmostEqual(params.false_alarm, f)
+            self.assertEqual((params.desk_recall, params.desk_false_alarm), (None, None))
+            self.assertFalse(params.table_context_enabled)
+
     def test_uncalibrated_pair_needs_every_detector_value(self):
-        for env, det in (("hard", "yolo_small"), ("hard", "ground_truth"), ("medium", "mobilenet_ssd")):
+        for env, det in (("hard", "yolo_small"), ("hard", "ground_truth"), ("easy", "yolo_small")):
             with self.assertRaises(ValueError):
                 resolve_aif_zoi_v2_params(ENVIRONMENTS[env], environ={}, detector_id=det)
         params = resolve_aif_zoi_v2_params(HARD, environ=CALIBRATED, detector_id="yolo_small")
@@ -72,6 +95,39 @@ class ScenarioAndOverrideTests(unittest.TestCase):
     def test_environment_without_desks(self):
         params = resolve_aif_zoi_v2_params(ENVIRONMENTS["easy"], environ=CALIBRATED)
         self.assertFalse(params.table_context_enabled)
+
+    def test_environment_without_desks_needs_only_the_target_values(self):
+        target_only = {k: v for k, v in CALIBRATED.items() if "DESK" not in k}
+        params = resolve_aif_zoi_v2_params(ENVIRONMENTS["easy"], environ=target_only, detector_id="yolo_small")
+        self.assertEqual((params.recall, params.desk_recall, params.desk_false_alarm), (0.8, None, None))
+        # A desk value given alone is dropped (unused without desks).
+        params = resolve_aif_zoi_v2_params(
+            ENVIRONMENTS["easy"], environ={**target_only, "AIF_ZOI_V2_DESK_RECALL": "0.9"}, detector_id="yolo_small")
+        self.assertIsNone(params.desk_recall)
+        # With desks, the desk values are required.
+        with self.assertRaises(ValueError):
+            resolve_aif_zoi_v2_params(HARD, environ=target_only, detector_id="yolo_small")
+
+    def test_calibration_without_desk_counts(self):
+        key = ("easy", "mobilenet_ssd")
+        DETECTOR_CALIBRATIONS[key] = DetectorCalibration(
+            targets=100, targets_detected=90, class_correct=89, false_boxes=1, empty_cell_frames=2000)
+        try:
+            params = resolve_aif_zoi_v2_params(ENVIRONMENTS["easy"], environ={}, detector_id="mobilenet_ssd")
+        finally:
+            del DETECTOR_CALIBRATIONS[key]
+        self.assertEqual(params.calibration, "easy/mobilenet_ssd")
+        self.assertAlmostEqual(params.recall, 91 / 102)
+        self.assertIsNone(params.desk_recall)
+        self.assertFalse(params.table_context_enabled)
+
+    def test_desk_values_are_required_with_desks_and_go_together(self):
+        with self.assertRaises(ValueError):
+            AIFZOIV2Params(recall=0.8, class_accuracy=0.9, false_alarm=0.01)
+        with self.assertRaises(ValueError):
+            AIFZOIV2Params(recall=0.8, class_accuracy=0.9, false_alarm=0.01, desk_recall=0.9,
+                           table_context_enabled=False)
+        AIFZOIV2Params(recall=0.8, class_accuracy=0.9, false_alarm=0.01, table_context_enabled=False)
 
     def test_removed_model_switches_are_rejected(self):
         for name in ("AIF_ZOI_V2_SURFACE_MODEL", "AIF_ZOI_V2_RHO_MODEL", "AIF_ZOI_V2_N_TARGETS", "AIF_ZOI_V2_LAMBDA_TABLE"):
@@ -94,7 +150,7 @@ class ScenarioAndOverrideTests(unittest.TestCase):
             resolve_aif_zoi_v2_params(HARD, environ={"AIF_ZOI_V2_PLANNER_IMPL": "gpu"})
 
     def test_grid_size(self):
-        self.assertEqual(resolve_aif_zoi_v2_params(HARD, environ={}).grid_size, 128)
+        self.assertEqual(resolve_aif_zoi_v2_params(HARD, environ={}).grid_size, 32)
         self.assertEqual(resolve_aif_zoi_v2_params(HARD, environ={"AIF_ZOI_V2_GRID_SIZE": "64"}).grid_size, 64)
         for bad in ("64.5", "4", "big"):
             with self.assertRaises(ValueError):

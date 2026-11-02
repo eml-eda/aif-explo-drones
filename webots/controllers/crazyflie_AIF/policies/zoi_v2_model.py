@@ -196,7 +196,8 @@ def joint_likelihood_batch(
     T[:, :, 3:6] = likelihood_matrix_batch(w_floor, **kw)
     in_view = np.asarray(desk_in_view, dtype=bool)
     covered = np.zeros((n, N_JOINT), dtype=np.float64)
-    covered[in_view] = np.array([float(desk_recall)] * 3 + [float(desk_false_alarm)] * 3)
+    if in_view.any():  # desk values are None in environments without desks (never in view)
+        covered[in_view] = np.array([float(desk_recall)] * 3 + [float(desk_false_alarm)] * 3)
     D = np.stack([1.0 - covered, covered], axis=1)                  # (N, 2, 6)
     return (D[:, :, None, :] * T[:, None, :, :]).reshape(n, N_JOINT, N_JOINT)
 
