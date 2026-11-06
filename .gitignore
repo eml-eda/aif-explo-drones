@@ -190,3 +190,9 @@ target_objects_local.yaml
 /ROADMAP_AIF_ZOI_V2.md
 /RESULTS_MATRIX.md
 /AIF_MagicNumbers_Fixed.xlsx
+
+# -------------------------
+# Embedded C port (embedded/): GAP SDK build output (host builds go to build/, ignored above)
+# -------------------------
+embedded/**/BUILD/
+embedded/**/GVSOC_GUIDE.md
