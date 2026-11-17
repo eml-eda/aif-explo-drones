@@ -140,6 +140,7 @@ typedef struct {
     float q[ZOI_CELLS][ZOI_NS];
     uint8_t seen[ZOI_CELLS];
     int beliefs_valid;     /* q matches the current posterior */
+    int n_seen, n_active;  /* diagnostics of the last belief refresh: seen cells, active grid points */
 
     /* Controller map: persistent table cells, desk confidence; claims. */
     uint8_t table_map[ZOI_CELLS];
@@ -169,6 +170,26 @@ typedef struct {
     float pat_H[ZOI_MAX_PATTERN_ENTRIES][ZOI_NS];
     float cand_ig[ZOI_N_CAND], cand_T[ZOI_N_CAND];
     int last_best;                /* candidate index of the last plan */
+    int n_ig_evals, n_T_evals;    /* candidates whose exact IG / exact T the last plan computed */
+    /* Per candidate: bit 0 exact IG known (in cand_ig), bit 1 exact T computed by the
+     * last plan, bit 2 exact IG computed by the last plan (bit 0 without ZOI_V2_IG_CACHE). */
+    uint8_t cand_eval[ZOI_N_CAND];
+#if ZOI_V2_IG_CACHE
+    /* IG reuse: the cached IGs (bit 0 of cand_eval) and prune_H match the current
+     * q; the table map those IGs were computed with; candidates whose cached IG the
+     * last plan dropped because of a table-map change (diagnostics). */
+    int ig_cache_valid;
+    int n_ig_invalidated;
+    uint8_t ig_cache_table[ZOI_CELLS];
+#endif
+#if ZOI_V2_PLANNER_PRUNING
+    /* Pruning work buffers: optimistic rate per candidate, candidates in
+     * decreasing optimistic rate, per-cell lower bound on the move time, per-yaw
+     * turn time, per-cell belief entropy. */
+    float prune_key[ZOI_N_CAND];
+    uint16_t prune_order[ZOI_N_CAND];
+    float prune_move[ZOI_CELLS], prune_turn[ZOI_N_YAW], prune_H[ZOI_CELLS];
+#endif
 
     /* Navigator. */
     int has_target, target_cell, target_yaw_index;
@@ -193,6 +214,10 @@ void zoi_control_step(zoi_state_t *st, const zoi_pose_t *pose, float time_s, zoi
 /* Best candidate from a pose (side-effect free on the belief); returns its index
  * and fills st->cand_ig / st->cand_T. */
 int zoi_plan(zoi_state_t *st, const zoi_pose_t *pose);
+
+/* Navigator only (no replanning): arrival test and velocity command towards the
+ * current target. Returns 1 if arrived. zoi_control_step uses the same code. */
+int zoi_navigator_step(zoi_state_t *st, const zoi_pose_t *pose, zoi_command_t *cmd);
 
 /* Posterior summary of rho and theta. */
 void zoi_rho_theta(const zoi_state_t *st, float *rho_mean, float *rho_sd, float *theta_mean, float *theta_sd);
@@ -245,6 +270,7 @@ typedef enum {
     ZOI_STAGE_BELIEFS,      /* per-cell beliefs averaged over (rho, theta) */
     ZOI_STAGE_IG,           /* planner information gain, all candidates */
     ZOI_STAGE_TIME,         /* planner flight times, all candidates */
+    ZOI_STAGE_NAVIGATOR,    /* arrival test + velocity command */
     ZOI_N_STAGES
 } zoi_stage_t;
 typedef void (*zoi_profile_fn)(zoi_stage_t stage, int start);

@@ -44,6 +44,7 @@ static inline int pi_cluster_send_task_to_cl(struct pi_device *d, struct pi_clus
     return 0;
 }
 static inline uint32_t pi_core_id(void) { return (uint32_t)host_core_id; }
+static inline int pi_cl_cluster_nb_cores(void) { return 8; }
 static inline void pi_cl_team_fork(int n, void (*entry)(void *), void *arg)
 {
     for (int c = 0; c < n; c++) {

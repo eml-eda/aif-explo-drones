@@ -47,4 +47,27 @@
 #define ZOI_V2_REFERENCE_KERNELS 1
 #endif
 
+/* Planner search (same decisions in every mode):
+ * 0: score every candidate exactly (IG and flight time T);
+ * 1: exact IG for every candidate, exact T only for candidates whose rate can
+ *    still win, IG / T_min >= best so far (T_min: a lower bound on T);
+ * 2: also skip the exact IG: candidates sorted by an optimistic rate
+ *    (sum of the cells' belief entropies) / T_min, search stopped as soon as the
+ *    optimistic rate is below the best exact rate. */
+#ifndef ZOI_V2_PLANNER_PRUNING
+#define ZOI_V2_PLANNER_PRUNING 0
+#endif
+
+/* Information-gain reuse between planner calls (same decisions, bit for bit):
+ * 0: every plan starts from scratch (default);
+ * 1: the exact IG of a candidate depends only on the beliefs q and on the table
+ *    map the planner sees, not on the pose, so a plan reuses the IGs of the
+ *    previous one while q is unchanged (no detector frame in between). They are
+ *    dropped when q is recomputed; when the table map differs, only the
+ *    candidates that see a changed cell through a view whose coverage gate
+ *    depends on the plane are recomputed. */
+#ifndef ZOI_V2_IG_CACHE
+#define ZOI_V2_IG_CACHE 0
+#endif
+
 #endif /* ZOI_V2_CONFIG_H */

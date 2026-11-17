@@ -313,10 +313,17 @@ void zoi_refresh_beliefs(zoi_state_t *st)
     for (int k = 0; k < n_active; k++)
         w_act[k] /= act_sum;
     arg.n_active = n_active;
+    st->n_active = n_active;
+    st->n_seen = 0;
+    for (int j = 0; j < ZOI_CELLS; j++)
+        st->n_seen += st->seen[j];
     arg.active = active;
     arg.w_act = w_act;
     zoi_fork(belief_kernel, &arg);
     st->beliefs_valid = 1;
+#if ZOI_V2_IG_CACHE
+    st->ig_cache_valid = 0; /* q changed: the planner's cached IGs are stale */
+#endif
     ZOI_PROF(ZOI_STAGE_BELIEFS, 0);
 }
 

@@ -103,11 +103,22 @@ static void navigator_command(const zoi_state_t *st, const zoi_pose_t *p, zoi_co
     cmd->sideways = clampf(cfg->k_pos * dyb, -cfg->max_sideways, cfg->max_sideways);
 }
 
+int zoi_navigator_step(zoi_state_t *st, const zoi_pose_t *pose, zoi_command_t *cmd)
+{
+    ZOI_PROF(ZOI_STAGE_NAVIGATOR, 1);
+    const int arrived = st->has_target ? navigator_arrived(st, pose) : 0;
+    navigator_command(st, pose, cmd);
+    ZOI_PROF(ZOI_STAGE_NAVIGATOR, 0);
+    return arrived;
+}
+
 void zoi_control_step(zoi_state_t *st, const zoi_pose_t *pose, float time_s, zoi_command_t *cmd)
 {
     cmd->replanned = 0;
     const int current = zoi_cell_from_xy(&st->cfg, pose->x, pose->y);
+    ZOI_PROF(ZOI_STAGE_NAVIGATOR, 1);
     const int arrived = st->has_target ? navigator_arrived(st, pose) : 0;
+    ZOI_PROF(ZOI_STAGE_NAVIGATOR, 0);
     const int cooldown_elapsed = (time_s - st->last_replan_time_s) >= st->cfg.replan_cooldown_s;
     if ((!st->has_target || (arrived && cooldown_elapsed)) && current >= 0) {
         const int best = zoi_plan(st, pose);
@@ -122,7 +133,9 @@ void zoi_control_step(zoi_state_t *st, const zoi_pose_t *pose, float time_s, zoi
     cmd->target_cx = st->has_target ? st->target_cell % ZOI_COLS : -1;
     cmd->target_cy = st->has_target ? st->target_cell / ZOI_COLS : -1;
     cmd->target_yaw_index = st->has_target ? st->target_yaw_index : -1;
+    ZOI_PROF(ZOI_STAGE_NAVIGATOR, 1);
     navigator_command(st, pose, cmd);
+    ZOI_PROF(ZOI_STAGE_NAVIGATOR, 0);
     /* This frame's desk cells and shadow cells apply only to the step that processed it. */
     st->frame_desk_valid = 0;
 }
