@@ -10,11 +10,6 @@ from vision.perception_projection import (
 )
 
 
-class _DetectorSelection:
-    def __init__(self, is_ground_truth: bool):
-        self.is_ground_truth = is_ground_truth
-
-
 class _PerceptionManager:
     def __init__(self, result):
         self.result = result
@@ -56,7 +51,6 @@ class PerceptionProjectionTests(unittest.TestCase):
         )
         frame = project_perception_frame(
             perception_manager=manager,
-            detector_selection=_DetectorSelection(False),
             config=self.config,
             step_count=10,
             time_now_s=1.25,
@@ -75,51 +69,6 @@ class PerceptionProjectionTests(unittest.TestCase):
         self.assertEqual(frame.target_confidence_rc, {})
         self.assertEqual(frame.all_events_rc, [])
         self.assertEqual(frame.transient_table_shadow_cells, set())
-
-    def test_ground_truth_keeps_all_events_but_target_confidence_is_target_only(self):
-        events = [
-            {
-                "cell_rc": (4, 5),
-                "confidence": 1.0,
-                "class_id": 0,
-                "class_name": "target_bottle",
-                "label": "target_bottle",
-            },
-            {
-                "cell_rc": (2, 3),
-                "covered_cells_rc": [[2, 3], [2, 4]],
-                "confidence": 1.0,
-                "class_id": 2,
-                "class_name": "desk",
-                "label": "desk",
-            },
-        ]
-        manager = _PerceptionManager(
-            SimpleNamespace(processed=True, events=events, raw_output=None)
-        )
-        persistent_cells = set()
-        persistent_confidence = {}
-        frame = project_perception_frame(
-            perception_manager=manager,
-            detector_selection=_DetectorSelection(True),
-            config=self.config,
-            step_count=20,
-            time_now_s=2.0,
-            camera_capture=self.camera,
-            drone_x=0.0,
-            drone_y=0.0,
-            drone_yaw=0.0,
-            env_mgr_floor=_EnvManager((4, 5)),
-            env_mgr_table=_EnvManager((2, 3)),
-            floor_visual_coverages={(2, 3): 0.5},
-            persistent_table_cells=persistent_cells,
-            persistent_table_confidence=persistent_confidence,
-        )
-        self.assertEqual(len(frame.all_events_rc), 2)
-        self.assertEqual(len(frame.target_events_rc), 1)
-        self.assertEqual(frame.target_confidence_rc, {(4, 5): 1.0})
-        self.assertEqual(persistent_cells, {(3, 2), (4, 2)})
-        self.assertEqual(frame.table_confidence_rc, {(2, 3): 1.0, (2, 4): 1.0})
 
     @patch("vision.perception_projection.sample_front_only_bbox_floor_counterparts_rc")
     @patch("vision.perception_projection.sample_bbox_projected_cells_rc")
@@ -161,7 +110,6 @@ class PerceptionProjectionTests(unittest.TestCase):
 
         frame = project_perception_frame(
             perception_manager=manager,
-            detector_selection=_DetectorSelection(False),
             config=self.config,
             step_count=30,
             time_now_s=3.0,

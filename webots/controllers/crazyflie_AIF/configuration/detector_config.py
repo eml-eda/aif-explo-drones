@@ -24,30 +24,19 @@ class DetectorSelection:
     image_size: int
     device: str
 
-    @property
-    def is_ground_truth(self) -> bool:
-        return self.detector_id == "ground_truth"
-
     def metadata(self) -> dict:
         return {
             "detector_id": self.detector_id,
             "detector_used": self.detector_id,
             "detector_backend": self.backend,
-            "use_ground_truth_detections": self.is_ground_truth,
             "detector_model_family": self.model_family,
             "detector_model_size": self.model_size,
             "detector_model_variant": self.model_variant,
             "detector_model_path": self.model_path_report,
-            "detector_confidence_threshold": (
-                None if self.is_ground_truth else float(self.confidence_threshold)
-            ),
-            "detector_iou_threshold": (
-                None if self.is_ground_truth else float(self.iou_threshold)
-            ),
-            "detector_image_size": (
-                None if self.is_ground_truth else int(self.image_size)
-            ),
-            "detector_device": None if self.is_ground_truth else str(self.device),
+            "detector_confidence_threshold": float(self.confidence_threshold),
+            "detector_iou_threshold": float(self.iou_threshold),
+            "detector_image_size": int(self.image_size),
+            "detector_device": str(self.device),
         }
 
 
@@ -106,23 +95,6 @@ def resolve_detector_selection(
         raise ValueError("Detector IoU threshold must be in [0, 1].")
     if int(image_size) <= 0:
         raise ValueError("Detector image size must be > 0.")
-
-    if detector_id == "ground_truth":
-        return DetectorSelection(
-            environment=environment_id,
-            detector_id=detector_id,
-            backend=profile.backend,
-            model_family=profile.model_family,
-            model_size=profile.model_size,
-            model_variant=profile.model_variant,
-            class_names=tuple(profile.expected_classes),
-            model_path=None,
-            model_path_report=None,
-            confidence_threshold=float(confidence_threshold),
-            iou_threshold=float(iou_threshold),
-            image_size=int(image_size),
-            device=str(device),
-        )
 
     selected_path = model_path_override or profile.model_path
     if not selected_path:

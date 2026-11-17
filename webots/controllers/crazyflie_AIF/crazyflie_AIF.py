@@ -14,10 +14,8 @@ from policies.wall_following import WallFollowingPolicy
 from policies.pseudo_random import PseudoRandomPolicy
 from policies.spiral import SpiralPolicy
 from policies.rotate_and_measure import RotateAndMeasurePolicy
-from policies.aif_binary import AIFBinaryPolicy
-from policies.aif_zoi import AIFZOIPolicy
-from policies.aif_zoi_v2 import AIFZOIV2Policy
-from policies.aif_zoi_v2_vectorized import AIFZOIV2VectorizedPolicy
+from policies.zoi import ZOIPolicy
+from policies.zoi_vectorized import ZOIVectorizedPolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
 from utils.perception_log import PerceptionFrameLogger
@@ -167,7 +165,6 @@ SNAPSHOT_ON_STUCK = True
 STUCK_REPLAN_LIMIT = 100
 
 # ---- Detection mode ----
-GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
 # ---- Perception sampling / throttling ----
@@ -204,29 +201,10 @@ TARGET_OBJECT_CLASS_IDS = {0, 1}
 DESK_OBJECT_CLASS_NAMES = {DESK_CLASS_NAME}
 DESK_OBJECT_CLASS_IDS = {DESK_CLASS_ID}
 
-AIF_TARGET_DISTANCE_POLICIES = {"aif_binary", "aif_zoi", "aif_zoi_v2"}
-
-# ---- Easy AIF-ZOI ablation ----
-# "as_is" -> original AIF ZOI, including the default non-zero table prior
-# "zero"  -> no initial table belief; use the easy-environment target prior 6/143
-AIF_ZOI_EASY_TABLE_PRIOR_MODE = os.environ.get(
-    "AIF_ZOI_EASY_TABLE_PRIOR_MODE",
-    "as_is",
-).strip().lower()
-
-if AIF_ZOI_EASY_TABLE_PRIOR_MODE not in {"as_is", "zero"}:
-    raise ValueError(
-        "AIF_ZOI_EASY_TABLE_PRIOR_MODE must be 'as_is' or 'zero', "
-        f"got '{AIF_ZOI_EASY_TABLE_PRIOR_MODE}'."
-    )
+AIF_TARGET_DISTANCE_POLICIES = {"zoi"}
 
 
 SHARED_STATE = SharedStateStore.from_controller_file(__file__)
-
-
-def load_gt_objects(json_path: str):
-    data = read_json(json_path)
-    return list(data.get("objects", []))
 
 
 def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
@@ -241,9 +219,7 @@ def load_policy(name, debug=None, seed=None):
 
     registry = {
         "wall_following": WallFollowingPolicy,
-        "aif_binary": AIFBinaryPolicy,
-        "aif_zoi": AIFZOIPolicy,
-        "aif_zoi_v2": AIFZOIV2Policy,
+        "zoi": ZOIPolicy,
         "pseudo_random": PseudoRandomPolicy,
         "spiral": SpiralPolicy,
         "rotate_and_measure": RotateAndMeasurePolicy,
@@ -254,37 +230,17 @@ def load_policy(name, debug=None, seed=None):
     if policy_id == "pseudo_random":
         return policy_cls(seed=seed, debug=debug)
 
-    if policy_id == "aif_zoi" and ENVIRONMENT == "easy":
-        if AIF_ZOI_EASY_TABLE_PRIOR_MODE == "zero":
-            # No table context; all six Easy targets are on the floor, across 11 x 13 cells.
-            return policy_cls(
-                debug=debug,
-                table_context_enabled=False,
-                table_belief_prior=0.0,
-                prior_target_floor=6.0 / (GRID_ROWS * GRID_COLS),
-            )
-
-        # "as_is": exactly the original constructor/default parameters.
-        return policy_cls(debug=debug)
-
-    if policy_id == "aif_zoi":
-        environment_spec = aif_config.EXPERIMENT_SELECTION.environment_spec
-        return policy_cls(
-            debug=debug,
-            table_context_enabled="desk" in environment_spec.context_classes,
-        )
-
-    if policy_id == "aif_zoi_v2":
+    if policy_id == "zoi":
         # Model parameters from the detector's offline calibration and the
-        # scenario (configuration/aif_zoi_v2_params.py, AIF_ZOI_V2_* overrides).
-        params = aif_config.AIF_ZOI_V2_PARAMS
+        # scenario (configuration/zoi_params.py, ZOI_* overrides).
+        params = aif_config.ZOI_PARAMS
         if params is None:
-            params = aif_config.resolve_aif_zoi_v2_params(
+            params = aif_config.resolve_zoi_params(
                 aif_config.EXPERIMENT_SELECTION.environment_spec,
                 detector_id=DETECTOR_SELECTION.detector_id)
         if params.planner_impl == "vectorized":
             # Same decisions, planner computed on arrays.
-            policy_cls = AIFZOIV2VectorizedPolicy
+            policy_cls = ZOIVectorizedPolicy
         # The planner's flight time includes the controller's detector period.
         return policy_cls(debug=debug, params=params, detector_period_s=DETECTION_EVERY_S)
 
@@ -563,22 +519,6 @@ def main() -> None:
     autonomy_start_time = None
     final_snapshot_written = False
 
-    gt_objects = None
-    if DETECTOR_SELECTION.is_ground_truth:
-        gt_json = wait_for_json(
-            gt_path,
-            validator=lambda d: isinstance(d.get("objects", None), list),
-            timeout_s=STARTUP_WAIT_TIMEOUT_S,
-            poll_s=STARTUP_WAIT_POLL_S,
-        )
-        if gt_json is None:
-            raise FileNotFoundError(
-                f"Required GT file not found or invalid: {gt_path}")
-
-        gt_objects = load_gt_objects(gt_path)
-        print(f"[GT] Loaded {len(gt_objects)} objects from {gt_path}")
-        print("[GT] Example objects:", gt_objects[:3])
-
     environment_spec = aif_config.EXPERIMENT_SELECTION.environment_spec
     perception_class_names = [
         *environment_spec.target_classes,
@@ -598,11 +538,9 @@ def main() -> None:
         camera=camera,
         grid_spec=grid_spec,
         detector_selection=DETECTOR_SELECTION,
-        gt_objects=gt_objects,
         class_name_to_id=perception_class_name_to_id,
         timestep_ms=timestep,
         schedule=perception_schedule,
-        gt_confidence=GT_CONFIDENCE,
     )
     perception_projection_config = PerceptionProjectionConfig(
         target_class_names=frozenset(TARGET_OBJECT_CLASS_NAMES),
@@ -770,8 +708,6 @@ def main() -> None:
     print("ENVIRONMENT =", ENVIRONMENT)
     print("RUN_MODE =", aif_config.RUN_MODE)
     print("AIF_POLICY =", policy_name)
-    if policy_name == "aif_zoi" and ENVIRONMENT == "easy":
-        print("AIF_ZOI_EASY_TABLE_PRIOR_MODE =", AIF_ZOI_EASY_TABLE_PRIOR_MODE)
     print("AIF_DETECTOR =", DETECTOR_SELECTION.detector_id)
     print("Controls: Arrow keys for planar motion, Q/E yaw, W/S altitude")
     print("Press A to enable autonomous mode, D to disable\n")
@@ -895,7 +831,6 @@ def main() -> None:
             # ---- Perception + image-to-grid projection ----
             perception_frame = project_perception_frame(
                 perception_manager=perception_manager,
-                detector_selection=DETECTOR_SELECTION,
                 config=perception_projection_config,
                 step_count=step_count,
                 time_now_s=time_now,
@@ -1071,7 +1006,6 @@ def main() -> None:
                 step=step_count,
                 pose={"x": x_pos, "y": y_pos, "yaw": yaw},
                 grid_spec=grid_spec,
-                detector_is_ground_truth=DETECTOR_SELECTION.is_ground_truth,
                 detector_detections=(
                     None if raw_detector_output is None else raw_detector_output.detections
                 ),

@@ -54,9 +54,9 @@ def _policy_name_from_run_dir(run_dir: Path) -> str:
     body = name[len("log_run_"):]
 
     # Single run:
-    #   aif_binary_20260507_151252
+    #   spiral_20260507_151252
     # Eval run:
-    #   aif_binary_run00_seed28_20260507_151252
+    #   spiral_run00_seed28_20260507_151252
     m = re.search(r"_(?:run\d+_seed[^_]+_)?\d{8}_\d{6}$", body)
     if m:
         return body[:m.start()]

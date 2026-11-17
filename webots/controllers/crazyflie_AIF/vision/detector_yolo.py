@@ -80,7 +80,7 @@ class Detector:
                 f"  checkpoint path: {self.model_name}"
             )
 
-        expected_scale = {"nano": "n", "small": "s"}.get(
+        expected_scale = {"nano": "n"}.get(
             None if expected_model_size is None else str(expected_model_size).strip().lower()
         )
         model_yaml = getattr(getattr(self.model, "model", None), "yaml", {}) or {}

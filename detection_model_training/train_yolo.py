@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generic YOLO11 detector trainer for the thesis datasets.
+"""Generic YOLO11 detector trainer for the project's detector datasets.
 
 Place this file directly in:
     detection_model_training/
@@ -40,12 +40,12 @@ from eval_yolo import (
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train YOLO11 nano/small on easy, medium, or hard data")
+    p = argparse.ArgumentParser(description="Train YOLO11 nano on easy, medium, or hard data")
     p.add_argument("--env", default="medium", choices=sorted(ENV_ALIASES))
     p.add_argument("--model-size", default="nano", choices=sorted(MODEL_ALIASES),
-                   help="YOLO11 variant: nano/n or small/s")
+                   help="YOLO11 variant: nano (n)")
     p.add_argument("--model", default=None,
-                   help="Optional base checkpoint override. By default uses root yolo11n.pt/yolo11s.pt.")
+                   help="Optional base checkpoint override. By default uses root yolo11n.pt.")
     p.add_argument("--data", default=None,
                    help="Optional dataset YAML override. Relative paths resolve from detection_model_training/.")
     p.add_argument("--project", default=None,

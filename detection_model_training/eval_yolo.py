@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generic YOLO11 evaluator for the thesis detector datasets.
+"""Generic YOLO11 evaluator for the project's detector datasets.
 
 Place directly in detection_model_training/. Supports YOLO11-nano and
 YOLO11-small on the easy, medium, and hard datasets.
@@ -35,9 +35,6 @@ MODEL_ALIASES = {
     "n": "nano",
     "nano": "nano",
     "yolo11n": "nano",
-    "s": "small",
-    "small": "small",
-    "yolo11s": "small",
 }
 
 ENV_PRESETS = {
@@ -69,7 +66,6 @@ ENV_PRESETS = {
 
 MODEL_PRESETS = {
     "nano": {"short": "n", "checkpoint": "yolo11n.pt"},
-    "small": {"short": "s", "checkpoint": "yolo11s.pt"},
 }
 
 
@@ -99,7 +95,7 @@ def canonical_model_size(name: str) -> str:
     try:
         return MODEL_ALIASES[str(name).strip().lower()]
     except KeyError as exc:
-        raise ValueError(f"Unknown YOLO model size {name!r}; use nano or small") from exc
+        raise ValueError(f"Unknown YOLO model size {name!r}; use nano") from exc
 
 
 def build_paths(env_name: str, model_size: str) -> DetectorPaths:

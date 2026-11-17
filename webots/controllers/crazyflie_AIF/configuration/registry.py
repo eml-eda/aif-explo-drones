@@ -34,9 +34,7 @@ POLICIES: Dict[str, PolicySpec] = {
     "spiral": PolicySpec("spiral", "Spiral"),
     "pseudo_random": PolicySpec("pseudo_random", "Pseudo Random"),
     "rotate_and_measure": PolicySpec("rotate_and_measure", "Rotate and Measure"),
-    "aif_binary": PolicySpec("aif_binary", "AIF Binary"),
-    "aif_zoi": PolicySpec("aif_zoi", "AIF ZOI"),
-    "aif_zoi_v2": PolicySpec("aif_zoi_v2", "AIF ZOI v2"),
+    "zoi": PolicySpec("zoi", "ZOI"),
 }
 
 POLICY_ALIASES = {
@@ -53,7 +51,7 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
         evaluation_supervisor="worldgen_easy_eval_supervisor",
         target_classes=("target_bottle", "target_can"),
         context_classes=(),
-        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi", "aif_zoi_v2"),
+        supported_policies=(*_NAIVE, "zoi"),
     ),
     "medium": EnvironmentSpec(
         environment_id="medium",
@@ -63,7 +61,7 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
         evaluation_supervisor="worldgen_medium_eval_supervisor",
         target_classes=("target_bottle", "target_can"),
         context_classes=("desk",),
-        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi", "aif_zoi_v2"),
+        supported_policies=(*_NAIVE, "zoi"),
     ),
     "hard": EnvironmentSpec(
         environment_id="hard",
@@ -73,27 +71,17 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
         evaluation_supervisor="worldgen_hard_eval_supervisor",
         target_classes=("target_bottle", "target_can"),
         context_classes=("desk",),
-        supported_policies=(*_NAIVE, "aif_binary", "aif_zoi", "aif_zoi_v2"),
+        supported_policies=(*_NAIVE, "zoi"),
     ),
 }
 
 ENVIRONMENT_IDS = frozenset(ENVIRONMENTS)
 
 DETECTORS: Dict[str, DetectorSpec] = {
-    "ground_truth": DetectorSpec(
-        "ground_truth",
-        "Ground Truth",
-        aliases=("gt",),
-    ),
     "yolo_nano": DetectorSpec(
         "yolo_nano",
         "YOLO11 Nano",
         aliases=("yolo11n", "nano"),
-    ),
-    "yolo_small": DetectorSpec(
-        "yolo_small",
-        "YOLO11 Small",
-        aliases=("yolo11s", "small"),
     ),
     "mobilenet_ssd": DetectorSpec(
         "mobilenet_ssd",
@@ -130,10 +118,6 @@ def normalize_policy_id(value: str) -> str:
 
 def normalize_detector_id(value: str) -> str:
     key = str(value).strip().lower()
-    if key == "yolo":
-        raise ValueError(
-            "Detector id 'yolo' is ambiguous. Use 'yolo_nano' or 'yolo_small'."
-        )
     try:
         return DETECTOR_ALIASES[key]
     except KeyError as exc:

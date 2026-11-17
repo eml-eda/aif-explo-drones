@@ -112,7 +112,6 @@ papers/
 docs/
 self-utils/
 
-capture_visuals_thesis/
 results_comp_single_figures/
 
 legacy_notebooks/
@@ -168,7 +167,7 @@ target_objects_local.yaml
 /detection_model_training/yolo11_s_mixed_hard/
 
 # -------------------------
-# Thesis-specific analysis / visualization work
+# Local analysis / visualization work
 # -------------------------
 /webots/controllers/crazyflie_AIF/utils/coverage_visuals_generator*.ipynb
 /webots/controllers/crazyflie_AIF/utils/results_comp_final.ipynb
@@ -181,18 +180,8 @@ target_objects_local.yaml
 /Visuals_DATE
 
 # -------------------------
-# Local working notes and analysis (aif_zoi_v2)
-# -------------------------
-/outputs/
-/tools/
-/CLAUDE.md
-/AIF_ZOI_V2_OVERVIEW.md
-/ROADMAP_AIF_ZOI_V2.md
-/RESULTS_MATRIX.md
-/AIF_MagicNumbers_Fixed.xlsx
-
-# -------------------------
-# Embedded C port (embedded/): GAP SDK build output (host builds go to build/, ignored above)
+# Embedded C port (embedded/): GAP SDK build output and gvsoc batch runs
+# (host builds go to build/, ignored above)
 # -------------------------
 embedded/**/BUILD/
-embedded/**/GVSOC_GUIDE.md
+embedded/*/gap8/batch/

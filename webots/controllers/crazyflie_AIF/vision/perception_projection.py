@@ -67,7 +67,6 @@ class ProjectedPerceptionFrame:
 def project_perception_frame(
     *,
     perception_manager: Any,
-    detector_selection: Any,
     config: PerceptionProjectionConfig,
     step_count: int,
     time_now_s: float,
@@ -100,12 +99,9 @@ def project_perception_frame(
         width=camera_capture["width"],
         height=camera_capture["height"],
         timestamp=camera_capture["time"],
-        drone_x=drone_x,
-        drone_y=drone_y,
-        drone_yaw=drone_yaw,
     )
     processed = bool(perception_result.processed)
-    raw_output = None if detector_selection.is_ground_truth else perception_result.raw_output
+    raw_output = perception_result.raw_output
 
     if not processed:
         return ProjectedPerceptionFrame(
@@ -132,184 +128,149 @@ def project_perception_frame(
         ids=config.desk_class_ids,
     )
 
-    if detector_selection.is_ground_truth:
-        for raw_event in perception_result.events:
-            cell_rc = raw_event.get("cell_rc")
-            if cell_rc is None:
-                continue
-            cell_rc = (int(cell_rc[0]), int(cell_rc[1]))
+    img_w = int(camera_capture["width"])
+    img_h = int(camera_capture["height"])
+    raw_detection_events = list(perception_result.events)
 
-            conf = float(raw_event.get("confidence", 0.0))
-            class_id = int(raw_event.get("class_id", -1))
-            class_name = str(raw_event.get("class_name", raw_event.get("label", "unknown")))
-            label = str(raw_event.get("label", class_name))
+    # First pass: persist desk/table projection before mapping targets from
+    # the same detector frame, exactly as in the pre-extraction controller.
+    desk_bboxes = []
+    for det in raw_detection_events:
+        class_id = int(det.get("class_id", -1))
+        class_name = str(det.get("class_name", det.get("label", "unknown")))
+        conf = float(det.get("confidence", 0.0))
+        if not is_desk(class_name, class_id):
+            continue
 
-            event = {
-                **raw_event,
-                "cell_rc": cell_rc,
-                "confidence": conf,
-                "class_id": class_id,
-                "label": label,
-                "class_name": class_name,
-            }
-            all_events_rc.append(event)
+        bbox = det.get("bbox_xyxy")
+        desk_bboxes.append(bbox)
 
-            if not is_target(class_name, class_id):
-                continue
+        covered_cells_rc = sample_bbox_projected_cells_rc(
+            env_mgr_table,
+            bbox_xyxy=bbox,
+            img_w=img_w,
+            img_h=img_h,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+        primary_cell_rc = env_mgr_table.detection_cell_from_bbox(
+            bbox_xyxy=bbox,
+            img_w=img_w,
+            img_h=img_h,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+        if primary_cell_rc is None and covered_cells_rc:
+            primary_cell_rc = sorted(covered_cells_rc)[0]
 
-            target_events_rc.append(event)
-            previous = target_confidence_rc.get(cell_rc, 0.0)
-            if conf > previous:
-                target_confidence_rc[cell_rc] = conf
-                target_metadata_rc[cell_rc] = {
-                    "class_id": class_id,
-                    "label": label,
-                    "class_name": class_name,
-                }
-    else:
-        img_w = int(camera_capture["width"])
-        img_h = int(camera_capture["height"])
-        raw_detection_events = list(perception_result.events)
-
-        # First pass: persist desk/table projection before mapping targets from
-        # the same detector frame, exactly as in the pre-extraction controller.
-        desk_bboxes = []
-        for det in raw_detection_events:
-            class_id = int(det.get("class_id", -1))
-            class_name = str(det.get("class_name", det.get("label", "unknown")))
-            conf = float(det.get("confidence", 0.0))
-            if not is_desk(class_name, class_id):
-                continue
-
-            bbox = det.get("bbox_xyxy")
-            desk_bboxes.append(bbox)
-
-            covered_cells_rc = sample_bbox_projected_cells_rc(
-                env_mgr_table,
-                bbox_xyxy=bbox,
-                img_w=img_w,
-                img_h=img_h,
-                drone_x=drone_x,
-                drone_y=drone_y,
-                drone_yaw=drone_yaw,
-            )
-            primary_cell_rc = env_mgr_table.detection_cell_from_bbox(
-                bbox_xyxy=bbox,
-                img_w=img_w,
-                img_h=img_h,
-                drone_x=drone_x,
-                drone_y=drone_y,
-                drone_yaw=drone_yaw,
-            )
-            if primary_cell_rc is None and covered_cells_rc:
-                primary_cell_rc = sorted(covered_cells_rc)[0]
-
-            if conf >= config.surface_detection_conf_threshold:
-                for rc in covered_cells_rc:
-                    cell_cxcy = _rc_to_cxcy(rc)
-                    if cell_cxcy is None:
-                        continue
-                    rc_key = (int(rc[0]), int(rc[1]))
-                    persistent_table_cells.add(cell_cxcy)
-                    persistent_table_confidence[cell_cxcy] = max(
-                        float(conf),
-                        float(persistent_table_confidence.get(cell_cxcy, 0.0)),
-                    )
-                    table_confidence_rc[rc_key] = max(
-                        float(conf),
-                        float(table_confidence_rc.get(rc_key, 0.0)),
-                    )
-
-            if primary_cell_rc is not None:
-                all_events_rc.append(
-                    {
-                        **det,
-                        "cell_rc": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
-                        "cell_rc_table": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
-                        "covered_cells_rc": sorted(
-                            [[int(r), int(c)] for (r, c) in covered_cells_rc]
-                        ),
-                        "surface_cells_already_persisted": True,
-                        "surface_assumption": "table",
-                    }
+        if conf >= config.surface_detection_conf_threshold:
+            for rc in covered_cells_rc:
+                cell_cxcy = _rc_to_cxcy(rc)
+                if cell_cxcy is None:
+                    continue
+                rc_key = (int(rc[0]), int(rc[1]))
+                persistent_table_cells.add(cell_cxcy)
+                persistent_table_confidence[cell_cxcy] = max(
+                    float(conf),
+                    float(persistent_table_confidence.get(cell_cxcy, 0.0)),
+                )
+                table_confidence_rc[rc_key] = max(
+                    float(conf),
+                    float(table_confidence_rc.get(rc_key, 0.0)),
                 )
 
-        # Second pass: target projection may use floor or table plane.
-        for det in raw_detection_events:
-            class_id = int(det.get("class_id", -1))
-            class_name = str(det.get("class_name", det.get("label", "unknown")))
-            if not is_target(class_name, class_id):
-                continue
-
-            bbox = det.get("bbox_xyxy")
-            conf = float(det.get("confidence", 0.0))
-            label = str(det.get("label", class_name))
-
-            floor_cell_rc = env_mgr_floor.detection_cell_from_bbox(
-                bbox_xyxy=bbox,
-                img_w=img_w,
-                img_h=img_h,
-                drone_x=drone_x,
-                drone_y=drone_y,
-                drone_yaw=drone_yaw,
-            )
-            table_cell_rc = env_mgr_table.detection_cell_from_bbox(
-                bbox_xyxy=bbox,
-                img_w=img_w,
-                img_h=img_h,
-                drone_x=drone_x,
-                drone_y=drone_y,
-                drone_yaw=drone_yaw,
+        if primary_cell_rc is not None:
+            all_events_rc.append(
+                {
+                    **det,
+                    "cell_rc": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
+                    "cell_rc_table": (int(primary_cell_rc[0]), int(primary_cell_rc[1])),
+                    "covered_cells_rc": sorted(
+                        [[int(r), int(c)] for (r, c) in covered_cells_rc]
+                    ),
+                    "surface_cells_already_persisted": True,
+                    "surface_assumption": "table",
+                }
             )
 
-            overlaps_desk = bbox_overlaps_any_desk(bbox, desk_bboxes)
-            table_cell_cxcy = _rc_to_cxcy(table_cell_rc) if table_cell_rc is not None else None
-            table_cell_is_known = (
-                table_cell_cxcy in persistent_table_cells
-                if table_cell_cxcy is not None
-                else False
-            )
+    # Second pass: target projection may use floor or table plane.
+    for det in raw_detection_events:
+        class_id = int(det.get("class_id", -1))
+        class_name = str(det.get("class_name", det.get("label", "unknown")))
+        if not is_target(class_name, class_id):
+            continue
 
-            use_table_projection = bool(overlaps_desk or table_cell_is_known)
-            cell_rc = table_cell_rc if use_table_projection else floor_cell_rc
-            if cell_rc is None:
-                cell_rc = floor_cell_rc if table_cell_rc is None else table_cell_rc
-            if cell_rc is None:
-                continue
-            cell_rc = (int(cell_rc[0]), int(cell_rc[1]))
+        bbox = det.get("bbox_xyxy")
+        conf = float(det.get("confidence", 0.0))
+        label = str(det.get("label", class_name))
 
-            event = {
-                **det,
-                "cell_rc": cell_rc,
-                "cell_rc_floor": None
-                if floor_cell_rc is None
-                else (int(floor_cell_rc[0]), int(floor_cell_rc[1])),
-                "cell_rc_table": None
-                if table_cell_rc is None
-                else (int(table_cell_rc[0]), int(table_cell_rc[1])),
-                "bbox_overlaps_desk": bool(overlaps_desk),
-                "table_cell_is_known": bool(table_cell_is_known),
-                "surface_assumption": "table" if use_table_projection else "floor",
-                "confidence": conf,
+        floor_cell_rc = env_mgr_floor.detection_cell_from_bbox(
+            bbox_xyxy=bbox,
+            img_w=img_w,
+            img_h=img_h,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+        table_cell_rc = env_mgr_table.detection_cell_from_bbox(
+            bbox_xyxy=bbox,
+            img_w=img_w,
+            img_h=img_h,
+            drone_x=drone_x,
+            drone_y=drone_y,
+            drone_yaw=drone_yaw,
+        )
+
+        overlaps_desk = bbox_overlaps_any_desk(bbox, desk_bboxes)
+        table_cell_cxcy = _rc_to_cxcy(table_cell_rc) if table_cell_rc is not None else None
+        table_cell_is_known = (
+            table_cell_cxcy in persistent_table_cells
+            if table_cell_cxcy is not None
+            else False
+        )
+
+        use_table_projection = bool(overlaps_desk or table_cell_is_known)
+        cell_rc = table_cell_rc if use_table_projection else floor_cell_rc
+        if cell_rc is None:
+            cell_rc = floor_cell_rc if table_cell_rc is None else table_cell_rc
+        if cell_rc is None:
+            continue
+        cell_rc = (int(cell_rc[0]), int(cell_rc[1]))
+
+        event = {
+            **det,
+            "cell_rc": cell_rc,
+            "cell_rc_floor": None
+            if floor_cell_rc is None
+            else (int(floor_cell_rc[0]), int(floor_cell_rc[1])),
+            "cell_rc_table": None
+            if table_cell_rc is None
+            else (int(table_cell_rc[0]), int(table_cell_rc[1])),
+            "bbox_overlaps_desk": bool(overlaps_desk),
+            "table_cell_is_known": bool(table_cell_is_known),
+            "surface_assumption": "table" if use_table_projection else "floor",
+            "confidence": conf,
+            "class_id": class_id,
+            "label": label,
+            "class_name": class_name,
+        }
+        all_events_rc.append(event)
+        target_events_rc.append(event)
+
+        previous = target_confidence_rc.get(cell_rc, 0.0)
+        if conf > previous:
+            target_confidence_rc[cell_rc] = conf
+            target_metadata_rc[cell_rc] = {
                 "class_id": class_id,
                 "label": label,
                 "class_name": class_name,
+                "surface_assumption": event["surface_assumption"],
             }
-            all_events_rc.append(event)
-            target_events_rc.append(event)
 
-            previous = target_confidence_rc.get(cell_rc, 0.0)
-            if conf > previous:
-                target_confidence_rc[cell_rc] = conf
-                target_metadata_rc[cell_rc] = {
-                    "class_id": class_id,
-                    "label": label,
-                    "class_name": class_name,
-                    "surface_assumption": event["surface_assumption"],
-                }
-
-    # Unified desk-event pass: current-frame shadow correction plus GT desk
-    # persistence. YOLO desk persistence already happened in its first pass.
+    # Desk-event pass: current-frame shadow correction. Desk cells were already
+    # persisted in the first pass.
     for event in all_events_rc:
         class_id = int(event.get("class_id", -1))
         class_name = str(event.get("class_name", event.get("label", "unknown")))
@@ -346,55 +307,6 @@ def project_perception_frame(
                             transient_table_shadow_cells.add(cell_cxcy)
                 except Exception:
                     pass
-
-        if event.get("surface_cells_already_persisted", False):
-            continue
-
-        cells_to_mark_rc: Set[CellRC] = set()
-        for rc in event.get("covered_cells_rc", []) or []:
-            try:
-                cells_to_mark_rc.add((int(rc[0]), int(rc[1])))
-            except Exception:
-                continue
-
-        if not cells_to_mark_rc:
-            bbox = event_bbox_xyxy(event)
-            if bbox is not None:
-                try:
-                    cells_to_mark_rc |= sample_bbox_projected_cells_rc(
-                        env_mgr_table,
-                        bbox_xyxy=bbox,
-                        img_w=int(camera_capture["width"]),
-                        img_h=int(camera_capture["height"]),
-                        drone_x=drone_x,
-                        drone_y=drone_y,
-                        drone_yaw=drone_yaw,
-                    )
-                except Exception:
-                    pass
-
-        if not cells_to_mark_rc:
-            cell_rc = event.get("cell_rc")
-            if cell_rc is not None:
-                try:
-                    cells_to_mark_rc.add((int(cell_rc[0]), int(cell_rc[1])))
-                except Exception:
-                    pass
-
-        for rc in cells_to_mark_rc:
-            cell_cxcy = _rc_to_cxcy(rc)
-            if cell_cxcy is None:
-                continue
-            rc_key = (int(rc[0]), int(rc[1]))
-            persistent_table_cells.add(cell_cxcy)
-            persistent_table_confidence[cell_cxcy] = max(
-                float(conf),
-                float(persistent_table_confidence.get(cell_cxcy, 0.0)),
-            )
-            table_confidence_rc[rc_key] = max(
-                float(conf),
-                float(table_confidence_rc.get(rc_key, 0.0)),
-            )
 
     return ProjectedPerceptionFrame(
         processed=processed,

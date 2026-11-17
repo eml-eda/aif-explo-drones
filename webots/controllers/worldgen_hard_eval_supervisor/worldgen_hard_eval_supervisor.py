@@ -295,7 +295,6 @@ def _normalize_experiment_metadata(payload: dict | None) -> dict:
         "detector_image_size": None if payload.get("detector_image_size", None) is None else int(payload.get("detector_image_size")),
         "detector_device": None if payload.get("detector_device", None) is None else str(payload.get("detector_device")),
         "detector_backend": str(payload.get("detector_backend", "unknown")),
-        "use_ground_truth_detections": bool(payload.get("use_ground_truth_detections", False)),
         "claim_confidence_threshold": None if claim_confidence_threshold is None else float(claim_confidence_threshold),
         "spawn_conditions": str(payload.get("spawn_conditions", "unknown")),
         "target_setup": str(payload.get("target_setup", ENVIRONMENT_ID)),
