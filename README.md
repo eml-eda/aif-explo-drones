@@ -535,3 +535,7 @@ historical detector-development workspaces
 
 This keeps the repository focused on the simulation, reusable source code,
 released detector checkpoints, and reproducible training/evaluation tooling.
+
+## License
+
+MIT; see `LICENSE`.
