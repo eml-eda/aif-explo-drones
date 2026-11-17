@@ -111,10 +111,6 @@ class _StubPerception:
         return _Result(self.events)
 
 
-class _StubDetector:
-    is_ground_truth = False
-
-
 def _cells_line(tag, cells_cxcy) -> str:
     cells = sorted((int(c[0]), int(c[1])) for c in cells_cxcy)
     return f"{tag} {len(cells)}" + "".join(f" {cx} {cy}" for cx, cy in cells)
@@ -216,7 +212,7 @@ def main() -> None:
         table_cov = env_table.compute_cell_coverages(x, y, yaw)
         stub.events = boxes
         frame = project_perception_frame(
-            perception_manager=stub, detector_selection=_StubDetector(), config=proj_cfg,
+            perception_manager=stub, config=proj_cfg,
             step_count=int(fr.get("step", i)), time_now_s=t,
             camera_capture={"image": None, "width": img_w, "height": img_h, "time": t},
             drone_x=x, drone_y=y, drone_yaw=yaw, env_mgr_floor=env_floor, env_mgr_table=env_table,
@@ -265,7 +261,7 @@ def main() -> None:
             table_coverages=mapping_rc_to_cxcy(merged))
         obs = build_policy_observation(
             sensor_state={}, step=int(fr.get("step", i)), pose={"x": x, "y": y, "yaw": yaw},
-            grid_spec=grid_spec, detector_is_ground_truth=False, detector_detections=[],
+            grid_spec=grid_spec, detector_detections=[],
             current_cell=current_cxcy, visual_coverages=mapping_rc_to_cxcy(merged),
             perception_evidence=evidence, coverage_threshold=coverage_threshold,
             persistent_table_confidence=persistent_table_conf, perception_processed=True,

@@ -75,10 +75,10 @@ class CalibrationTests(unittest.TestCase):
             self.assertFalse(params.table_context_enabled)
 
     def test_uncalibrated_pair_needs_every_detector_value(self):
-        for env, det in (("hard", "yolo_small"), ("hard", "ground_truth"), ("easy", "yolo_small")):
+        for env, det in (("hard", "new_detector"), ("easy", "new_detector")):
             with self.assertRaises(ValueError):
                 resolve_zoi_params(ENVIRONMENTS[env], environ={}, detector_id=det)
-        params = resolve_zoi_params(HARD, environ=CALIBRATED, detector_id="yolo_small")
+        params = resolve_zoi_params(HARD, environ=CALIBRATED, detector_id="new_detector")
         self.assertEqual(params.calibration, "environment variables")
         self.assertEqual(params.recall, 0.8)
 
@@ -98,15 +98,15 @@ class ScenarioAndOverrideTests(unittest.TestCase):
 
     def test_environment_without_desks_needs_only_the_target_values(self):
         target_only = {k: v for k, v in CALIBRATED.items() if "DESK" not in k}
-        params = resolve_zoi_params(ENVIRONMENTS["easy"], environ=target_only, detector_id="yolo_small")
+        params = resolve_zoi_params(ENVIRONMENTS["easy"], environ=target_only, detector_id="new_detector")
         self.assertEqual((params.recall, params.desk_recall, params.desk_false_alarm), (0.8, None, None))
         # A desk value given alone is dropped (unused without desks).
         params = resolve_zoi_params(
-            ENVIRONMENTS["easy"], environ={**target_only, "ZOI_DESK_RECALL": "0.9"}, detector_id="yolo_small")
+            ENVIRONMENTS["easy"], environ={**target_only, "ZOI_DESK_RECALL": "0.9"}, detector_id="new_detector")
         self.assertIsNone(params.desk_recall)
         # With desks, the desk values are required.
         with self.assertRaises(ValueError):
-            resolve_zoi_params(HARD, environ=target_only, detector_id="yolo_small")
+            resolve_zoi_params(HARD, environ=target_only, detector_id="new_detector")
 
     def test_calibration_without_desk_counts(self):
         key = ("easy", "mobilenet_ssd")

@@ -19,16 +19,6 @@ class ModelProfile:
 # Paths are repository-relative. Learned detector profiles use the canonical
 # released checkpoints under detection_model_training/checkpoints/.
 MODEL_PROFILES: Dict[tuple[str, str], ModelProfile] = {
-    ("easy", "ground_truth"): ModelProfile(
-        environment="easy",
-        detector_id="ground_truth",
-        backend="ground_truth",
-        model_family="ground_truth",
-        model_size=None,
-        model_variant=None,
-        expected_classes=("target_bottle", "target_can"),
-        model_path=None,
-    ),
     ("easy", "yolo_nano"): ModelProfile(
         environment="easy",
         detector_id="yolo_nano",
@@ -38,16 +28,6 @@ MODEL_PROFILES: Dict[tuple[str, str], ModelProfile] = {
         model_variant="yolo11n",
         expected_classes=("target_bottle", "target_can"),
         model_path="detection_model_training/checkpoints/easy/yolo_nano.pt",
-    ),
-    ("easy", "yolo_small"): ModelProfile(
-        environment="easy",
-        detector_id="yolo_small",
-        backend="yolo",
-        model_family="yolo11",
-        model_size="small",
-        model_variant="yolo11s",
-        expected_classes=("target_bottle", "target_can"),
-        model_path="detection_model_training/checkpoints/easy/yolo_small.pt",
     ),
     ("easy", "mobilenet_ssd"): ModelProfile(
         environment="easy",
@@ -59,16 +39,6 @@ MODEL_PROFILES: Dict[tuple[str, str], ModelProfile] = {
         expected_classes=("target_bottle", "target_can"),
         model_path="detection_model_training/checkpoints/easy/mobilenet_ssd.pt",
     ),
-    ("medium", "ground_truth"): ModelProfile(
-        environment="medium",
-        detector_id="ground_truth",
-        backend="ground_truth",
-        model_family="ground_truth",
-        model_size=None,
-        model_variant=None,
-        expected_classes=("target_bottle", "target_can", "desk"),
-        model_path=None,
-    ),
     ("medium", "yolo_nano"): ModelProfile(
         environment="medium",
         detector_id="yolo_nano",
@@ -78,16 +48,6 @@ MODEL_PROFILES: Dict[tuple[str, str], ModelProfile] = {
         model_variant="yolo11n",
         expected_classes=("target_bottle", "target_can", "desk"),
         model_path="detection_model_training/checkpoints/medium/yolo_nano.pt",
-    ),
-    ("medium", "yolo_small"): ModelProfile(
-        environment="medium",
-        detector_id="yolo_small",
-        backend="yolo",
-        model_family="yolo11",
-        model_size="small",
-        model_variant="yolo11s",
-        expected_classes=("target_bottle", "target_can", "desk"),
-        model_path="detection_model_training/checkpoints/medium/yolo_small.pt",
     ),
     ("medium", "mobilenet_ssd"): ModelProfile(
         environment="medium",
@@ -99,16 +59,6 @@ MODEL_PROFILES: Dict[tuple[str, str], ModelProfile] = {
         expected_classes=("target_bottle", "target_can", "desk"),
         model_path="detection_model_training/checkpoints/medium/mobilenet_ssd.pt",
     ),
-    ("hard", "ground_truth"): ModelProfile(
-        environment="hard",
-        detector_id="ground_truth",
-        backend="ground_truth",
-        model_family="ground_truth",
-        model_size=None,
-        model_variant=None,
-        expected_classes=("target_bottle", "target_can", "desk"),
-        model_path=None,
-    ),
     ("hard", "yolo_nano"): ModelProfile(
         environment="hard",
         detector_id="yolo_nano",
@@ -118,16 +68,6 @@ MODEL_PROFILES: Dict[tuple[str, str], ModelProfile] = {
         model_variant="yolo11n",
         expected_classes=("target_bottle", "target_can", "desk"),
         model_path="detection_model_training/checkpoints/hard/yolo_nano.pt",
-    ),
-    ("hard", "yolo_small"): ModelProfile(
-        environment="hard",
-        detector_id="yolo_small",
-        backend="yolo",
-        model_family="yolo11",
-        model_size="small",
-        model_variant="yolo11s",
-        expected_classes=("target_bottle", "target_can", "desk"),
-        model_path="detection_model_training/checkpoints/hard/yolo_small.pt",
     ),
     ("hard", "mobilenet_ssd"): ModelProfile(
         environment="hard",

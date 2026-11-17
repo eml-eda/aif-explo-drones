@@ -2,10 +2,8 @@ from __future__ import annotations
 
 
 DETECTOR_DIRECTORY_LABELS = {
-    "ground_truth": "gt",
     "mobilenet_ssd": "mbnetv2",
     "yolo_nano": "yolonano",
-    "yolo_small": "yolosmall",
 }
 
 

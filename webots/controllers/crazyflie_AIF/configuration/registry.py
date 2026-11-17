@@ -78,20 +78,10 @@ ENVIRONMENTS: Dict[str, EnvironmentSpec] = {
 ENVIRONMENT_IDS = frozenset(ENVIRONMENTS)
 
 DETECTORS: Dict[str, DetectorSpec] = {
-    "ground_truth": DetectorSpec(
-        "ground_truth",
-        "Ground Truth",
-        aliases=("gt",),
-    ),
     "yolo_nano": DetectorSpec(
         "yolo_nano",
         "YOLO11 Nano",
         aliases=("yolo11n", "nano"),
-    ),
-    "yolo_small": DetectorSpec(
-        "yolo_small",
-        "YOLO11 Small",
-        aliases=("yolo11s", "small"),
     ),
     "mobilenet_ssd": DetectorSpec(
         "mobilenet_ssd",
@@ -128,10 +118,6 @@ def normalize_policy_id(value: str) -> str:
 
 def normalize_detector_id(value: str) -> str:
     key = str(value).strip().lower()
-    if key == "yolo":
-        raise ValueError(
-            "Detector id 'yolo' is ambiguous. Use 'yolo_nano' or 'yolo_small'."
-        )
     try:
         return DETECTOR_ALIASES[key]
     except KeyError as exc:

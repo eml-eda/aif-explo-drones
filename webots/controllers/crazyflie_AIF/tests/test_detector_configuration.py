@@ -11,39 +11,13 @@ from configuration.registry import normalize_detector_id
 
 
 class DetectorConfigurationTests(unittest.TestCase):
+    def test_unknown_detector_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unknown detector"):
+            normalize_detector_id("other_detector")
+
     def test_final_detector_aliases_normalize(self):
-        self.assertEqual(normalize_detector_id("gt"), "ground_truth")
         self.assertEqual(normalize_detector_id("nano"), "yolo_nano")
-        self.assertEqual(normalize_detector_id("yolo11s"), "yolo_small")
         self.assertEqual(normalize_detector_id("mobilenet"), "mobilenet_ssd")
-
-    def test_plain_yolo_is_rejected_as_ambiguous(self):
-        with self.assertRaisesRegex(ValueError, "ambiguous"):
-            normalize_detector_id("yolo")
-
-    def test_ground_truth_needs_no_checkpoint(self):
-        selection = resolve_detector_selection(
-            environment="easy",
-            detector="ground_truth",
-        )
-        self.assertTrue(selection.is_ground_truth)
-        self.assertIsNone(selection.model_path)
-        self.assertEqual(selection.class_names, ("target_bottle", "target_can"))
-
-    def test_medium_small_profile_uses_canonical_checkpoint_path(self):
-        profile = get_model_profile("medium", "yolo_small")
-        self.assertEqual(
-            profile.model_path,
-            "detection_model_training/checkpoints/medium/yolo_small.pt",
-        )
-        selection = resolve_detector_selection(
-            environment="medium",
-            detector="yolo_small",
-            require_model_file=False,
-        )
-        self.assertEqual(selection.model_path_report, profile.model_path)
-        self.assertEqual(selection.backend, "yolo")
-        self.assertEqual(selection.model_size, "small")
 
     def test_easy_model_uses_canonical_checkpoint_path(self):
         profile = get_model_profile("easy", "yolo_nano")

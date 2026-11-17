@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generic MobileNetV2-SSD sigmoid trainer for the thesis datasets.
+"""Generic MobileNetV2-SSD sigmoid trainer for the project's detector datasets.
 
 Place directly in detection_model_training/. It supports all three current
 environments:

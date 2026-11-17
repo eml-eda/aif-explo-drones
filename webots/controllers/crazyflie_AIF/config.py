@@ -6,7 +6,7 @@ without editing source through environment variables:
   AIF_ENVIRONMENT=easy|medium|hard
   AIF_RUN_MODE=single|evaluation
   AIF_POLICY=<policy id>
-  AIF_DETECTOR=ground_truth|yolo_nano|yolo_small|mobilenet_ssd
+  AIF_DETECTOR=mobilenet_ssd|yolo_nano
 
 For learned detectors, model paths are resolved from the central model registry.
 A one-run override can be supplied with AIF_MODEL_PATH=/path/to/best.pt.
@@ -60,13 +60,13 @@ AIF_POLICY = EXPERIMENT_SELECTION.policy
 # Detector selection
 # -----------------------------------------------------------------------------
 
-AIF_DETECTOR = os.environ.get("AIF_DETECTOR", "ground_truth")
+AIF_DETECTOR = os.environ.get("AIF_DETECTOR", "mobilenet_ssd")
 _detector_id = normalize_detector_id(AIF_DETECTOR)
 
 # One generic override is the preferred mechanism. The old backend-specific
 # environment variables remain accepted during the migration period.
 _model_path_override = os.environ.get("AIF_MODEL_PATH", None)
-if not _model_path_override and _detector_id in {"yolo_nano", "yolo_small"}:
+if not _model_path_override and _detector_id == "yolo_nano":
     _model_path_override = os.environ.get("AIF_YOLO_MODEL", None)
 elif not _model_path_override and _detector_id == "mobilenet_ssd":
     _model_path_override = os.environ.get("AIF_MBV2SSD_MODEL", None)
@@ -107,5 +107,4 @@ ZOI_PARAMS = (
 # Compatibility exports for code outside the new configuration package. New
 # controller code should use DETECTOR_SELECTION directly.
 DETECTOR_BACKEND = DETECTOR_SELECTION.backend
-USE_GROUND_TRUTH_DETECTIONS = DETECTOR_SELECTION.is_ground_truth
 AIF_MODEL_PATH = DETECTOR_SELECTION.model_path

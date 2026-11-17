@@ -165,7 +165,6 @@ SNAPSHOT_ON_STUCK = True
 STUCK_REPLAN_LIMIT = 100
 
 # ---- Detection mode ----
-GT_CONFIDENCE = 1.0
 GT_JSON_FILENAME = "spawned_objects.json"
 
 # ---- Perception sampling / throttling ----
@@ -206,11 +205,6 @@ AIF_TARGET_DISTANCE_POLICIES = {"zoi"}
 
 
 SHARED_STATE = SharedStateStore.from_controller_file(__file__)
-
-
-def load_gt_objects(json_path: str):
-    data = read_json(json_path)
-    return list(data.get("objects", []))
 
 
 def make_run_dir(base_log_dir: str, prefix: str = "log_run") -> str:
@@ -525,22 +519,6 @@ def main() -> None:
     autonomy_start_time = None
     final_snapshot_written = False
 
-    gt_objects = None
-    if DETECTOR_SELECTION.is_ground_truth:
-        gt_json = wait_for_json(
-            gt_path,
-            validator=lambda d: isinstance(d.get("objects", None), list),
-            timeout_s=STARTUP_WAIT_TIMEOUT_S,
-            poll_s=STARTUP_WAIT_POLL_S,
-        )
-        if gt_json is None:
-            raise FileNotFoundError(
-                f"Required GT file not found or invalid: {gt_path}")
-
-        gt_objects = load_gt_objects(gt_path)
-        print(f"[GT] Loaded {len(gt_objects)} objects from {gt_path}")
-        print("[GT] Example objects:", gt_objects[:3])
-
     environment_spec = aif_config.EXPERIMENT_SELECTION.environment_spec
     perception_class_names = [
         *environment_spec.target_classes,
@@ -560,11 +538,9 @@ def main() -> None:
         camera=camera,
         grid_spec=grid_spec,
         detector_selection=DETECTOR_SELECTION,
-        gt_objects=gt_objects,
         class_name_to_id=perception_class_name_to_id,
         timestep_ms=timestep,
         schedule=perception_schedule,
-        gt_confidence=GT_CONFIDENCE,
     )
     perception_projection_config = PerceptionProjectionConfig(
         target_class_names=frozenset(TARGET_OBJECT_CLASS_NAMES),
@@ -855,7 +831,6 @@ def main() -> None:
             # ---- Perception + image-to-grid projection ----
             perception_frame = project_perception_frame(
                 perception_manager=perception_manager,
-                detector_selection=DETECTOR_SELECTION,
                 config=perception_projection_config,
                 step_count=step_count,
                 time_now_s=time_now,
@@ -1031,7 +1006,6 @@ def main() -> None:
                 step=step_count,
                 pose={"x": x_pos, "y": y_pos, "yaw": yaw},
                 grid_spec=grid_spec,
-                detector_is_ground_truth=DETECTOR_SELECTION.is_ground_truth,
                 detector_detections=(
                     None if raw_detector_output is None else raw_detector_output.detections
                 ),

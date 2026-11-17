@@ -181,7 +181,6 @@ def build_policy_observation(
     step: int,
     pose: Mapping[str, float],
     grid_spec: Any,
-    detector_is_ground_truth: bool,
     detector_detections: Optional[Iterable[Mapping[str, Any]]],
     current_cell: Optional[Cell],
     visual_coverages: Mapping[Cell, Any],
@@ -300,8 +299,7 @@ def build_policy_observation(
     if table_plane_coverages is not None:
         policy_observation["grid"]["table_plane_coverages"] = dict(table_plane_coverages)
 
-    if not detector_is_ground_truth:
-        policy_observation["detections"] = list(detector_detections or [])
+    policy_observation["detections"] = list(detector_detections or [])
 
     return policy_observation
 

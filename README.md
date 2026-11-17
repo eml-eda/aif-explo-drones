@@ -7,7 +7,7 @@ object search with a nano-drone.
 
 The task is to find bottles and cans in indoor environments of increasing
 difficulty. A perception-aware Active Inference policy, ZOI, is compared with
-four lightweight navigation baselines and across several perception backends,
+four lightweight navigation baselines and with two object detectors,
 under a common simulation and evaluation pipeline.
 
 ## Overview
@@ -99,18 +99,16 @@ It takes the same decisions as the Python code on replayed flights. Its
 [README](embedded/zoi/README.md) covers the build, the checks against Python, and
 the cycle counts with gvsoc.
 
-## Perception backends
+## Object detectors
 
-Four detector IDs are supported:
+Two detector IDs are supported:
 
 | Detector ID | Backend |
 | --- | --- |
-| `ground_truth` | Webots ground-truth perception |
+| `mobilenet_ssd` | Custom MobileNetV2-SSD detector (default) |
 | `yolo_nano` | YOLO11-nano |
-| `yolo_small` | YOLO11-small |
-| `mobilenet_ssd` | Custom MobileNetV2-SSD detector |
 
-The learned detectors use environment-specific checkpoints.
+Both detectors use environment-specific checkpoints.
 
 Final checkpoints are stored under:
 
@@ -118,16 +116,13 @@ Final checkpoints are stored under:
 detection_model_training/checkpoints/
 ├── easy/
 │   ├── mobilenet_ssd.pt
-│   ├── yolo_nano.pt
-│   └── yolo_small.pt
+│   └── yolo_nano.pt
 ├── medium/
 │   ├── mobilenet_ssd.pt
-│   ├── yolo_nano.pt
-│   └── yolo_small.pt
+│   └── yolo_nano.pt
 └── hard/
     ├── mobilenet_ssd.pt
-    ├── yolo_nano.pt
-    └── yolo_small.pt
+    └── yolo_nano.pt
 ```
 
 The checkpoint files are versioned with Git LFS. Their SHA-256 hashes are
@@ -143,14 +138,14 @@ Python dependencies are listed in `requirements.txt`:
 python -m pip install -r requirements.txt
 ```
 
-Git LFS is required for the learned detector checkpoints:
+Git LFS is required for the detector checkpoints:
 
 ```bash
 git lfs install
 git lfs pull
 ```
 
-CUDA can be used for learned-detector inference. CPU inference is selected with
+CUDA can be used for detector inference. CPU inference is selected with
 `AIF_DETECTOR_DEVICE=cpu`.
 
 ## Running evaluations
@@ -165,13 +160,13 @@ webots/worlds/AIF_Drone_World_hard.wbt
 
 The controller is configured through environment variables.
 
-Easy environment, spiral baseline, ground-truth perception:
+Easy environment, spiral baseline, MobileNetV2-SSD:
 
 ```bash
 AIF_ENVIRONMENT=easy \
 AIF_RUN_MODE=evaluation \
 AIF_POLICY=spiral \
-AIF_DETECTOR=ground_truth \
+AIF_DETECTOR=mobilenet_ssd \
 webots webots/worlds/AIF_Drone_World_easy.wbt
 ```
 
@@ -262,8 +257,8 @@ statistics use all runs. Reprocessing the same campaign replaces its entry by
 
 Every campaign of the paper has 100 runs (seeds 1–100) and uses the default
 ZOI settings: 32 × 32 (`ρ`, `θ`) grid, vectorized planner, `π` given as 0.5.
-The detectors are `mobilenet_ssd` and `yolo_nano`, plus `yolo_small` for the
-baselines. Each campaign is one command:
+The detectors are `mobilenet_ssd` and `yolo_nano`; hard rooms B and C use
+`mobilenet_ssd` only. Each campaign is one command:
 
 ```bash
 env AIF_RUN_MODE=evaluation AIF_ENVIRONMENT=<environment> AIF_POLICY=<policy> AIF_DETECTOR=<detector> \
@@ -280,7 +275,7 @@ env AIF_RUN_MODE=evaluation AIF_ENVIRONMENT=<environment> AIF_POLICY=<policy> AI
 | Hard B: 4 desks, 8 targets | `hard` | `HARD_EVAL_N_TABLES=4 HARD_EVAL_N_BOTTLES=4 HARD_EVAL_N_CANS=4` |
 | Hard C: 2 desks, 4 targets | `hard` | `HARD_EVAL_N_TABLES=2 HARD_EVAL_N_BOTTLES=2 HARD_EVAL_N_CANS=2` |
 
-- **Baselines:** the four baselines run in hard room A with each of the three learned detectors.
+- **Baselines:** the four baselines run in hard room A.
 - **Sensitivity to `π`:** hard room A with `HARD_EVAL_P_TARGET_ON_TABLE=0.7`. ZOI is given `ZOI_P_ON_TABLE` = 0.9, 0.8, 0.7, 0.6 and 0.5.
 
 Add `AIF_PERCEPTION_LOG=1` to record the per-frame log. The log is needed for
@@ -396,8 +391,6 @@ python detection_model_training/train_yolo.py \
   --env medium \
   --model-size nano
 ```
-
-Train YOLO11-small by replacing `nano` with `small`.
 
 Offline evaluation uses:
 

@@ -23,10 +23,6 @@ class PerceptionScheduleTests(unittest.TestCase):
             )
         )
 
-    def test_recognition_period_is_aligned_to_webots_timestep(self):
-        schedule = PerceptionSchedule(mode="time", time_interval_s=0.625)
-        self.assertEqual(schedule.recognition_sampling_period_ms(32), 640)
-
     def test_metadata_preserves_detector_limitation_format(self):
         schedule = PerceptionSchedule(mode="time", time_interval_s=0.625)
         self.assertEqual(

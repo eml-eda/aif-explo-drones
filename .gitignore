@@ -112,7 +112,6 @@ papers/
 docs/
 self-utils/
 
-capture_visuals_thesis/
 results_comp_single_figures/
 
 legacy_notebooks/
@@ -168,7 +167,7 @@ target_objects_local.yaml
 /detection_model_training/yolo11_s_mixed_hard/
 
 # -------------------------
-# Thesis-specific analysis / visualization work
+# Local analysis / visualization work
 # -------------------------
 /webots/controllers/crazyflie_AIF/utils/coverage_visuals_generator*.ipynb
 /webots/controllers/crazyflie_AIF/utils/results_comp_final.ipynb

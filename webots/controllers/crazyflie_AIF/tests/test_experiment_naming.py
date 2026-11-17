@@ -14,10 +14,8 @@ from common.experiment_naming import evaluation_directory_name
 class ExperimentNamingTests(unittest.TestCase):
     def test_detector_labels_are_included_in_campaign_directories(self):
         expected = {
-            "ground_truth": "eval_spiral_gt_easy_20260921_142313",
             "mobilenet_ssd": "eval_spiral_mbnetv2_easy_20260921_142313",
             "yolo_nano": "eval_spiral_yolonano_easy_20260921_142313",
-            "yolo_small": "eval_spiral_yolosmall_easy_20260921_142313",
         }
         for detector, directory in expected.items():
             with self.subTest(detector=detector):
