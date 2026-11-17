@@ -32,7 +32,7 @@ class CalibrationTests(unittest.TestCase):
         self.assertAlmostEqual(params.false_alarm, 3 / 3493)
         self.assertAlmostEqual(params.desk_recall, 182 / 191)
         self.assertAlmostEqual(params.desk_false_alarm, 189 / 1490)
-        self.assertEqual(params.p_target_on_table, 0.9)
+        self.assertEqual(params.p_target_on_table, 0.5)
         self.assertTrue(params.table_context_enabled)
 
     def test_yolo_nano_values_from_the_same_calibration_images(self):
@@ -143,9 +143,9 @@ class ScenarioAndOverrideTests(unittest.TestCase):
                         ZOIParams.calibrated(**{name: value})
 
     def test_planner_implementation(self):
-        self.assertEqual(resolve_zoi_params(HARD, environ={}).planner_impl, "loop")
-        params = resolve_zoi_params(HARD, environ={"ZOI_PLANNER_IMPL": "vectorized"})
-        self.assertEqual(params.planner_impl, "vectorized")
+        self.assertEqual(resolve_zoi_params(HARD, environ={}).planner_impl, "vectorized")
+        params = resolve_zoi_params(HARD, environ={"ZOI_PLANNER_IMPL": "loop"})
+        self.assertEqual(params.planner_impl, "loop")
         with self.assertRaises(ValueError):
             resolve_zoi_params(HARD, environ={"ZOI_PLANNER_IMPL": "gpu"})
 

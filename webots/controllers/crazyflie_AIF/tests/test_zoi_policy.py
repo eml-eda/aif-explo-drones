@@ -409,14 +409,14 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(params["model"]["recall"], 0.7)
         self.assertEqual(params["model"]["calibration"], "hard/mobilenet_ssd")
         self.assertEqual(params["observation_model"]["rho_theta_grid_size"], 32)
-        self.assertEqual(params["observation_model"]["rho_theta_grid_points"], 513)  # before the first frame
+        self.assertEqual(params["observation_model"]["rho_theta_grid_points"], 512)  # pi = 0.5, before the first frame
         self.assertEqual(params["planning"]["time_model"]["detector_period_s"], 0.625)
         json.dumps(params)
 
     def test_grid_size_sets_the_rho_theta_grid(self):
         policy = ZOIPolicy(params=ZOIParams.calibrated(grid_size=64))
         policy.compute_action(make_obs(planes={(5, 6): (1.0, 1.0)}))
-        rho, _ = feasible_grid(p_on_table=0.9, n_rho=64, n_theta=64)
+        rho, _ = feasible_grid(p_on_table=policy.params.p_target_on_table, n_rho=64, n_theta=64)
         self.assertEqual(policy._rho_grid.size, rho.size)
         self.assertEqual(policy.parameters()["observation_model"]["rho_theta_grid_points"], rho.size)
 

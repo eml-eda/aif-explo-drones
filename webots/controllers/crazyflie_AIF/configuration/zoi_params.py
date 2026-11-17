@@ -94,8 +94,10 @@ DEFAULT_ENVIRONMENT = "hard"
 DEFAULT_DETECTOR = "mobilenet_ssd"
 
 # ---- Scenario ----
-# Share of targets placed on desks in the hard and medium worlds.
-SCENARIO_P_ON_TABLE = 0.9
+# Share of targets on desks, pi, as given to the policy. The default 0.5 tells
+# the policy nothing about where targets are more likely. The medium and hard
+# worlds place 90% of the targets on desks (MEDIUM_EVAL_ / HARD_EVAL_P_TARGET_ON_TABLE).
+DEFAULT_P_ON_TABLE = 0.5
 
 ENV_VARS = {
     "recall": "ZOI_RECALL",
@@ -109,16 +111,16 @@ TARGET_KEYS = ("recall", "class_accuracy", "false_alarm")
 DESK_KEYS = ("desk_recall", "desk_false_alarm")
 CALIBRATED_KEYS = (*TARGET_KEYS, *DESK_KEYS)
 
-# How the planner is computed (same decisions): "loop" (policies/zoi.py) or
-# "vectorized" (policies/zoi_vectorized.py).
+# How the planner is computed, with the same decisions: "vectorized" (default,
+# policies/zoi_vectorized.py) or "loop", the plain Python reference (policies/zoi.py).
 PLANNER_IMPLS = ("loop", "vectorized")
-DEFAULT_PLANNER_IMPL = "loop"
+DEFAULT_PLANNER_IMPL = "vectorized"
 PLANNER_IMPL_ENV_VAR = "ZOI_PLANNER_IMPL"
 
 # Points per side of the (rho, theta) grid over (0, 1) x (0, 1); feasible points
 # only are kept (~half). A numerical resolution, not a model parameter: 128, 64,
-# 32 and 16 gave the same success rate (600 runs each, 2026-10-28); 32 (513
-# points, ~8 kB) fits the GAP8 memory. The matrix campaigns up to 2026-10-24 used 128.
+# 32 and 16 gave the same success rate (600 runs each); 32 (about 512 points, ~8 kB)
+# fits the GAP8 memory.
 DEFAULT_GRID_SIZE = 32
 GRID_SIZE_ENV_VAR = "ZOI_GRID_SIZE"
 
@@ -140,7 +142,7 @@ class ZOIParams:
     false_alarm: float
     desk_recall: Optional[float] = None
     desk_false_alarm: Optional[float] = None
-    p_target_on_table: float = SCENARIO_P_ON_TABLE
+    p_target_on_table: float = DEFAULT_P_ON_TABLE
     table_context_enabled: bool = True
     calibration: str = f"{DEFAULT_ENVIRONMENT}/{DEFAULT_DETECTOR}"
     planner_impl: str = DEFAULT_PLANNER_IMPL

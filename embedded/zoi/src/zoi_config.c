@@ -22,8 +22,9 @@ static const zoi_calibration_t CALIBRATIONS[3][2] = {
      {167, 167, 167, 6, 3491, 189, 182, 1488, 198}},
 };
 
-/* Share of targets placed on desks in the medium and hard worlds (SCENARIO_P_ON_TABLE). */
-#define ZOI_SCENARIO_P_ON_TABLE 0.9f
+/* Share of targets on desks given to the policy (DEFAULT_P_ON_TABLE in Python): 0.5 tells it
+ * nothing about where targets are more likely. */
+#define ZOI_DEFAULT_P_ON_TABLE 0.5f
 
 int zoi_config_default(zoi_config_t *cfg, zoi_env_t env, zoi_det_t det)
 {
@@ -77,7 +78,7 @@ int zoi_config_default(zoi_config_t *cfg, zoi_env_t env, zoi_det_t det)
     if (cfg->table_context) {
         cfg->desk_recall = zoi_rule_of_succession(c->table_cells_covered, c->table_cells);
         cfg->desk_false_alarm = zoi_rule_of_succession(c->floor_cells_covered, c->floor_cells);
-        cfg->p_on_table = ZOI_SCENARIO_P_ON_TABLE;
+        cfg->p_on_table = ZOI_DEFAULT_P_ON_TABLE;
     } else {
         cfg->desk_recall = 0.0f;
         cfg->desk_false_alarm = 0.0f;

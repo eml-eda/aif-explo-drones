@@ -20,7 +20,7 @@
 /* (rho, theta) grid: ZOI_GRID_N midpoints per side over (0, 1). Only feasible
  * points are kept. Row theta_j has an open feasible rho-interval of length
  * 1 - theta_j, which holds at most N - j midpoints, so for any pi there are at
- * most N (N + 1) / 2 points (528 for N = 32; 513 at pi = 0.9). */
+ * most N (N + 1) / 2 points (528 for N = 32; 512 at pi = 0.5, 513 at pi = 0.9). */
 #define ZOI_GRID_N 32
 #define ZOI_MAX_GRID_POINTS (ZOI_GRID_N * (ZOI_GRID_N + 1) / 2)
 
