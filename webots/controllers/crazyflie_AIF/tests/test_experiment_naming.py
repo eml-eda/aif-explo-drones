@@ -14,16 +14,16 @@ from common.experiment_naming import evaluation_directory_name
 class ExperimentNamingTests(unittest.TestCase):
     def test_detector_labels_are_included_in_campaign_directories(self):
         expected = {
-            "ground_truth": "eval_aif_binary_gt_easy_20260921_142313",
-            "mobilenet_ssd": "eval_aif_binary_mbnetv2_easy_20260921_142313",
-            "yolo_nano": "eval_aif_binary_yolonano_easy_20260921_142313",
-            "yolo_small": "eval_aif_binary_yolosmall_easy_20260921_142313",
+            "ground_truth": "eval_spiral_gt_easy_20260921_142313",
+            "mobilenet_ssd": "eval_spiral_mbnetv2_easy_20260921_142313",
+            "yolo_nano": "eval_spiral_yolonano_easy_20260921_142313",
+            "yolo_small": "eval_spiral_yolosmall_easy_20260921_142313",
         }
         for detector, directory in expected.items():
             with self.subTest(detector=detector):
                 self.assertEqual(
                     evaluation_directory_name(
-                        policy="aif_binary",
+                        policy="spiral",
                         detector=detector,
                         environment="easy",
                         timestamp="20260921_142313",
@@ -34,7 +34,7 @@ class ExperimentNamingTests(unittest.TestCase):
     def test_unknown_detector_is_rejected(self):
         with self.assertRaises(ValueError):
             evaluation_directory_name(
-                policy="aif_binary",
+                policy="spiral",
                 detector="unknown",
                 environment="easy",
                 timestamp="20260921_142313",

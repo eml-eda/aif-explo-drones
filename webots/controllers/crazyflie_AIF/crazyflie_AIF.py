@@ -14,8 +14,6 @@ from policies.wall_following import WallFollowingPolicy
 from policies.pseudo_random import PseudoRandomPolicy
 from policies.spiral import SpiralPolicy
 from policies.rotate_and_measure import RotateAndMeasurePolicy
-from policies.aif_binary import AIFBinaryPolicy
-from policies.aif_zoi import AIFZOIPolicy
 from policies.aif_zoi_v2 import AIFZOIV2Policy
 from policies.aif_zoi_v2_vectorized import AIFZOIV2VectorizedPolicy
 from utils.capture_util import save_capture
@@ -204,21 +202,7 @@ TARGET_OBJECT_CLASS_IDS = {0, 1}
 DESK_OBJECT_CLASS_NAMES = {DESK_CLASS_NAME}
 DESK_OBJECT_CLASS_IDS = {DESK_CLASS_ID}
 
-AIF_TARGET_DISTANCE_POLICIES = {"aif_binary", "aif_zoi", "aif_zoi_v2"}
-
-# ---- Easy AIF-ZOI ablation ----
-# "as_is" -> original AIF ZOI, including the default non-zero table prior
-# "zero"  -> no initial table belief; use the easy-environment target prior 6/143
-AIF_ZOI_EASY_TABLE_PRIOR_MODE = os.environ.get(
-    "AIF_ZOI_EASY_TABLE_PRIOR_MODE",
-    "as_is",
-).strip().lower()
-
-if AIF_ZOI_EASY_TABLE_PRIOR_MODE not in {"as_is", "zero"}:
-    raise ValueError(
-        "AIF_ZOI_EASY_TABLE_PRIOR_MODE must be 'as_is' or 'zero', "
-        f"got '{AIF_ZOI_EASY_TABLE_PRIOR_MODE}'."
-    )
+AIF_TARGET_DISTANCE_POLICIES = {"aif_zoi_v2"}
 
 
 SHARED_STATE = SharedStateStore.from_controller_file(__file__)
@@ -241,8 +225,6 @@ def load_policy(name, debug=None, seed=None):
 
     registry = {
         "wall_following": WallFollowingPolicy,
-        "aif_binary": AIFBinaryPolicy,
-        "aif_zoi": AIFZOIPolicy,
         "aif_zoi_v2": AIFZOIV2Policy,
         "pseudo_random": PseudoRandomPolicy,
         "spiral": SpiralPolicy,
@@ -253,26 +235,6 @@ def load_policy(name, debug=None, seed=None):
 
     if policy_id == "pseudo_random":
         return policy_cls(seed=seed, debug=debug)
-
-    if policy_id == "aif_zoi" and ENVIRONMENT == "easy":
-        if AIF_ZOI_EASY_TABLE_PRIOR_MODE == "zero":
-            # No table context; all six Easy targets are on the floor, across 11 x 13 cells.
-            return policy_cls(
-                debug=debug,
-                table_context_enabled=False,
-                table_belief_prior=0.0,
-                prior_target_floor=6.0 / (GRID_ROWS * GRID_COLS),
-            )
-
-        # "as_is": exactly the original constructor/default parameters.
-        return policy_cls(debug=debug)
-
-    if policy_id == "aif_zoi":
-        environment_spec = aif_config.EXPERIMENT_SELECTION.environment_spec
-        return policy_cls(
-            debug=debug,
-            table_context_enabled="desk" in environment_spec.context_classes,
-        )
 
     if policy_id == "aif_zoi_v2":
         # Model parameters from the detector's offline calibration and the
@@ -770,8 +732,6 @@ def main() -> None:
     print("ENVIRONMENT =", ENVIRONMENT)
     print("RUN_MODE =", aif_config.RUN_MODE)
     print("AIF_POLICY =", policy_name)
-    if policy_name == "aif_zoi" and ENVIRONMENT == "easy":
-        print("AIF_ZOI_EASY_TABLE_PRIOR_MODE =", AIF_ZOI_EASY_TABLE_PRIOR_MODE)
     print("AIF_DETECTOR =", DETECTOR_SELECTION.detector_id)
     print("Controls: Arrow keys for planar motion, Q/E yaw, W/S altitude")
     print("Press A to enable autonomous mode, D to disable\n")

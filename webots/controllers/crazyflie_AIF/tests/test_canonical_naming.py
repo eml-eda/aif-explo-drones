@@ -26,8 +26,9 @@ class CanonicalNamingTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     normalize_environment_id(legacy)
 
-    def test_easy_supports_aif_zoi(self):
-        self.assertIn("aif_zoi", ENVIRONMENTS["easy"].supported_policies)
+    def test_every_environment_supports_aif_zoi_v2(self):
+        for env in ("easy", "medium", "hard"):
+            self.assertIn("aif_zoi_v2", ENVIRONMENTS[env].supported_policies)
 
     def test_registry_uses_environment_explicit_supervisors(self):
         self.assertEqual(ENVIRONMENTS["easy"].single_supervisor, "worldgen_easy_supervisor")

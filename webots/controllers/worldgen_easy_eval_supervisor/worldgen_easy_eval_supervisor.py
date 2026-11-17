@@ -126,18 +126,6 @@ EVAL_REPORT_SUBDIR = "eval_report"
 INCLUDE_RUNS_IN_EVAL_REPORT = False
 INCLUDE_RUN_METRICS_IN_EVAL_REPORT = True
 
-
-AIF_ZOI_EASY_TABLE_PRIOR_MODE = os.environ.get(
-    "AIF_ZOI_EASY_TABLE_PRIOR_MODE",
-    "as_is",
-).strip().lower()
-
-if AIF_ZOI_EASY_TABLE_PRIOR_MODE not in {"as_is", "zero"}:
-    raise ValueError(
-        "AIF_ZOI_EASY_TABLE_PRIOR_MODE must be 'as_is' or 'zero', "
-        f"got '{AIF_ZOI_EASY_TABLE_PRIOR_MODE}'."
-    )
-
 Cell = Tuple[int, int]
 
 
@@ -633,8 +621,6 @@ def _write_eval_report(
     policy_name: str,
     seeds: list[int],
     runs: list[dict],
-    *,
-    aif_zoi_table_prior_mode: str,
 ) -> str:
     report_dir = os.path.join(eval_dir, EVAL_REPORT_SUBDIR)
     os.makedirs(report_dir, exist_ok=True)
@@ -649,9 +635,6 @@ def _write_eval_report(
             "policy": policy_name,
             "num_runs": 0,
             "seeds": seeds,
-            "aif_zoi_table_prior_mode": (
-                str(aif_zoi_table_prior_mode) if policy_name == "aif_zoi" else None
-            ),
         }
 
         if INCLUDE_RUN_METRICS_IN_EVAL_REPORT:
@@ -767,9 +750,6 @@ def _write_eval_report(
             "policy": policy_name,
             "num_runs": n,
             "seeds": seeds,
-            "aif_zoi_table_prior_mode": (
-                str(aif_zoi_table_prior_mode) if policy_name == "aif_zoi" else None
-            ),
             "detector_used": detector_used,
             "detector_model_family": detector_model_family,
             "detector_model_size": detector_model_size,
@@ -845,16 +825,10 @@ def _init_or_resume_eval_state(
     *,
     detector_id: str,
     detector_signature: dict,
-    aif_zoi_table_prior_mode: str,
 ) -> dict:
     eval_state = read_json(eval_state_path, None)
 
     if isinstance(eval_state, dict) and not bool(eval_state.get("completed", False)):
-        prior_mode_matches = (
-            policy_name != "aif_zoi"
-            or str(eval_state.get("aif_zoi_table_prior_mode", "as_is"))
-            == str(aif_zoi_table_prior_mode)
-        )
         state_environment = str(
             eval_state.get("environment", eval_state.get("scenario", ""))
         )
@@ -870,13 +844,12 @@ def _init_or_resume_eval_state(
             and detector_matches
             and detector_signature_matches
             and seeds_match
-            and prior_mode_matches
         ):
             return eval_state
 
         print(
             "[EASY EVAL] existing incomplete eval_state does not match the requested "
-            "environment/policy/detector/seeds/AIF-ZOI-prior-mode; starting a new evaluation.",
+            "environment/policy/detector/seeds; starting a new evaluation.",
             flush=True,
         )
 
@@ -887,17 +860,10 @@ def _init_or_resume_eval_state(
         environment=ENVIRONMENT_ID,
         timestamp=ts,
     )
-    if policy_name == "aif_zoi":
-        # Keep the Easy AIF-ZOI table-prior ablation visible in the directory name.
-        eval_dir_name = eval_dir_name.replace(
-            f"_{ENVIRONMENT_ID}_", f"_{ENVIRONMENT_ID}_{aif_zoi_table_prior_mode}_", 1)
     eval_dir = os.path.join(_controller_logs_dir(), eval_dir_name)
 
     eval_state = {
         "policy_name": policy_name,
-        "aif_zoi_table_prior_mode": (
-            str(aif_zoi_table_prior_mode) if policy_name == "aif_zoi" else None
-        ),
         "detector_id": str(detector_id),
         "detector_signature": dict(detector_signature),
         "seeds": list(seeds),
@@ -989,7 +955,6 @@ def main():
         configured_seeds,
         detector_id=CONFIGURED_DETECTOR,
         detector_signature=CONFIGURED_DETECTOR_SIGNATURE,
-        aif_zoi_table_prior_mode=AIF_ZOI_EASY_TABLE_PRIOR_MODE,
     )
 
     seeds = [int(s) for s in eval_state["seeds"]]
@@ -1430,14 +1395,10 @@ def main():
                     policy_name=policy_name,
                     seeds=seeds,
                     runs=aggregate_runs,
-                    aif_zoi_table_prior_mode=AIF_ZOI_EASY_TABLE_PRIOR_MODE,
                 )
 
                 eval_state = {
                     "policy_name": policy_name,
-                    "aif_zoi_table_prior_mode": (
-                        str(AIF_ZOI_EASY_TABLE_PRIOR_MODE) if policy_name == "aif_zoi" else None
-                    ),
                     "detector_id": str(CONFIGURED_DETECTOR),
                     "detector_signature": dict(CONFIGURED_DETECTOR_SIGNATURE),
                     "seeds": seeds,
@@ -1486,9 +1447,6 @@ def main():
 
                 eval_state = {
                     "policy_name": policy_name,
-                    "aif_zoi_table_prior_mode": (
-                        str(AIF_ZOI_EASY_TABLE_PRIOR_MODE) if policy_name == "aif_zoi" else None
-                    ),
                     "detector_id": str(CONFIGURED_DETECTOR),
                     "detector_signature": dict(CONFIGURED_DETECTOR_SIGNATURE),
                     "seeds": seeds,

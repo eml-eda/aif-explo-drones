@@ -15,7 +15,7 @@ from common.global_results import build_global_result_entry, update_global_resul
 
 def _report() -> dict:
     return {
-        "policy": "aif_binary",
+        "policy": "spiral",
         "detector_used": "mobilenet_ssd",
         "run_metrics": [
             {
@@ -43,7 +43,7 @@ def _report() -> dict:
 class GlobalResultsTests(unittest.TestCase):
     def test_builds_compact_metrics_with_success_only_time(self):
         entry = build_global_result_entry(
-            campaign_id="eval_aif_binary_mbnetv2_easy_20260921_142313",
+            campaign_id="eval_spiral_mbnetv2_easy_20260921_142313",
             environment="easy",
             eval_report=_report(),
         )

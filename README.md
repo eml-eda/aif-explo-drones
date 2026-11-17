@@ -26,8 +26,8 @@ context in the medium and hard environments but are not search targets.
 
 ## Navigation policies
 
-The repository contains four lightweight baseline policies and three Active
-Inference policies:
+The repository contains four lightweight baseline policies and one Active
+Inference policy:
 
 | Policy ID | Description |
 | --- | --- |
@@ -35,16 +35,7 @@ Inference policies:
 | `spiral` | Spiral coverage trajectory |
 | `pseudo_random` | Lightweight randomized exploration |
 | `rotate_and_measure` | Rotation-and-translation coverage baseline |
-| `aif_binary` | Active Inference using a binary target-presence belief |
-| `aif_zoi` | Active Inference using target class and zone-of-interest context |
 | `aif_zoi_v2` | Active Inference with a calibrated joint surface/target belief, learned priors and an information-per-second planner |
-
-`aif_binary` maintains a binary belief over target absence or presence for each
-grid cell.
-
-`aif_zoi` extends the belief model with bottle, can, and unknown-target states,
-together with a separate belief over desk occupancy. This allows the policy to
-use contextual information when selecting informative observations.
 
 `aif_zoi_v2` is an Active Inference search with a calibrated observation model and
 no hand-set weights (`webots/controllers/crazyflie_AIF/policies/aif_zoi_v2.py`,
@@ -95,8 +86,7 @@ succession `(k + 1) / (n + 2)`:
 The share of targets on desks `π` (`AIF_ZOI_V2_P_ON_TABLE`) is 0.9 in medium and hard.
 Easy has no desks: only `r`, `a`, `f` are used. Any other (environment, detector) pair
 needs the values set through the variables. The values used in a run are written to
-`policy_parameters.json` in the run directory. The ablation variants of the model (typed
-cells, distance-cost planner, fixed `ρ` or `θ`) are in git tag `v2-ablation`.
+`policy_parameters.json` in the run directory.
 
 ## Perception backends
 
@@ -164,32 +154,32 @@ webots/worlds/AIF_Drone_World_hard.wbt
 
 The controller is configured through environment variables.
 
-Easy environment, AIF Binary, ground-truth perception:
+Easy environment, spiral baseline, ground-truth perception:
 
 ```bash
 AIF_ENVIRONMENT=easy \
 AIF_RUN_MODE=evaluation \
-AIF_POLICY=aif_binary \
+AIF_POLICY=spiral \
 AIF_DETECTOR=ground_truth \
 webots webots/worlds/AIF_Drone_World_easy.wbt
 ```
 
-Medium environment, AIF ZOI, YOLO11-nano:
+Medium environment, Active Inference, YOLO11-nano:
 
 ```bash
 AIF_ENVIRONMENT=medium \
 AIF_RUN_MODE=evaluation \
-AIF_POLICY=aif_zoi \
+AIF_POLICY=aif_zoi_v2 \
 AIF_DETECTOR=yolo_nano \
 webots webots/worlds/AIF_Drone_World_medium.wbt
 ```
 
-Hard environment, AIF ZOI, MobileNetV2-SSD:
+Hard environment, Active Inference, MobileNetV2-SSD:
 
 ```bash
 AIF_ENVIRONMENT=hard \
 AIF_RUN_MODE=evaluation \
-AIF_POLICY=aif_zoi \
+AIF_POLICY=aif_zoi_v2 \
 AIF_DETECTOR=mobilenet_ssd \
 webots webots/worlds/AIF_Drone_World_hard.wbt
 ```

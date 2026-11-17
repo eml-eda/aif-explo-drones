@@ -22,12 +22,9 @@ except ImportError:  # graceful fallback; scipy is preferred for the smooth mono
 # Each entry may be either a run directory or its episode_log_*.csv file.
 # Keep between 2 and 6 runs.
 RUN_PATHS = [
-    #"/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_wall_following_SEED_42",
-    "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_spiral_SEED_42",
-    #"/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_rotate_and_measure_SEED_42",
-    #"/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_pseudo_random_SEED_42",
-    "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_aif_zoi_SEED_42",
-    "/home/ale/dev/thesis_project/aif-explo-drones/webots/controllers/crazyflie_AIF/logs/log_run_aif_binary_SEED_42"
+    # Relative paths are resolved from the current directory, for example:
+    # "webots/controllers/crazyflie_AIF/logs/log_run_spiral_<timestamp>",
+    # "webots/controllers/crazyflie_AIF/logs/log_run_aif_zoi_v2_<timestamp>",
 ]
 
 # Relative paths are resolved from the repository root.
@@ -77,8 +74,7 @@ POLICY_LABELS = {
     "spiral": "Spiral",
     "pseudo_random": "Pseudo-Random",
     "rotate_and_measure": "Rotate and Measure",
-    "aif_binary": "AIF Binary",
-    "aif_zoi": "AIF ZOI",
+    "aif_zoi_v2": "AIF ZOI v2",
 }
 
 # Vivid solid curves. Detection marker color is controlled independently above.

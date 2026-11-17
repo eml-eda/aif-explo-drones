@@ -37,7 +37,7 @@ from policies.zoi_v2_model import (
 )
 from utils.navigator import Navigator
 
-# Navigator settings, unchanged from aif_zoi.
+# Navigator settings.
 NAVIGATOR_KWARGS = {
     "max_forward": 0.50,
     "max_sideways": 0.50,

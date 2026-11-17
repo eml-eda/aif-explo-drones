@@ -57,7 +57,7 @@
 #ifndef FLIGHT
 #define FLIGHT 0
 #endif
-/* MobileNetV2-SSD on GAP8 (DORY, INT8), v1 deployment table, in hundredths of ms. */
+/* MobileNetV2-SSD on GAP8 (DORY, INT8), measured latency, in hundredths of ms. */
 #define MOBILENET_MS_X100 41036u
 
 #if TRACE_GRID_N != ZOI_GRID_N
