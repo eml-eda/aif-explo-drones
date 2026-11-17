@@ -1,4 +1,4 @@
-# policies/aif_zoi_v2.py
+# policies/zoi.py
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from configuration.aif_zoi_v2_params import DEFAULT_GRID_SIZE, AIFZOIV2Params
+from configuration.zoi_params import DEFAULT_GRID_SIZE, ZOIParams
 from env.env_manager import FoVSpec, GridEnvManager, GridSpec
 from policies.planner_time import NavigatorTimeModel
-from policies.zoi_v2_model import (
+from policies.zoi_model import (
     JOINT_STATE_NAMES,
     O_BOTTLE,
     O_CAN,
@@ -50,7 +50,7 @@ NAVIGATOR_KWARGS = {
 }
 
 # Default grid over (rho, theta): points per side over (0, 1), feasible points
-# only. A numerical resolution, not a model choice (configuration/aif_zoi_v2_params.py).
+# only. A numerical resolution, not a model choice (configuration/zoi_params.py).
 # Set by params.grid_size.
 RHO_THETA_GRID_SIZE = DEFAULT_GRID_SIZE
 
@@ -61,10 +61,10 @@ DESK_CLASS_NAMES = {"desk"}
 CLASS_NAME_TO_OBS = {"target_bottle": O_BOTTLE, "target_can": O_CAN}
 
 
-class AIFZOIV2Policy:
+class ZOIPolicy:
     """Active-inference search with a calibrated observation model and no weights.
 
-    Belief (policies/zoi_v2_model.py): each cell holds a belief over
+    Belief (policies/zoi_model.py): each cell holds a belief over
     {table, floor} x {empty, bottle, can}. Every processed frame, each visible
     cell gets a desk observation (a desk box covers it or not, informative when
     its table-plane coverage passes the update gate) and a target observation
@@ -93,7 +93,7 @@ class AIFZOIV2Policy:
         self,
         debug: Optional[dict] = None,
         *,
-        params: Optional[AIFZOIV2Params] = None,
+        params: Optional[ZOIParams] = None,
         yaw_options: Optional[List[float]] = None,
         replan_cooldown_s: float = 0.4,
         classified_confidence_threshold: float = 0.80,
@@ -103,7 +103,7 @@ class AIFZOIV2Policy:
         self.debug = debug or {}
         self.every_n = int(self.debug.get("every_n", 50))
 
-        self.params = params if params is not None else AIFZOIV2Params.calibrated()
+        self.params = params if params is not None else ZOIParams.calibrated()
         self.table_context_enabled = bool(self.params.table_context_enabled)
 
         self.replan_cooldown_s = float(replan_cooldown_s)
@@ -164,7 +164,7 @@ class AIFZOIV2Policy:
     def parameters(self) -> dict:
         """Every value the policy uses, for the run logs."""
         return {
-            "policy": "aif_zoi_v2",
+            "policy": "zoi",
             "model": self.params.as_dict(),
             "observation_model": {
                 "surface": "joint belief over {table, floor} x {empty, bottle, can}",
@@ -347,7 +347,7 @@ class AIFZOIV2Policy:
 
             if dbg_policy and step_ok:
                 print(
-                    f"[AIF-ZOI-V2] picked target cell={next_cell} yaw={next_yaw:.3f} "
+                    f"[ZOI] picked target cell={next_cell} yaw={next_yaw:.3f} "
                     f"p_present={self._belief_present(next_cell[0], next_cell[1]):.2f} "
                     f"class_conf={self._classification_confidence(next_cell[0], next_cell[1]):.2f} "
                     f"p_table={self.table_probability_map()[next_cell[1], next_cell[0]]:.2f}",
@@ -578,7 +578,7 @@ class AIFZOIV2Policy:
         return out
 
     # ---------------------------------------------------------------------
-    # Belief (see policies/zoi_v2_model.py)
+    # Belief (see policies/zoi_model.py)
     # ---------------------------------------------------------------------
 
     def _desk_in_view(self, w_table: float) -> bool:
@@ -1052,7 +1052,7 @@ class AIFZOIV2Policy:
         cc = grid.get("current_cell")
         num_vis = sum(1 for v in visible_mask.values() if v)
         print(
-            f"[AIF-ZOI-V2 GRID] step={step} cc={cc} "
+            f"[ZOI GRID] step={step} cc={cc} "
             f"cover={len(coverages)} visible={num_vis} table_cells={len(table_cells)} "
             f"dropped_target_events={self._dropped_target_events} {self.diagnostics()}",
             flush=True,

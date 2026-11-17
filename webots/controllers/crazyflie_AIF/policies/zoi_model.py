@@ -1,5 +1,5 @@
-# policies/zoi_v2_model.py
-"""Per-cell probabilistic model used by aif_zoi_v2.
+# policies/zoi_model.py
+"""Per-cell probabilistic model used by the ZOI policy.
 
 Pure numpy, no geometry or controller state, so the same functions serve the
 belief update and the planner's expected information gain.
@@ -152,7 +152,7 @@ def joint_likelihood(
     return (D[:, None, :] * T[None, :, :]).reshape(N_JOINT, N_JOINT)
 
 
-# Batched versions for the vectorized planner (policies/aif_zoi_v2_vectorized.py):
+# Batched versions for the vectorized planner (policies/zoi_vectorized.py):
 # the same formulas on N cells at once, element by element.
 
 

@@ -1,7 +1,7 @@
-# policies/aif_zoi_v2_vectorized.py
-"""aif_zoi_v2 with the planner computed on arrays instead of a Python loop.
+# policies/zoi_vectorized.py
+"""The ZOI policy with the planner computed on arrays instead of a Python loop.
 
-Same model, belief and score as AIFZOIV2Policy (policies/aif_zoi_v2.py): every
+Same model, belief and score as ZOIPolicy (policies/zoi.py): every
 (cell, yaw) candidate is ranked by its expected information gain over the cells
 the controller would update from there, divided by the flight time, with ties to
 the shorter flight. Only the computation changes:
@@ -26,12 +26,12 @@ from typing import Optional
 
 import numpy as np
 
-from policies.aif_zoi_v2 import AIFZOIV2Policy, Cell
-from policies.zoi_v2_model import expected_information_gain_batch, joint_likelihood_batch
+from policies.zoi import ZOIPolicy, Cell
+from policies.zoi_model import expected_information_gain_batch, joint_likelihood_batch
 
 
-class AIFZOIV2VectorizedPolicy(AIFZOIV2Policy):
-    """AIFZOIV2Policy with the vectorized planner."""
+class ZOIVectorizedPolicy(ZOIPolicy):
+    """ZOIPolicy with the vectorized planner."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

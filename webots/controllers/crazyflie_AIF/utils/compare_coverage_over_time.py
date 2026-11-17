@@ -24,7 +24,7 @@ except ImportError:  # graceful fallback; scipy is preferred for the smooth mono
 RUN_PATHS = [
     # Relative paths are resolved from the current directory, for example:
     # "webots/controllers/crazyflie_AIF/logs/log_run_spiral_<timestamp>",
-    # "webots/controllers/crazyflie_AIF/logs/log_run_aif_zoi_v2_<timestamp>",
+    # "webots/controllers/crazyflie_AIF/logs/log_run_zoi_<timestamp>",
 ]
 
 # Relative paths are resolved from the repository root.
@@ -74,7 +74,7 @@ POLICY_LABELS = {
     "spiral": "Spiral",
     "pseudo_random": "Pseudo-Random",
     "rotate_and_measure": "Rotate and Measure",
-    "aif_zoi_v2": "AIF ZOI v2",
+    "zoi": "ZOI",
 }
 
 # Vivid solid curves. Detection marker color is controlled independently above.

@@ -10,7 +10,7 @@ if str(CONTROLLER_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_DIR))
 
 from env.env_manager import GridSpec
-from policies.aif_zoi_v2 import NAVIGATOR_KWARGS
+from policies.zoi import NAVIGATOR_KWARGS
 import numpy as np
 
 from policies.planner_time import NavigatorTimeModel, saturated_p_error, saturated_p_time_to

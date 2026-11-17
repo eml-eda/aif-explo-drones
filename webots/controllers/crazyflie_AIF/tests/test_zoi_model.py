@@ -10,7 +10,7 @@ CONTROLLER_DIR = Path(__file__).resolve().parents[1]
 if str(CONTROLLER_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_DIR))
 
-from policies.zoi_v2_model import (
+from policies.zoi_model import (
     D_COVERED,
     D_NONE,
     N_JOINT,

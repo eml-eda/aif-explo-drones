@@ -1,4 +1,4 @@
-/* zoi_v2_perception.c: detector boxes -> cells, desk map, shadow cells, visible mask, claims.
+/* zoi_perception.c: detector boxes -> cells, desk map, shadow cells, visible mask, claims.
  *
  * Port of the controller's processed-frame logic (crazyflie_AIF.py main loop,
  * vision/perception_projection.py project_perception_frame for a non-ground-truth
@@ -17,7 +17,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "zoi_v2.h"
+#include "zoi.h"
 
 static int is_target_class(int class_id)
 {

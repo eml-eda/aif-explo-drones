@@ -1,15 +1,15 @@
-/* zoi_v2_config.c: defaults of the Webots setup and the detector calibrations. */
-#include "zoi_v2.h"
+/* zoi_config.c: defaults of the Webots setup and the detector calibrations. */
+#include "zoi.h"
 
 /* (k + 1) / (n + 2): posterior mean of a rate under a uniform prior, also the
- * predictive probability of the next trial (configuration/aif_zoi_v2_params.py). */
+ * predictive probability of the next trial (configuration/zoi_params.py). */
 float zoi_rule_of_succession(int successes, int trials)
 {
     return ((float)successes + 1.0f) / ((float)trials + 2.0f);
 }
 
 /* Counts on the seed-101 calibration sets, 400 images each, confidence 0.45, NMS 0.40
- * (configuration/aif_zoi_v2_params.py, DETECTOR_CALIBRATIONS). Index [env][det]. */
+ * (configuration/zoi_params.py, DETECTOR_CALIBRATIONS). Index [env][det]. */
 static const zoi_calibration_t CALIBRATIONS[3][2] = {
     /* easy: no desks */
     {{333, 301, 301, 23, 3346, 0, 0, 0, 0},

@@ -1,6 +1,6 @@
 /* replay_test.c: run the C port on a Python reference trace and compare.
  *
- * The trace comes from tools/v2_c/export_trace.py: logged poses and boxes of one
+ * The trace comes from tools/c_port/export_trace.py: logged poses and boxes of one
  * flight, replayed through the Python code, with its geometry, beliefs, (rho, theta)
  * posterior and planner decision at every frame. The C state evolves on its own
  * from the same inputs (only the poses and boxes are fed in).
@@ -30,7 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "zoi_v2.h"
+#include "zoi.h"
 
 #define TOL_COV 1e-5f      /* coverage */
 #define TOL_EDGE 1e-5f     /* how close to a threshold a flip is excused */
@@ -130,7 +130,7 @@ static void run_pending_plans(zoi_state_t *st)
             S.extra_ig_max = st->n_ig_evals;
         if (st->n_T_evals > S.extra_T_max)
             S.extra_T_max = st->n_T_evals;
-#if ZOI_V2_IG_CACHE
+#if ZOI_IG_CACHE
         S.extra_invalidated += st->n_ig_invalidated;
         if (st->n_ig_invalidated > S.extra_invalidated_max)
             S.extra_invalidated_max = st->n_ig_invalidated;
@@ -435,14 +435,14 @@ int main(int argc, char **argv)
     printf("  planner: %d plans, same %d, ties %d, different %d; best-rate rel err %.2e; candidates %d: IG abs err %.2e (rel %.2e where IG >= 1e-3), T err %.2e s\n",
            S.plans, S.plan_same, S.plan_tie, S.plan_diff, (double)S.rate_rel_err, S.cand_n, (double)S.cand_ig_abs, (double)S.cand_ig_rel,
            (double)S.cand_T_err);
-    printf("  search (ZOI_V2_PLANNER_PRUNING=%d, ZOI_V2_IG_CACHE=%d): exact IG per plan mean %.1f max %d, exact T per plan mean %.1f max %d, of %d candidates\n",
-           ZOI_V2_PLANNER_PRUNING, ZOI_V2_IG_CACHE, S.plans ? (double)S.ig_evals / S.plans : 0.0, S.ig_evals_max,
+    printf("  search (ZOI_PLANNER_PRUNING=%d, ZOI_IG_CACHE=%d): exact IG per plan mean %.1f max %d, exact T per plan mean %.1f max %d, of %d candidates\n",
+           ZOI_PLANNER_PRUNING, ZOI_IG_CACHE, S.plans ? (double)S.ig_evals / S.plans : 0.0, S.ig_evals_max,
            S.plans ? (double)S.T_evals / S.plans : 0.0, S.T_evals_max, ZOI_N_CAND);
     printf("  later plans of a frame%s: %d (table map changed in %d); exact IG per plan mean %.1f max %d, exact T mean %.1f max %d",
            min_plans > 0 ? " (stress, -m)" : "", S.extra_plans, S.extra_table_changed,
            S.extra_plans ? (double)S.extra_ig / S.extra_plans : 0.0, S.extra_ig_max,
            S.extra_plans ? (double)S.extra_T / S.extra_plans : 0.0, S.extra_T_max);
-#if ZOI_V2_IG_CACHE
+#if ZOI_IG_CACHE
     printf("; cached IGs dropped per plan mean %.1f max %d",
            S.extra_plans ? (double)S.extra_invalidated / S.extra_plans : 0.0, S.extra_invalidated_max);
 #endif

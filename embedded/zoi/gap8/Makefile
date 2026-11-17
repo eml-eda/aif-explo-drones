@@ -1,4 +1,4 @@
-# GAP8 / gvsoc build of aif_zoi_v2 (GAP SDK, PMSIS). See ../GVSOC_GUIDE.md.
+# GAP8 / gvsoc build of ZOI (GAP SDK, PMSIS). See ../README.md.
 #
 #   source <gap_sdk>/configs/ai_deck.sh        # once per shell
 #   make clean all run platform=gvsoc         # 8 cores, optimised kernels
@@ -21,13 +21,13 @@ PRUNING ?= 0
 FLIGHT ?= 0
 IG_CACHE ?= 0
 
-APP = zoi_v2
+APP = zoi
 APP_SRCS = main.c \
-  ../src/zoi_v2_config.c ../src/zoi_v2_geometry.c ../src/zoi_v2_perception.c \
-  ../src/zoi_v2_belief.c ../src/zoi_v2_planner.c ../src/zoi_v2.c
+  ../src/zoi_config.c ../src/zoi_geometry.c ../src/zoi_perception.c \
+  ../src/zoi_belief.c ../src/zoi_planner.c ../src/zoi.c
 APP_INC = ../include .
-APP_CFLAGS = -O3 -DNB_CORES=$(NB_CORES) -DZOI_V2_REFERENCE_KERNELS=$(REFERENCE) -DCL_FREQ_MHZ=$(CL_FREQ_MHZ) -DMAX_FRAMES=$(MAX_FRAMES) -DZOI_V2_PLANNER_PRUNING=$(PRUNING) -DFLIGHT=$(FLIGHT) \
-  -DZOI_V2_IG_CACHE=$(IG_CACHE) -Wall -Wextra -Wdouble-promotion
+APP_CFLAGS = -O3 -DNB_CORES=$(NB_CORES) -DZOI_REFERENCE_KERNELS=$(REFERENCE) -DCL_FREQ_MHZ=$(CL_FREQ_MHZ) -DMAX_FRAMES=$(MAX_FRAMES) -DZOI_PLANNER_PRUNING=$(PRUNING) -DFLIGHT=$(FLIGHT) \
+  -DZOI_IG_CACHE=$(IG_CACHE) -Wall -Wextra -Wdouble-promotion
 APP_LDFLAGS = -lm
 
 include $(RULES_DIR)/pmsis_rules.mk

@@ -1,11 +1,11 @@
-/* zoi_v2_config.h: compile-time sizes of the aif_zoi_v2 C port.
+/* zoi_config.h: compile-time sizes of the ZOI C port.
  *
  * Everything is statically allocated from these sizes; there is no malloc.
  * The values match the Webots setup (webots/controllers/crazyflie_AIF/crazyflie_AIF.py):
  * a 5.5 x 6.5 m room on 0.5 m cells, 8 candidate yaws, a 32 x 32 (rho, theta) grid.
  */
-#ifndef ZOI_V2_CONFIG_H
-#define ZOI_V2_CONFIG_H
+#ifndef ZOI_CONFIG_H
+#define ZOI_CONFIG_H
 
 /* Map: rows along y, columns along x. Cell index = cy * ZOI_COLS + cx. */
 #define ZOI_ROWS 13
@@ -43,8 +43,8 @@
 
 /* 1: the faithful kernels (same formulas and order as the Python code).
  * 0: the optimised kernels (same decisions, fewer transcendental calls). */
-#ifndef ZOI_V2_REFERENCE_KERNELS
-#define ZOI_V2_REFERENCE_KERNELS 1
+#ifndef ZOI_REFERENCE_KERNELS
+#define ZOI_REFERENCE_KERNELS 1
 #endif
 
 /* Planner search (same decisions in every mode):
@@ -54,8 +54,8 @@
  * 2: also skip the exact IG: candidates sorted by an optimistic rate
  *    (sum of the cells' belief entropies) / T_min, search stopped as soon as the
  *    optimistic rate is below the best exact rate. */
-#ifndef ZOI_V2_PLANNER_PRUNING
-#define ZOI_V2_PLANNER_PRUNING 0
+#ifndef ZOI_PLANNER_PRUNING
+#define ZOI_PLANNER_PRUNING 0
 #endif
 
 /* Information-gain reuse between planner calls (same decisions, bit for bit):
@@ -66,8 +66,8 @@
  *    dropped when q is recomputed; when the table map differs, only the
  *    candidates that see a changed cell through a view whose coverage gate
  *    depends on the plane are recomputed. */
-#ifndef ZOI_V2_IG_CACHE
-#define ZOI_V2_IG_CACHE 0
+#ifndef ZOI_IG_CACHE
+#define ZOI_IG_CACHE 0
 #endif
 
-#endif /* ZOI_V2_CONFIG_H */
+#endif /* ZOI_CONFIG_H */

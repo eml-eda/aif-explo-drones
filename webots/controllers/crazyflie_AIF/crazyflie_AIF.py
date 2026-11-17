@@ -14,8 +14,8 @@ from policies.wall_following import WallFollowingPolicy
 from policies.pseudo_random import PseudoRandomPolicy
 from policies.spiral import SpiralPolicy
 from policies.rotate_and_measure import RotateAndMeasurePolicy
-from policies.aif_zoi_v2 import AIFZOIV2Policy
-from policies.aif_zoi_v2_vectorized import AIFZOIV2VectorizedPolicy
+from policies.zoi import ZOIPolicy
+from policies.zoi_vectorized import ZOIVectorizedPolicy
 from utils.capture_util import save_capture
 from utils.logging_AIF import ExperimentLogger
 from utils.perception_log import PerceptionFrameLogger
@@ -202,7 +202,7 @@ TARGET_OBJECT_CLASS_IDS = {0, 1}
 DESK_OBJECT_CLASS_NAMES = {DESK_CLASS_NAME}
 DESK_OBJECT_CLASS_IDS = {DESK_CLASS_ID}
 
-AIF_TARGET_DISTANCE_POLICIES = {"aif_zoi_v2"}
+AIF_TARGET_DISTANCE_POLICIES = {"zoi"}
 
 
 SHARED_STATE = SharedStateStore.from_controller_file(__file__)
@@ -225,7 +225,7 @@ def load_policy(name, debug=None, seed=None):
 
     registry = {
         "wall_following": WallFollowingPolicy,
-        "aif_zoi_v2": AIFZOIV2Policy,
+        "zoi": ZOIPolicy,
         "pseudo_random": PseudoRandomPolicy,
         "spiral": SpiralPolicy,
         "rotate_and_measure": RotateAndMeasurePolicy,
@@ -236,17 +236,17 @@ def load_policy(name, debug=None, seed=None):
     if policy_id == "pseudo_random":
         return policy_cls(seed=seed, debug=debug)
 
-    if policy_id == "aif_zoi_v2":
+    if policy_id == "zoi":
         # Model parameters from the detector's offline calibration and the
-        # scenario (configuration/aif_zoi_v2_params.py, AIF_ZOI_V2_* overrides).
-        params = aif_config.AIF_ZOI_V2_PARAMS
+        # scenario (configuration/zoi_params.py, ZOI_* overrides).
+        params = aif_config.ZOI_PARAMS
         if params is None:
-            params = aif_config.resolve_aif_zoi_v2_params(
+            params = aif_config.resolve_zoi_params(
                 aif_config.EXPERIMENT_SELECTION.environment_spec,
                 detector_id=DETECTOR_SELECTION.detector_id)
         if params.planner_impl == "vectorized":
             # Same decisions, planner computed on arrays.
-            policy_cls = AIFZOIV2VectorizedPolicy
+            policy_cls = ZOIVectorizedPolicy
         # The planner's flight time includes the controller's detector period.
         return policy_cls(debug=debug, params=params, detector_period_s=DETECTION_EVERY_S)
 

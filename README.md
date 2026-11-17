@@ -35,11 +35,11 @@ Inference policy:
 | `spiral` | Spiral coverage trajectory |
 | `pseudo_random` | Lightweight randomized exploration |
 | `rotate_and_measure` | Rotation-and-translation coverage baseline |
-| `aif_zoi_v2` | Active Inference with a calibrated joint surface/target belief, learned priors and an information-per-second planner |
+| `zoi` | Active Inference with a calibrated joint surface/target belief, learned priors and an information-per-second planner |
 
-`aif_zoi_v2` is an Active Inference search with a calibrated observation model and
-no hand-set weights (`webots/controllers/crazyflie_AIF/policies/aif_zoi_v2.py`,
-model in `policies/zoi_v2_model.py`).
+`zoi` is an Active Inference search with a calibrated observation model and
+no hand-set weights (`webots/controllers/crazyflie_AIF/policies/zoi.py`,
+model in `policies/zoi_model.py`).
 
 - **Belief.** Each cell holds a belief over {table, floor} × {empty, bottle, can}.
   Every processed frame, each visible cell gets a desk observation (a desk box
@@ -57,33 +57,33 @@ model in `policies/zoi_v2_model.py`).
 - **Planner.** Each (cell, yaw) candidate is ranked by its expected information
   gain divided by `T`, the navigator's exact arrival time under its own control
   law plus one detector period (`policies/planner_time.py`).
-  `AIF_ZOI_V2_PLANNER_IMPL=vectorized` computes the same planner on arrays
-  (`policies/aif_zoi_v2_vectorized.py`): identical information gains, flight
+  `ZOI_PLANNER_IMPL=vectorized` computes the same planner on arrays
+  (`policies/zoi_vectorized.py`): identical information gains, flight
   times and decisions, about 16 ms per decision instead of about 0.8 s. The
   default, `loop`, is the original Python loop. Each perception-log frame records
   the number of replans and the planner's wall-clock time (`policy.replans`,
   `planner_s_total`, `planner_ms_last`).
-- **Grid over (`ρ`, `θ`).** `AIF_ZOI_V2_GRID_SIZE` points per side over (0, 1),
+- **Grid over (`ρ`, `θ`).** `ZOI_GRID_SIZE` points per side over (0, 1),
   feasible points only. Default 32 (513 points, ~8 kB, sized for the GAP8); 128,
   64, 32 and 16 gave the same success rate over 600 runs each. The experiment
-  matrix up to 2026-10-24 used 128 (`AIF_ZOI_V2_GRID_SIZE=128`).
+  matrix up to 2026-10-24 used 128 (`ZOI_GRID_SIZE=128`).
 
 The detector values come from an offline calibration of each environment's checkpoint
 of each detector, on one calibration image set per environment (dataset world, seed 101,
 400 images, never used for training or evaluation; built by
-`tools/v2_analysis/build_calibration.sh`). A target box counts as a detection when its
+`tools/analysis/build_calibration.sh`). A target box counts as a detection when its
 centre is inside the label box, as in flight. Counts become probabilities by the rule of
 succession `(k + 1) / (n + 2)`:
 
 | Parameter | Variable | Hard MBN | Hard YOLO-n | Medium MBN | Medium YOLO-n | Easy MBN | Easy YOLO-n |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| target recall `r` | `AIF_ZOI_V2_RECALL` | 0.834 | 0.994 | 0.968 | 0.995 | 0.901 | 0.961 |
-| class accuracy `a` | `AIF_ZOI_V2_CLASS_ACCURACY` | 0.993 | 0.994 | 0.995 | 0.995 | 0.997 | 0.997 |
-| false alarm per empty cell `f` | `AIF_ZOI_V2_FALSE_ALARM` | 0.00086 | 0.0020 | 0.00029 | 0.0012 | 0.0072 | 0.0054 |
-| desk recall | `AIF_ZOI_V2_DESK_RECALL` | 0.953 | 0.958 | 0.950 | 0.958 | — | — |
-| desk false alarm | `AIF_ZOI_V2_DESK_FALSE_ALARM` | 0.127 | 0.134 | 0.179 | 0.184 | — | — |
+| target recall `r` | `ZOI_RECALL` | 0.834 | 0.994 | 0.968 | 0.995 | 0.901 | 0.961 |
+| class accuracy `a` | `ZOI_CLASS_ACCURACY` | 0.993 | 0.994 | 0.995 | 0.995 | 0.997 | 0.997 |
+| false alarm per empty cell `f` | `ZOI_FALSE_ALARM` | 0.00086 | 0.0020 | 0.00029 | 0.0012 | 0.0072 | 0.0054 |
+| desk recall | `ZOI_DESK_RECALL` | 0.953 | 0.958 | 0.950 | 0.958 | — | — |
+| desk false alarm | `ZOI_DESK_FALSE_ALARM` | 0.127 | 0.134 | 0.179 | 0.184 | — | — |
 
-The share of targets on desks `π` (`AIF_ZOI_V2_P_ON_TABLE`) is 0.9 in medium and hard.
+The share of targets on desks `π` (`ZOI_P_ON_TABLE`) is 0.9 in medium and hard.
 Easy has no desks: only `r`, `a`, `f` are used. Any other (environment, detector) pair
 needs the values set through the variables. The values used in a run are written to
 `policy_parameters.json` in the run directory.
@@ -169,7 +169,7 @@ Medium environment, Active Inference, YOLO11-nano:
 ```bash
 AIF_ENVIRONMENT=medium \
 AIF_RUN_MODE=evaluation \
-AIF_POLICY=aif_zoi_v2 \
+AIF_POLICY=zoi \
 AIF_DETECTOR=yolo_nano \
 webots webots/worlds/AIF_Drone_World_medium.wbt
 ```
@@ -179,7 +179,7 @@ Hard environment, Active Inference, MobileNetV2-SSD:
 ```bash
 AIF_ENVIRONMENT=hard \
 AIF_RUN_MODE=evaluation \
-AIF_POLICY=aif_zoi_v2 \
+AIF_POLICY=zoi \
 AIF_DETECTOR=mobilenet_ssd \
 webots webots/worlds/AIF_Drone_World_hard.wbt
 ```

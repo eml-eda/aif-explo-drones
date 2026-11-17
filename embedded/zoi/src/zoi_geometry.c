@@ -1,4 +1,4 @@
-/* zoi_v2_geometry.c: camera footprint, cell coverage, bbox -> cell.
+/* zoi_geometry.c: camera footprint, cell coverage, bbox -> cell.
  *
  * Port of env/env_manager.py (GridEnvManager). The footprint is a rectangle in
  * the body frame, rotated by yaw; a cell's coverage is the area of its
@@ -8,7 +8,7 @@
  */
 #include <math.h>
 
-#include "zoi_v2.h"
+#include "zoi.h"
 
 #define MAX_POLY 12
 

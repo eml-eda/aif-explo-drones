@@ -1,13 +1,13 @@
-/* zoi_v2.c: top-level API and navigator.
+/* zoi.c: top-level API and navigator.
  *
  * zoi_perception_frame = the controller's processed-frame geometry + the policy's
- * belief update; zoi_control_step = AIFZOIV2Policy.compute_action's replanning
+ * belief update; zoi_control_step = ZOIPolicy.compute_action's replanning
  * rule + utils/navigator.py.
  */
 #include <math.h>
 #include <string.h>
 
-#include "zoi_v2.h"
+#include "zoi.h"
 
 #define ZOI_PI_F 3.14159265358979f
 

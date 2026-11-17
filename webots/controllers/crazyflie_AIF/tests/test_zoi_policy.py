@@ -12,10 +12,10 @@ CONTROLLER_DIR = Path(__file__).resolve().parents[1]
 if str(CONTROLLER_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROLLER_DIR))
 
-from configuration.aif_zoi_v2_params import AIFZOIV2Params
-from policies.aif_zoi_v2 import RHO_THETA_GRID_SIZE, AIFZOIV2Policy
-from policies.aif_zoi_v2_vectorized import AIFZOIV2VectorizedPolicy
-from policies.zoi_v2_model import (
+from configuration.zoi_params import ZOIParams
+from policies.zoi import RHO_THETA_GRID_SIZE, ZOIPolicy
+from policies.zoi_vectorized import ZOIVectorizedPolicy
+from policies.zoi_model import (
     O_BOTTLE,
     O_CAN,
     O_NOTHING,
@@ -32,8 +32,8 @@ from policies.zoi_v2_model import (
     table_probability,
 )
 
-PARAMS = AIFZOIV2Params.calibrated("hard", "mobilenet_ssd")
-NO_TABLE_PARAMS = AIFZOIV2Params.calibrated("hard", "mobilenet_ssd", table_context_enabled=False)
+PARAMS = ZOIParams.calibrated("hard", "mobilenet_ssd")
+NO_TABLE_PARAMS = ZOIParams.calibrated("hard", "mobilenet_ssd", table_context_enabled=False)
 
 # Controller geometry: 5.5 m x 6.5 m arena, 0.5 m cells -> 11 cols x 13 rows.
 GRID_SPEC = {
@@ -131,7 +131,7 @@ def record(observations):
 
 class BeliefTests(unittest.TestCase):
     def setUp(self):
-        self.policy = AIFZOIV2Policy(params=PARAMS)
+        self.policy = ZOIPolicy(params=PARAMS)
 
     def qj(self, cell):
         return self.policy.q_joint[cell[1], cell[0], :].copy()
@@ -178,7 +178,7 @@ class BeliefTests(unittest.TestCase):
         self.assertLess(table_probability(self.qj((5, 6))), 0.2 * start)
 
     def _prior_cell(self):
-        policy = AIFZOIV2Policy(params=PARAMS)
+        policy = ZOIPolicy(params=PARAMS)
         policy.compute_action(make_obs(processed=False))
         return policy.q_joint[0, 0]
 
@@ -187,7 +187,7 @@ class BeliefTests(unittest.TestCase):
         np.testing.assert_allclose(self.policy._ell, record({(3, 4): (0.02, 0.9, False, O_NOTHING)}), atol=1e-15)
 
     def test_target_box_raises_target_probability(self):
-        quiet = AIFZOIV2Policy(params=PARAMS)
+        quiet = ZOIPolicy(params=PARAMS)
         quiet.compute_action(make_obs(planes={(5, 6): (0.6, 0.8)}))
         self.policy.compute_action(make_obs(planes={(5, 6): (0.6, 0.8)}, events=[box((5, 6), "target_can", 0.7)]))
         q, q0 = self.qj((5, 6)), quiet.q_joint[6, 5]
@@ -196,7 +196,7 @@ class BeliefTests(unittest.TestCase):
         self.assertGreater(q[2] + q[5], 10 * (q[1] + q[4]))  # the class follows the box
 
     def test_confidence_does_not_enter_the_likelihood(self):
-        low, high = AIFZOIV2Policy(params=PARAMS), AIFZOIV2Policy(params=PARAMS)
+        low, high = ZOIPolicy(params=PARAMS), ZOIPolicy(params=PARAMS)
         low.compute_action(make_obs(planes={(5, 6): (0.6, 0.8)}, events=[box((5, 6), "target_bottle", 0.5)]))
         high.compute_action(make_obs(planes={(5, 6): (0.6, 0.8)}, events=[box((5, 6), "target_bottle", 0.99)]))
         np.testing.assert_array_equal(low.q_joint, high.q_joint)
@@ -225,7 +225,7 @@ class BeliefTests(unittest.TestCase):
 
     def test_controller_table_map_does_not_enter_the_belief(self):
         planes = {(5, 6): (1.0, 1.0)}
-        other = AIFZOIV2Policy(params=PARAMS)
+        other = ZOIPolicy(params=PARAMS)
         self.policy.compute_action(make_obs(planes=planes, table_cells=[(3, 4), (2, 2)]))
         other.compute_action(make_obs(planes=planes))
         np.testing.assert_array_equal(self.policy.q_joint, other.q_joint)
@@ -249,12 +249,12 @@ class BeliefTests(unittest.TestCase):
 
 class NoTableEnvironmentTests(unittest.TestCase):
     def setUp(self):
-        self.policy = AIFZOIV2Policy(params=NO_TABLE_PARAMS)
+        self.policy = ZOIPolicy(params=NO_TABLE_PARAMS)
 
     def test_runs_without_desk_values(self):
-        params = AIFZOIV2Params(recall=PARAMS.recall, class_accuracy=PARAMS.class_accuracy,
+        params = ZOIParams(recall=PARAMS.recall, class_accuracy=PARAMS.class_accuracy,
                                 false_alarm=PARAMS.false_alarm, table_context_enabled=False)
-        loop, vec = AIFZOIV2Policy(params=params), AIFZOIV2VectorizedPolicy(params=params)
+        loop, vec = ZOIPolicy(params=params), ZOIVectorizedPolicy(params=params)
         for policy in (loop, vec):
             policy.compute_action(make_obs(
                 planes={(3, 4): (0.1, 0.7), (5, 6): (1.0, 1.0)}, events=[desk_event([(3, 4)])]))
@@ -286,7 +286,7 @@ class PlannerTests(unittest.TestCase):
     POSE = {"x": -2.75 + 0.5 * 5 + 0.25, "y": -3.25 + 0.5 * 6 + 0.25, "yaw": 0.0}  # centre of (5, 6)
 
     def setUp(self):
-        self.policy = AIFZOIV2Policy(params=PARAMS)
+        self.policy = ZOIPolicy(params=PARAMS)
         self.policy.compute_action(make_obs(
             planes={(5, 6): (1.0, 1.0), (3, 4): (0.3, 0.9), (4, 4): (0.4, 0.9)},
             events=[box((3, 4), "target_bottle", 0.8), desk_event([(4, 4)])],
@@ -294,7 +294,7 @@ class PlannerTests(unittest.TestCase):
         self.table_cells = {(4, 4)}
 
     def with_fake_information(self, ig_by_candidate):
-        policy = AIFZOIV2Policy(params=PARAMS)
+        policy = ZOIPolicy(params=PARAMS)
         policy.compute_action(make_obs(processed=False))
 
         def fake(*, target_cell, target_yaw_index, table_cells=None):
@@ -352,7 +352,7 @@ class VectorizedPlannerTests(unittest.TestCase):
 
     def fly_both(self, params=PARAMS, n_frames=12, seed=3):
         rng = np.random.default_rng(seed)
-        loop, vec = AIFZOIV2Policy(params=params), AIFZOIV2VectorizedPolicy(params=params)
+        loop, vec = ZOIPolicy(params=params), ZOIVectorizedPolicy(params=params)
         for i in range(n_frames):
             c = (int(rng.integers(11)), int(rng.integers(13)))
             planes = {(c[0] + dx, c[1] + dy): (float(rng.random()), float(rng.random()))
@@ -366,7 +366,7 @@ class VectorizedPlannerTests(unittest.TestCase):
         return loop, vec
 
     def test_information_gains_flight_times_and_decisions_are_identical(self):
-        for params in (PARAMS, AIFZOIV2Params.calibrated("hard", "yolo_nano"), NO_TABLE_PARAMS):
+        for params in (PARAMS, ZOIParams.calibrated("hard", "yolo_nano"), NO_TABLE_PARAMS):
             loop, vec = self.fly_both(params)
             np.testing.assert_array_equal(loop.q_joint, vec.q_joint)
             for pose, table_cells in (({"x": 0.1, "y": 0.2, "yaw": 0.3}, {(4, 4), (5, 5)}),
@@ -380,20 +380,20 @@ class VectorizedPlannerTests(unittest.TestCase):
                     self.assertEqual([r[key] for r in sl], [r[key] for r in sv], key)
 
     def test_ties_go_to_the_shortest_flight_then_the_first_candidate(self):
-        policy = AIFZOIV2VectorizedPolicy(params=PARAMS)
+        policy = ZOIVectorizedPolicy(params=PARAMS)
         policy.compute_action(make_obs(processed=False))
         policy._candidate_information_gains = lambda table_cells: np.zeros(len(policy._cand_cells))
         pose = {"x": -2.75 + 0.5 * 5 + 0.25, "y": -3.25 + 0.5 * 6 + 0.25, "yaw": 0.0}
         self.assertEqual(policy._pick_next_action(current_cell=(5, 6), pose=pose), ((5, 6), 0.0))
 
     def test_parameters_and_controller_selection(self):
-        params = AIFZOIV2Params.calibrated(planner_impl="vectorized")
-        self.assertEqual(AIFZOIV2VectorizedPolicy(params=params).parameters()["planning"]["implementation"],
+        params = ZOIParams.calibrated(planner_impl="vectorized")
+        self.assertEqual(ZOIVectorizedPolicy(params=params).parameters()["planning"]["implementation"],
                          "vectorized")
-        self.assertEqual(AIFZOIV2Policy(params=PARAMS).parameters()["planning"]["implementation"], "loop")
+        self.assertEqual(ZOIPolicy(params=PARAMS).parameters()["planning"]["implementation"], "loop")
 
     def test_replans_and_planner_time_are_logged(self):
-        policy = AIFZOIV2VectorizedPolicy(params=PARAMS)
+        policy = ZOIVectorizedPolicy(params=PARAMS)
         action = policy.compute_action(make_obs(planes={(5, 6): (1.0, 1.0)}, time_s=5.0))
         diag = policy.diagnostics()
         self.assertEqual(diag["replans"], 1)
@@ -403,9 +403,9 @@ class VectorizedPlannerTests(unittest.TestCase):
 
 class DiagnosticsTests(unittest.TestCase):
     def test_parameters_record_the_model(self):
-        policy = AIFZOIV2Policy(params=AIFZOIV2Params.calibrated(recall=0.7))
+        policy = ZOIPolicy(params=ZOIParams.calibrated(recall=0.7))
         params = policy.parameters()
-        self.assertEqual(params["policy"], "aif_zoi_v2")
+        self.assertEqual(params["policy"], "zoi")
         self.assertEqual(params["model"]["recall"], 0.7)
         self.assertEqual(params["model"]["calibration"], "hard/mobilenet_ssd")
         self.assertEqual(params["observation_model"]["rho_theta_grid_size"], 32)
@@ -414,17 +414,17 @@ class DiagnosticsTests(unittest.TestCase):
         json.dumps(params)
 
     def test_grid_size_sets_the_rho_theta_grid(self):
-        policy = AIFZOIV2Policy(params=AIFZOIV2Params.calibrated(grid_size=64))
+        policy = ZOIPolicy(params=ZOIParams.calibrated(grid_size=64))
         policy.compute_action(make_obs(planes={(5, 6): (1.0, 1.0)}))
         rho, _ = feasible_grid(p_on_table=0.9, n_rho=64, n_theta=64)
         self.assertEqual(policy._rho_grid.size, rho.size)
         self.assertEqual(policy.parameters()["observation_model"]["rho_theta_grid_points"], rho.size)
 
     def test_diagnostics_are_empty_before_the_first_frame(self):
-        self.assertEqual(AIFZOIV2Policy(params=PARAMS).diagnostics(), {})
+        self.assertEqual(ZOIPolicy(params=PARAMS).diagnostics(), {})
 
     def test_snapshot_round_trip(self):
-        policy = AIFZOIV2Policy(params=PARAMS)
+        policy = ZOIPolicy(params=PARAMS)
         policy.compute_action(make_obs(planes={(5, 6): (1.0, 1.0), (4, 4): (0.5, 1.0)},
                                        events=[desk_event([(4, 4)])], table_cells=[(4, 4)]))
         with tempfile.TemporaryDirectory() as tmp:

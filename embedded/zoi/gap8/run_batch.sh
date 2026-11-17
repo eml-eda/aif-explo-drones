@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # gvsoc on every flight header in batch/headers (built on the host by
-# tools/v2_c/make_gap8_batch.sh), one flight after the other. 8 cores, pruning 2.
+# tools/c_port/make_gap8_batch.sh), one flight after the other. 8 cores, pruning 2.
 #
 #   source /gap_sdk/configs/ai_deck.sh
-#   cd embedded/aif_zoi_v2/gap8
+#   cd embedded/zoi/gap8
 #   IG_CACHE=1 ./run_batch.sh               # flight mode (plans as in the recorded flight), every seed
 #   IG_CACHE=0 ./run_batch.sh               # the same without the IG cache (default 0)
 #   MODES="flight full" ./run_batch.sh      # also a plan on every frame (worst case)
@@ -13,7 +13,7 @@
 # Resumable within that directory: a seed whose output already reports
 # "plans equal to Python: N / N" is skipped; a failed run is kept as seedNNN.txt.part.
 # trace_data.h is swapped for each flight and restored at the end (also on Ctrl-C).
-# Summary: python3 tools/v2_c/summarize_gap8_batch.py (from the repo root).
+# Summary: python3 tools/c_port/summarize_gap8_batch.py (from the repo root).
 
 set -u
 cd "$(dirname "$0")" || exit 1
@@ -22,7 +22,7 @@ BATCH=batch
 MODES=${MODES:-flight}
 IG_CACHE=${IG_CACHE:-0}
 case $IG_CACHE in 0|1) ;; *) echo "IG_CACHE must be 0 or 1"; exit 1 ;; esac
-ls "$BATCH"/headers/seed*.h > /dev/null 2>&1 || { echo "no headers in $BATCH/headers: run tools/v2_c/make_gap8_batch.sh on the host"; exit 1; }
+ls "$BATCH"/headers/seed*.h > /dev/null 2>&1 || { echo "no headers in $BATCH/headers: run tools/c_port/make_gap8_batch.sh on the host"; exit 1; }
 
 # Keep the original header; if a previous batch was killed, the backup is the original.
 [ -f "$BATCH/trace_data.h.orig" ] || cp -p trace_data.h "$BATCH/trace_data.h.orig"

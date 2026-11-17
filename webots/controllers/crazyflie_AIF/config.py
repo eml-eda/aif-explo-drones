@@ -15,7 +15,7 @@ A one-run override can be supplied with AIF_MODEL_PATH=/path/to/best.pt.
 import os
 
 try:  # Imported as crazyflie_AIF.config by supervisors.
-    from .configuration.aif_zoi_v2_params import resolve_aif_zoi_v2_params
+    from .configuration.zoi_params import resolve_zoi_params
     from .configuration.detector_config import resolve_detector_selection
     from .configuration.experiment_config import resolve_experiment_selection
     from .configuration.registry import (
@@ -25,7 +25,7 @@ try:  # Imported as crazyflie_AIF.config by supervisors.
     )
     from .configuration.validation import validate_runtime_selection
 except ImportError:  # Executed from the crazyflie_AIF controller directory.
-    from configuration.aif_zoi_v2_params import resolve_aif_zoi_v2_params
+    from configuration.zoi_params import resolve_zoi_params
     from configuration.detector_config import resolve_detector_selection
     from configuration.experiment_config import resolve_experiment_selection
     from configuration.registry import (
@@ -95,12 +95,12 @@ DETECTOR_SELECTION = resolve_detector_selection(
 # Canonical public detector id.
 AIF_DETECTOR = DETECTOR_SELECTION.detector_id
 
-# aif_zoi_v2 model parameters: this detector's offline calibration and the
-# scenario, with AIF_ZOI_V2_* overrides. Invalid values fail at startup; other
+# ZOI model parameters: this detector's offline calibration and the
+# scenario, with ZOI_* overrides. Invalid values fail at startup; other
 # policies ignore these variables.
-AIF_ZOI_V2_PARAMS = (
-    resolve_aif_zoi_v2_params(EXPERIMENT_SELECTION.environment_spec, detector_id=AIF_DETECTOR)
-    if AIF_POLICY == "aif_zoi_v2"
+ZOI_PARAMS = (
+    resolve_zoi_params(EXPERIMENT_SELECTION.environment_spec, detector_id=AIF_DETECTOR)
+    if AIF_POLICY == "zoi"
     else None
 )
 

@@ -23,7 +23,7 @@ import numpy as np
 RUN_PATHS = [
     # Relative paths are resolved from the current directory, for example:
     # "webots/controllers/crazyflie_AIF/logs/log_run_spiral_<timestamp>",
-    # "webots/controllers/crazyflie_AIF/logs/log_run_aif_zoi_v2_<timestamp>",
+    # "webots/controllers/crazyflie_AIF/logs/log_run_zoi_<timestamp>",
 ]
 
 # Relative paths are resolved from the repository root.
@@ -79,7 +79,7 @@ POLICY_LABELS = {
     "spiral": "Spiral",
     "pseudo_random": "Pseudo-Random",
     "rotate_and_measure": "Rotate and Measure",
-    "aif_zoi_v2": "AIF ZOI v2",
+    "zoi": "ZOI",
 }
 
 # Vivid route palette. The first two are intentionally far from the semantic-marker

@@ -1,6 +1,6 @@
-/* zoi_v2.h: aif_zoi_v2 on board, float32, no dynamic memory.
+/* zoi.h: ZOI on board, float32, no dynamic memory.
  *
- * C port of the Python policy (webots/controllers/crazyflie_AIF/policies/aif_zoi_v2*.py)
+ * C port of the Python policy (webots/controllers/crazyflie_AIF/policies/zoi*.py)
  * and of the per-frame geometry the controller runs before it
  * (env/env_manager.py, env/surface_projection.py, vision/perception_projection.py,
  * task/claim_manager.py, utils/navigator.py, policies/planner_time.py).
@@ -14,12 +14,12 @@
  * Coordinates: world x, y in metres, yaw in radians (as the Webots GPS / IMU).
  * Cells: (cx, cy) = (column, row), index cy * ZOI_COLS + cx.
  */
-#ifndef ZOI_V2_H
-#define ZOI_V2_H
+#ifndef ZOI_H
+#define ZOI_H
 
 #include <stdint.h>
 
-#include "zoi_v2_config.h"
+#include "zoi_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,7 +38,7 @@ typedef struct {
 } zoi_fov_t;
 
 /* Counts from one detector on the offline calibration set
- * (configuration/aif_zoi_v2_params.py, DETECTOR_CALIBRATIONS). Rates are
+ * (configuration/zoi_params.py, DETECTOR_CALIBRATIONS). Rates are
  * derived from them with the rule of succession (k + 1) / (n + 2). */
 typedef struct {
     int targets, targets_detected, class_correct, false_boxes, empty_cell_frames;
@@ -58,7 +58,7 @@ typedef struct {
     float claim_conf_threshold;     /* CLAIM_CONFIDENCE_THRESHOLD */
     int bbox_max_samples_per_axis;  /* desk-box probes per axis */
     float desk_overlap_min_frac;    /* bbox_overlaps_any_desk */
-    /* Navigator (policies/aif_zoi_v2.py NAVIGATOR_KWARGS). */
+    /* Navigator (policies/zoi.py NAVIGATOR_KWARGS). */
     float max_forward, max_sideways, max_yaw_rate, k_pos, k_yaw;
     float dist_eps_m, yaw_eps_rad, min_cell_coverage;
     /* Planner. */
@@ -172,9 +172,9 @@ typedef struct {
     int last_best;                /* candidate index of the last plan */
     int n_ig_evals, n_T_evals;    /* candidates whose exact IG / exact T the last plan computed */
     /* Per candidate: bit 0 exact IG known (in cand_ig), bit 1 exact T computed by the
-     * last plan, bit 2 exact IG computed by the last plan (bit 0 without ZOI_V2_IG_CACHE). */
+     * last plan, bit 2 exact IG computed by the last plan (bit 0 without ZOI_IG_CACHE). */
     uint8_t cand_eval[ZOI_N_CAND];
-#if ZOI_V2_IG_CACHE
+#if ZOI_IG_CACHE
     /* IG reuse: the cached IGs (bit 0 of cand_eval) and prune_H match the current
      * q; the table map those IGs were computed with; candidates whose cached IG the
      * last plan dropped because of a table-map change (diagnostics). */
@@ -182,7 +182,7 @@ typedef struct {
     int n_ig_invalidated;
     uint8_t ig_cache_table[ZOI_CELLS];
 #endif
-#if ZOI_V2_PLANNER_PRUNING
+#if ZOI_PLANNER_PRUNING
     /* Pruning work buffers: optimistic rate per candidate, candidates in
      * decreasing optimistic rate, per-cell lower bound on the move time, per-yaw
      * turn time, per-cell belief entropy. */
@@ -281,4 +281,4 @@ extern zoi_profile_fn zoi_profile;
 }
 #endif
 
-#endif /* ZOI_V2_H */
+#endif /* ZOI_H */

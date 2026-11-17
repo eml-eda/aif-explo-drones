@@ -1,7 +1,7 @@
-/* zoi_v2_belief.c: observation model, belief update, learned (rho, theta).
+/* zoi_belief.c: observation model, belief update, learned (rho, theta).
  *
- * Port of policies/zoi_v2_model.py and AIFZOIV2Policy._update_beliefs_from_observation /
- * _update_evidence / _refresh_beliefs (policies/aif_zoi_v2.py).
+ * Port of policies/zoi_model.py and ZOIPolicy._update_beliefs_from_observation /
+ * _update_evidence / _refresh_beliefs (policies/zoi.py).
  *
  * States s = surface * 3 + content (surface 0 table, 1 floor; content 0 empty,
  * 1 bottle, 2 can). Observations o = desk * 3 + target (desk 0 none, 1 covered;
@@ -19,7 +19,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "zoi_v2.h"
+#include "zoi.h"
 
 /* ---- Observation model ------------------------------------------------ */
 
@@ -162,7 +162,7 @@ static void evidence_kernel(void *p, int core, int ncores)
     const int g0 = core * chunk, g1 = g0 + chunk < st->n_grid ? g0 + chunk : st->n_grid;
     for (int g = g0; g < g1; g++) {
         const float rho = st->g_rho[g], theta = st->g_theta[g];
-#if ZOI_V2_REFERENCE_KERNELS
+#if ZOI_REFERENCE_KERNELS
         float s_new = 0.0f, s_old = 0.0f;
         for (int k = 0; k < arg->n; k++) {
             const float *cn = st->coef[arg->cells[k]];
@@ -321,7 +321,7 @@ void zoi_refresh_beliefs(zoi_state_t *st)
     arg.w_act = w_act;
     zoi_fork(belief_kernel, &arg);
     st->beliefs_valid = 1;
-#if ZOI_V2_IG_CACHE
+#if ZOI_IG_CACHE
     st->ig_cache_valid = 0; /* q changed: the planner's cached IGs are stale */
 #endif
     ZOI_PROF(ZOI_STAGE_BELIEFS, 0);
