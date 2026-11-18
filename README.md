@@ -95,9 +95,13 @@ wall-clock time.
 
 `embedded/zoi/` is a float32 C99 port of the ZOI policy and of the per-frame
 geometry that runs before it, for the GAP8 processor of the Crazyflie AI-deck.
-It takes the same decisions as the Python code on replayed flights. Its
+It takes the same decisions as the Python code on replayed flights.
+
+We deployed the port on a real Crazyflie with an AI-deck. You don't need the
+hardware to try it: the `gap8/` program replays recorded flights on gvsoc, the
+GAP8 simulator of the GAP SDK, and prints the cycles of each stage. Its
 [README](embedded/zoi/README.md) covers the build, the checks against Python, and
-the cycle counts with gvsoc.
+the gvsoc runs.
 
 ## Object detectors
 
