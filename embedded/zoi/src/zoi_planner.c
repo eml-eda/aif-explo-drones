@@ -8,6 +8,8 @@
  * cells the controller would update from there (merged coverage >= gate, table
  * plane on table-map cells), T the navigator's flight time plus one detector
  * period. Best rate wins; ties go to the shorter T, then to the first candidate.
+ * The search is pruned with exact bounds and reuses the IGs of the previous plan
+ * while the beliefs are unchanged; it takes the exhaustive search's decision.
  *
  * View patterns: the coverage of the cells seen from a candidate, relative to the
  * candidate's cell, is the same for every cell (checked in Python to 1e-12 for
@@ -63,24 +65,15 @@ static float saturated_p_time_to(float e0, float gain, float limit, float tol)
     return logf(a / tol) / gain;
 }
 
-#if ZOI_REFERENCE_KERNELS
-#define ZOI_BISECTION_STEPS 50
-#else
 /* The bracket starts below ~20 s; 24 halvings reach the float32 resolution. */
 #define ZOI_BISECTION_STEPS 24
-#endif
 
 static float move_time(const zoi_config_t *cfg, float dx, float dy)
 {
     const float eps = cfg->dist_eps_m;
-#if ZOI_REFERENCE_KERNELS
-    if (hypotf(dx, dy) <= eps)
-        return 0.0f;
-#else
     const float eps2 = eps * eps;
     if (dx * dx + dy * dy <= eps2)
         return 0.0f;
-#endif
     const float tol = eps / sqrtf(2.0f);
     float lo = 0.0f;
     float hi = fmaxf(saturated_p_time_to(dx, cfg->k_pos, cfg->max_forward, tol),
@@ -89,11 +82,7 @@ static float move_time(const zoi_config_t *cfg, float dx, float dy)
         const float mid = 0.5f * (lo + hi);
         const float ex = saturated_p_error(dx, cfg->k_pos, cfg->max_forward, mid);
         const float ey = saturated_p_error(dy, cfg->k_pos, cfg->max_sideways, mid);
-#if ZOI_REFERENCE_KERNELS
-        const int arrived = hypotf(ex, ey) <= eps;
-#else
         const int arrived = ex * ex + ey * ey <= eps2;
-#endif
         if (arrived)
             hi = mid;
         else
@@ -119,40 +108,10 @@ float zoi_time_to(const zoi_config_t *cfg, const zoi_pose_t *pose, float tx, flo
 
 /* ---- Expected information gain ----------------------------------------- */
 
-/* Expected KL(posterior || prior) over the predicted observation. */
-float zoi_expected_information_gain(const float q_in[ZOI_NS], const float L[ZOI_NO][ZOI_NS])
-{
-    float z = 0.0f;
-    for (int s = 0; s < ZOI_NS; s++)
-        z += q_in[s];
-    if (z <= 0.0f)
-        return 0.0f;
-    float q[ZOI_NS], log_q[ZOI_NS];
-    for (int s = 0; s < ZOI_NS; s++) {
-        q[s] = q_in[s] / z;
-        log_q[s] = logf(q[s] + 1e-12f);
-    }
-    float ig = 0.0f;
-    for (int o = 0; o < ZOI_NO; o++) {
-        float po = 0.0f;
-        for (int s = 0; s < ZOI_NS; s++)
-            po += L[o][s] * q[s];
-        if (!(po > 1e-12f))
-            continue;
-        float kl = 0.0f;
-        for (int s = 0; s < ZOI_NS; s++) {
-            const float post = L[o][s] * q[s] / po;
-            kl += post * (logf(post + 1e-12f) - log_q[s]);
-        }
-        ig += po * kl;
-    }
-    return ig;
-}
-
-#if !ZOI_REFERENCE_KERNELS
-/* The same quantity as a mutual information, I(S; O) = H(O) - sum_s q_s H(O | s),
- * with H(O | s) (the column entropies of L) precomputed per pattern entry: 6 logs
- * instead of 42. */
+/* Expected KL(posterior || prior) over the predicted observation (the Python
+ * expected_information_gain), computed as the mutual information
+ * I(S; O) = H(O) - sum_s q_s H(O | s), with H(O | s) (the column entropies of L)
+ * precomputed per pattern entry: 6 logs instead of 42. */
 static float information_gain_mi(const float q_in[ZOI_NS], const float L[ZOI_NO][ZOI_NS], const float H_col[ZOI_NS])
 {
     float z = 0.0f;
@@ -175,7 +134,6 @@ static float information_gain_mi(const float q_in[ZOI_NS], const float L[ZOI_NO]
     const float ig = h_obs - h_cond * inv_z;
     return ig > 0.0f ? ig : 0.0f;
 }
-#endif
 
 /* ---- View patterns -------------------------------------------------------- */
 
@@ -245,7 +203,7 @@ typedef struct {
     zoi_state_t *st;
     const zoi_pose_t *pose;
     const uint8_t *is_table;
-    int reuse; /* ZOI_IG_CACHE: q unchanged since the last plan (cached IGs, prune_H) */
+    int reuse; /* q unchanged since the last plan: cached IGs and prune_H still valid */
 } plan_arg_t;
 
 /* The controller's update gate on a cell's merged coverage. */
@@ -272,11 +230,7 @@ static float candidate_ig(const zoi_state_t *st, const uint8_t *is_table, int k)
         const float merged = is_table[j] ? e->w_table : e->w_floor;
         if (!coverage_gate(merged, thr))
             continue;
-#if ZOI_REFERENCE_KERNELS
-        ig += zoi_expected_information_gain(st->q[j], (const float (*)[ZOI_NS])st->pat_L[e->lik]);
-#else
         ig += information_gain_mi(st->q[j], (const float (*)[ZOI_NS])st->pat_L[e->lik], st->pat_H[e->lik]);
-#endif
     }
     return ig;
 }
@@ -290,25 +244,7 @@ static float candidate_T(const zoi_state_t *st, const zoi_pose_t *pose, int k)
     return zoi_time_to(cfg, pose, tx, ty, st->yaw_options[yaw]);
 }
 
-#if ZOI_PLANNER_PRUNING < 2
-static void ig_kernel(void *p, int core, int ncores)
-{
-    plan_arg_t *arg = (plan_arg_t *)p;
-    zoi_state_t *st = arg->st;
-    const int chunk = (ZOI_N_CAND + ncores - 1) / ncores;
-    const int k0 = core * chunk, k1 = k0 + chunk < ZOI_N_CAND ? k0 + chunk : ZOI_N_CAND;
-    for (int k = k0; k < k1; k++) {
-#if ZOI_IG_CACHE
-        if (st->cand_eval[k] & 1)
-            continue; /* reused from the previous plan */
-#endif
-        st->cand_ig[k] = candidate_ig(st, arg->is_table, k);
-        st->cand_eval[k] |= 5;
-    }
-}
-#endif
-
-/* Better candidate under the exhaustive planner's rule, independent of the order
+/* Better candidate under the exhaustive search's rule, independent of the order
  * in which candidates are examined: higher rate, then shorter T, then lower index. */
 static int better(float rate, float T, int k, float best_rate, float best_T, int best)
 {
@@ -319,42 +255,7 @@ static int better(float rate, float T, int k, float best_rate, float best_T, int
     return best < 0 || k < best;
 }
 
-#if !ZOI_PLANNER_PRUNING
-
-static void time_kernel(void *p, int core, int ncores)
-{
-    plan_arg_t *arg = (plan_arg_t *)p;
-    zoi_state_t *st = arg->st;
-    const int chunk = (ZOI_N_CAND + ncores - 1) / ncores;
-    const int k0 = core * chunk, k1 = k0 + chunk < ZOI_N_CAND ? k0 + chunk : ZOI_N_CAND;
-    for (int k = k0; k < k1; k++) {
-        st->cand_T[k] = candidate_T(st, arg->pose, k);
-        st->cand_eval[k] |= 2;
-    }
-}
-
-static int search(zoi_state_t *st, plan_arg_t *arg)
-{
-    ZOI_PROF(ZOI_STAGE_IG, 1);
-    zoi_fork(ig_kernel, arg);
-    ZOI_PROF(ZOI_STAGE_IG, 0);
-    ZOI_PROF(ZOI_STAGE_TIME, 1);
-    zoi_fork(time_kernel, arg);
-    ZOI_PROF(ZOI_STAGE_TIME, 0);
-    int best = -1;
-    float best_rate = -INFINITY, best_T = INFINITY;
-    for (int k = 0; k < ZOI_N_CAND; k++) {
-        const float rate = st->cand_ig[k] / st->cand_T[k];
-        if (better(rate, st->cand_T[k], k, best_rate, best_T, best)) {
-            best = k;
-            best_rate = rate;
-            best_T = st->cand_T[k];
-        }
-    }
-    return best;
-}
-
-#else /* ZOI_PLANNER_PRUNING */
+/* ---- Pruned search ---------------------------------------------------- */
 
 /* Safety margins against float32 rounding: a bound may only err on the optimistic
  * side. Relative on every bound, plus an absolute slack per cell on the entropy
@@ -432,7 +333,6 @@ static void sort_by_key(const float *key, uint16_t *order, int n)
     }
 }
 
-#if ZOI_PLANNER_PRUNING >= 2
 /* Entropy of each cell's belief: no single view can give more information about the cell. */
 static void entropy_kernel(void *p, int core, int ncores)
 {
@@ -463,14 +363,12 @@ static void bound_kernel(void *p, int core, int ncores)
     const int chunk = (ZOI_N_CAND + ncores - 1) / ncores;
     const int k0 = core * chunk, k1 = k0 + chunk < ZOI_N_CAND ? k0 + chunk : ZOI_N_CAND;
     for (int k = k0; k < k1; k++) {
-#if ZOI_IG_CACHE
         if (st->cand_eval[k] & 1) {
-            /* Exact IG reused from the previous plan: the Level 1 key, IG / T_min,
-             * the same bound the scan applies before computing T. */
+            /* Exact IG reused from the previous plan: the key is IG / T_min, the
+             * same bound the scan applies before computing T. */
             st->prune_key[k] = st->cand_ig[k] / t_min(st, k) * PRUNE_REL;
             continue;
         }
-#endif
         const int cell = k / ZOI_N_YAW, yaw = k % ZOI_N_YAW;
         const int r = cell / ZOI_COLS, c = cell % ZOI_COLS;
         const zoi_pattern_t *pat = &st->pattern[yaw];
@@ -488,7 +386,6 @@ static void bound_kernel(void *p, int core, int ncores)
         st->prune_key[k] = ub / t_min(st, k) * PRUNE_REL;
     }
 }
-#endif
 
 /* One step of the search: candidates order[start .. start + n). Each gets its
  * exact IG if not known yet; its exact T only if IG / T_min can still reach the
@@ -520,20 +417,11 @@ static int search(zoi_state_t *st, plan_arg_t *arg)
 {
     ZOI_PROF(ZOI_STAGE_IG, 1);
     prepare_t_min(st, arg->pose);
-#if ZOI_PLANNER_PRUNING == 1
-    /* Level 1: exact IG of every candidate; the key is the best rate it could reach. */
-    zoi_fork(ig_kernel, arg);
-    for (int k = 0; k < ZOI_N_CAND; k++)
-        st->prune_key[k] = st->cand_ig[k] / t_min(st, k) * PRUNE_REL;
-#else
-    /* Level 2: the key bounds the IG too (sum of entropies). The entropies
-     * depend only on q: with the IG cache they are kept while q is. */
-#if ZOI_IG_CACHE
+    /* The key bounds the rate: (sum of entropies, or the cached exact IG) / T_min.
+     * The entropies depend only on q, so they are kept while q is. */
     if (!arg->reuse)
-#endif
         zoi_fork(entropy_kernel, arg);
     zoi_fork(bound_kernel, arg);
-#endif
     sort_by_key(st->prune_key, st->prune_order, ZOI_N_CAND);
     ZOI_PROF(ZOI_STAGE_IG, 0);
 
@@ -566,9 +454,8 @@ static int search(zoi_state_t *st, plan_arg_t *arg)
     return best;
 }
 
-#endif /* ZOI_PLANNER_PRUNING */
+/* ---- IG reuse between plans --------------------------------------------- */
 
-#if ZOI_IG_CACHE
 /* Drop the cached IG of every candidate that reads cell j through a view whose
  * coverage gate differs between the floor and table planes: that gate is the
  * only use of is_table[j] in candidate_ig (the likelihood is the entry's own).
@@ -596,7 +483,6 @@ static int invalidate_cell(zoi_state_t *st, int j)
     }
     return n;
 }
-#endif
 
 int zoi_plan(zoi_state_t *st, const zoi_pose_t *pose)
 {
@@ -607,7 +493,6 @@ int zoi_plan(zoi_state_t *st, const zoi_pose_t *pose)
         is_table[j] = st->table_map[j] || (st->frame_desk_valid && st->frame_desk_cells[j]);
 
     zoi_refresh_beliefs(st); /* clears ig_cache_valid if it recomputes q */
-#if ZOI_IG_CACHE
     /* Keep the exact IGs of the previous plan while q is unchanged, except those
      * a table-map change affects. Counted in the IG stage. */
     ZOI_PROF(ZOI_STAGE_IG, 1);
@@ -624,14 +509,8 @@ int zoi_plan(zoi_state_t *st, const zoi_pose_t *pose)
     }
     memcpy(st->ig_cache_table, is_table, sizeof(st->ig_cache_table));
     ZOI_PROF(ZOI_STAGE_IG, 0);
-#else
-    memset(st->cand_eval, 0, sizeof(st->cand_eval));
-    plan_arg_t arg = {st, pose, is_table, 0};
-#endif
     const int best = search(st, &arg);
-#if ZOI_IG_CACHE
     st->ig_cache_valid = 1;
-#endif
 
     st->n_ig_evals = st->n_T_evals = 0;
     for (int k = 0; k < ZOI_N_CAND; k++) {

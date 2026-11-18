@@ -7,9 +7,15 @@
 #ifndef ZOI_CONFIG_H
 #define ZOI_CONFIG_H
 
-/* Map: rows along y, columns along x. Cell index = cy * ZOI_COLS + cx. */
+/* Map: rows along y, columns along x. Cell index = cy * ZOI_COLS + cx.
+ * 13 x 11 is the Webots room; a larger room can be built with -DZOI_ROWS / -DZOI_COLS
+ * (the grid stays centred on the origin, see zoi_config_default). */
+#ifndef ZOI_ROWS
 #define ZOI_ROWS 13
+#endif
+#ifndef ZOI_COLS
 #define ZOI_COLS 11
+#endif
 #define ZOI_CELLS (ZOI_ROWS * ZOI_COLS)
 
 /* Planner candidates: every cell centre x 8 yaws (k * pi / 4). Candidate index =
@@ -40,34 +46,5 @@
 #define ZOI_CLASS_BOTTLE 0
 #define ZOI_CLASS_CAN 1
 #define ZOI_CLASS_DESK 2
-
-/* 1: the faithful kernels (same formulas and order as the Python code).
- * 0: the optimised kernels (same decisions, fewer transcendental calls). */
-#ifndef ZOI_REFERENCE_KERNELS
-#define ZOI_REFERENCE_KERNELS 1
-#endif
-
-/* Planner search (same decisions in every mode):
- * 0: score every candidate exactly (IG and flight time T);
- * 1: exact IG for every candidate, exact T only for candidates whose rate can
- *    still win, IG / T_min >= best so far (T_min: a lower bound on T);
- * 2: also skip the exact IG: candidates sorted by an optimistic rate
- *    (sum of the cells' belief entropies) / T_min, search stopped as soon as the
- *    optimistic rate is below the best exact rate. */
-#ifndef ZOI_PLANNER_PRUNING
-#define ZOI_PLANNER_PRUNING 0
-#endif
-
-/* Information-gain reuse between planner calls (same decisions, bit for bit):
- * 0: every plan starts from scratch (default);
- * 1: the exact IG of a candidate depends only on the beliefs q and on the table
- *    map the planner sees, not on the pose, so a plan reuses the IGs of the
- *    previous one while q is unchanged (no detector frame in between). They are
- *    dropped when q is recomputed; when the table map differs, only the
- *    candidates that see a changed cell through a view whose coverage gate
- *    depends on the plane are recomputed. */
-#ifndef ZOI_IG_CACHE
-#define ZOI_IG_CACHE 0
-#endif
 
 #endif /* ZOI_CONFIG_H */

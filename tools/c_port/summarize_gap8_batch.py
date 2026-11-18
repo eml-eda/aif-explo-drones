@@ -12,20 +12,18 @@ search (IG and flight-time stages). Reported, over all flights:
   the detector output to the new command): mean, worst; with the detector time
   and against the detector period, both read from each output;
 - the later plan of a period (frames with two or more plans): exact IG
-  evaluations of the frame's last plan, which the IG cache (ZOI_IG_CACHE)
-  reduces;
-- when the outputs of both IG-cache settings exist, whether every flight took
-  the same decisions in both ("plan decisions hash").
+  evaluations of the frame's last plan, which the IG cache reduces;
+- the flights whose run failed (seedNNN.txt.part: unfinished, or a first plan
+  of a frame different from Python's), left out of the numbers above.
 
-run_batch.sh writes one directory per configuration, batch/<mode>_igcache<0|1>.
+run_batch.sh writes one directory per mode, batch/<mode>.
 
 Outputs without the plan_call_max column have no
 per-call latency for frames with two plans; for those the frame's planner total
 is used as the call latency (an upper bound), and the summary says so.
 
-    python3 tools/c_port/summarize_gap8_batch.py                       # batch/flight_igcache1
-    python3 tools/c_port/summarize_gap8_batch.py --igcache 0           # batch/flight_igcache0
-    python3 tools/c_port/summarize_gap8_batch.py --mode full
+    python3 tools/c_port/summarize_gap8_batch.py                       # batch/flight
+    python3 tools/c_port/summarize_gap8_batch.py --mode full           # batch/full
     python3 tools/c_port/summarize_gap8_batch.py --files a.txt b.txt   # any GAP8 outputs
     python3 tools/c_port/summarize_gap8_batch.py --per-flight          # one line per flight
 """
@@ -117,14 +115,13 @@ def pct(values: list[float], q: float) -> float:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--batch", default="embedded/zoi/gap8/batch", help="batch/double for the room twice as large")
+    ap.add_argument("--batch", default="embedded/zoi/gap8/batch", help="e.g. embedded/zoi/gap8/batch/tiles_2x2 for a larger room")
     ap.add_argument("--mode", default="flight", choices=["flight", "full"])
-    ap.add_argument("--igcache", default="1", choices=["0", "1"], help="IG cache setting of the outputs (directory suffix)")
     ap.add_argument("--files", nargs="*")
     ap.add_argument("--per-flight", action="store_true")
     args = ap.parse_args()
 
-    out_dir = os.path.join(args.batch, f"{args.mode}_igcache{args.igcache}")
+    out_dir = os.path.join(args.batch, args.mode)
     files = args.files or sorted(glob.glob(os.path.join(out_dir, "seed*.txt")))
     if not files:
         raise SystemExit(f"no outputs in {out_dir}")
@@ -183,29 +180,15 @@ def main() -> None:
               + ("" if not over else " (" + ", ".join(f"{n} f{i} {t:.0f} ms" for n, i, t in over[:10])
                  + (" ..." if len(over) > 10 else "") + ")"))
 
-    # Same decisions with and without the IG cache, flight by flight.
-    other_dir = os.path.join(args.batch, f"{args.mode}_igcache{1 - int(args.igcache)}")
-    if not args.files and os.path.isdir(other_dir):
-        same = differ = missing = 0
-        for fl in flights:
-            other = os.path.join(other_dir, fl["name"] + ".txt")
-            other_hash = None
-            if os.path.isfile(other):
-                with open(other, errors="replace") as f:
-                    for line in f:
-                        m = re.match(r"plan decisions hash: (0x[0-9a-f]+)", line)
-                        if m:
-                            other_hash = m.group(1)
-            if fl["hash"] is None or other_hash is None:
-                missing += 1
-            elif fl["hash"] == other_hash:
-                same += 1
-            else:
-                differ += 1
-                print(f"  {fl['name']}: plan decisions differ from {other_dir}")
-        print(f"\nIG cache on vs off ({other_dir}): same decisions in {same} flights, different in {differ}, "
-              f"not comparable (missing output or hash) {missing}")
-
+    if not args.files:
+        failed = sorted(glob.glob(os.path.join(out_dir, "seed*.txt.part")))
+        print(f"\nFailed runs (left out above): {len(failed)}")
+        for p in failed:
+            name = os.path.basename(p)[:-len(".txt.part")]
+            with open(p, errors="replace") as f:
+                line = next((ln.strip() for ln in f if ln.startswith("plans equal to Python")),
+                            "unfinished (no final line)")
+            print(f"  {name}: {line}")
 
 if __name__ == "__main__":
     main()

@@ -162,16 +162,6 @@ static void evidence_kernel(void *p, int core, int ncores)
     const int g0 = core * chunk, g1 = g0 + chunk < st->n_grid ? g0 + chunk : st->n_grid;
     for (int g = g0; g < g1; g++) {
         const float rho = st->g_rho[g], theta = st->g_theta[g];
-#if ZOI_REFERENCE_KERNELS
-        float s_new = 0.0f, s_old = 0.0f;
-        for (int k = 0; k < arg->n; k++) {
-            const float *cn = st->coef[arg->cells[k]];
-            const float *co = arg->old_coef[k];
-            s_new += logf(cn[0] + cn[1] * rho + cn[2] * theta);
-            s_old += logf(co[0] + co[1] * rho + co[2] * theta);
-        }
-        st->log_ev[g] += s_new - s_old;
-#else
         /* One log per cell: log(Z_new / Z_old). */
         float ratio_log = 0.0f;
         for (int k = 0; k < arg->n; k++) {
@@ -180,7 +170,6 @@ static void evidence_kernel(void *p, int core, int ncores)
             ratio_log += logf((cn[0] + cn[1] * rho + cn[2] * theta) / (co[0] + co[1] * rho + co[2] * theta));
         }
         st->log_ev[g] += ratio_log;
-#endif
     }
 }
 
@@ -321,9 +310,7 @@ void zoi_refresh_beliefs(zoi_state_t *st)
     arg.w_act = w_act;
     zoi_fork(belief_kernel, &arg);
     st->beliefs_valid = 1;
-#if ZOI_IG_CACHE
     st->ig_cache_valid = 0; /* q changed: the planner's cached IGs are stale */
-#endif
     ZOI_PROF(ZOI_STAGE_BELIEFS, 0);
 }
 

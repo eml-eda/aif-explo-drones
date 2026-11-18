@@ -165,31 +165,27 @@ typedef struct {
     zoi_pattern_t pattern[ZOI_N_YAW];
     int n_pattern_entries;
     /* Likelihood of each pattern entry (it depends only on the entry and the
-     * calibration) and its column entropies H(O | s) (optimised kernel). */
+     * calibration) and its column entropies H(O | s). */
     float pat_L[ZOI_MAX_PATTERN_ENTRIES][ZOI_NO][ZOI_NS];
     float pat_H[ZOI_MAX_PATTERN_ENTRIES][ZOI_NS];
     float cand_ig[ZOI_N_CAND], cand_T[ZOI_N_CAND];
     int last_best;                /* candidate index of the last plan */
     int n_ig_evals, n_T_evals;    /* candidates whose exact IG / exact T the last plan computed */
     /* Per candidate: bit 0 exact IG known (in cand_ig), bit 1 exact T computed by the
-     * last plan, bit 2 exact IG computed by the last plan (bit 0 without ZOI_IG_CACHE). */
+     * last plan, bit 2 exact IG computed by the last plan. */
     uint8_t cand_eval[ZOI_N_CAND];
-#if ZOI_IG_CACHE
-    /* IG reuse: the cached IGs (bit 0 of cand_eval) and prune_H match the current
-     * q; the table map those IGs were computed with; candidates whose cached IG the
-     * last plan dropped because of a table-map change (diagnostics). */
+    /* IG reuse between plans: the cached IGs (bit 0 of cand_eval) and prune_H match
+     * the current q; the table map those IGs were computed with; candidates whose
+     * cached IG the last plan dropped because of a table-map change (diagnostics). */
     int ig_cache_valid;
     int n_ig_invalidated;
     uint8_t ig_cache_table[ZOI_CELLS];
-#endif
-#if ZOI_PLANNER_PRUNING
-    /* Pruning work buffers: optimistic rate per candidate, candidates in
-     * decreasing optimistic rate, per-cell lower bound on the move time, per-yaw
-     * turn time, per-cell belief entropy. */
+    /* Pruned search: optimistic rate per candidate, candidates in decreasing
+     * optimistic rate, per-cell lower bound on the move time, per-yaw turn time,
+     * per-cell belief entropy. */
     float prune_key[ZOI_N_CAND];
     uint16_t prune_order[ZOI_N_CAND];
     float prune_move[ZOI_CELLS], prune_turn[ZOI_N_YAW], prune_H[ZOI_CELLS];
-#endif
 
     /* Navigator. */
     int has_target, target_cell, target_yaw_index;
@@ -252,7 +248,6 @@ void zoi_project_frame(zoi_state_t *st, const zoi_pose_t *pose, const zoi_box_t 
 void zoi_belief_update(zoi_state_t *st);
 void zoi_joint_likelihood(const zoi_config_t *cfg, float w_table, float w_floor, int desk_in_view,
                           float L[ZOI_NO][ZOI_NS]);
-float zoi_expected_information_gain(const float q[ZOI_NS], const float L[ZOI_NO][ZOI_NS]);
 float zoi_time_to(const zoi_config_t *cfg, const zoi_pose_t *pose, float tx, float ty, float target_yaw);
 
 /* Parallel kernels: each processes its share [core, ncores) of the work. On the
@@ -268,8 +263,8 @@ typedef enum {
     ZOI_STAGE_GEOMETRY = 0, /* coverage, desk map, target projection, claims */
     ZOI_STAGE_UPDATE,       /* likelihoods, log ell, (rho, theta) evidence, weights */
     ZOI_STAGE_BELIEFS,      /* per-cell beliefs averaged over (rho, theta) */
-    ZOI_STAGE_IG,           /* planner information gain, all candidates */
-    ZOI_STAGE_TIME,         /* planner flight times, all candidates */
+    ZOI_STAGE_IG,           /* planner: IG cache upkeep, entropy bounds, candidate order */
+    ZOI_STAGE_TIME,         /* planner: search (exact IGs and flight times of the candidates that can win) */
     ZOI_STAGE_NAVIGATOR,    /* arrival test + velocity command */
     ZOI_N_STAGES
 } zoi_stage_t;

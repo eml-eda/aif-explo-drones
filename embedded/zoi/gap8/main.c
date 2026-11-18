@@ -12,23 +12,22 @@
  * checks it. With FLIGHT=1 a frame can have a second plan (about one detector
  * period in eight in the recorded flights): in flight it happens on arrival at
  * the first plan's target, at a later control step, after zoi_control_step has
- * cleared frame_desk_valid. So, whatever ZOI_IG_CACHE, every later plan of a
- * frame is made with frame_desk_valid = 0 from the arrival pose on the previous
- * plan's target (cell centre, target yaw). The trace has no Python decision for
- * it, so it is not checked here (host/replay_test.c runs the same sequence,
- * cache on and off). The last line, "plan decisions hash", covers every plan (candidate, rate and
- * T bits): equal between builds that must take the same decisions.
+ * cleared frame_desk_valid. So every later plan of a frame is made with
+ * frame_desk_valid = 0 from the arrival pose on the previous plan's target (cell
+ * centre, target yaw). The trace has no Python decision for it, so it is not
+ * checked here (host/replay_test.c runs the same sequence). The last line,
+ * "plan decisions hash", covers every plan (candidate, rate and T bits): equal
+ * between builds that must take the same decisions.
  *
  * The fabric controller only starts the cluster; everything runs on the cluster:
  * core 0 runs the algorithm, and the parallel kernels (evidence, beliefs,
  * planner IG and flight times) are spread over NB_CORES cores with pi_cl_team_fork.
  * A self-test at start-up prints which cores actually run a forked kernel.
  *
- * Build options (gap8/Makefile): NB_CORES (1..8), ZOI_REFERENCE_KERNELS (1
- * faithful, 0 optimised), CL_FREQ_MHZ (only to convert cycles to ms),
- * MAX_FRAMES (0: all frames of the trace), FLIGHT (0: a plan every frame, the
- * worst case; 1: plans on the frames, and as many times, as the recorded flight),
- * ZOI_PLANNER_PRUNING (0, 1, 2), ZOI_IG_CACHE (0, 1).
+ * Build options (gap8/Makefile): NB_CORES (1..8), CL_FREQ_MHZ (only to convert
+ * cycles to ms), MAX_FRAMES (0: all frames of the trace), FLIGHT (0: a plan every
+ * frame, the worst case; 1: plans on the frames, and as many times, as the
+ * recorded flight), ZOI_ROWS / ZOI_COLS (map size, must match the trace).
  *
  * Written against the PMSIS API of the GAP SDK. See ../README.md.
  */
@@ -60,6 +59,17 @@
 
 #if TRACE_GRID_N != ZOI_GRID_N
 #error "trace_data.h was generated for another (rho, theta) grid size"
+#endif
+/* Map size of the trace: the Webots room unless the header says otherwise
+ * (tools/c_port/make_tiled_room_header.py). Build with ROWS= / COLS= to match. */
+#ifndef TRACE_ROWS
+#define TRACE_ROWS 13
+#endif
+#ifndef TRACE_COLS
+#define TRACE_COLS 11
+#endif
+#if TRACE_ROWS != ZOI_ROWS || TRACE_COLS != ZOI_COLS
+#error "trace_data.h was generated for another map size: build with ROWS=TRACE_ROWS COLS=TRACE_COLS"
 #endif
 
 /* In L2 (globals of a PMSIS program go to L2 by default). */
@@ -195,10 +205,8 @@ static void cluster_main(void *arg)
         return;
     }
     const int n_frames = (MAX_FRAMES > 0 && MAX_FRAMES < TRACE_N_FRAMES) ? MAX_FRAMES : TRACE_N_FRAMES;
-    printf("ZOI on GAP8: %d cores, %s kernels, planner pruning %d, IG cache %d, %s, %d frames, state %u B, "
-           "grid %d points, init %u cycles\n",
-           NB_CORES, ZOI_REFERENCE_KERNELS ? "reference" : "optimised", ZOI_PLANNER_PRUNING, ZOI_IG_CACHE,
-           FLIGHT ? "plans as in the recorded flight" : "a plan every frame", n_frames,
+    printf("ZOI on GAP8: %d cores, %s, %d frames, map %d x %d cells, state %u B, grid %d points, init %u cycles\n",
+           NB_CORES, FLIGHT ? "plans as in the recorded flight" : "a plan every frame", n_frames, ZOI_ROWS, ZOI_COLS,
            (unsigned)sizeof(zoi_state_t),
            st.n_grid, (unsigned)init_cycles);
     fork_self_test();
@@ -243,7 +251,7 @@ static void cluster_main(void *arg)
             if (call > plan_call_max)
                 plan_call_max = call;
             ig_all += st.n_ig_evals;
-            if (p == 0) {
+            if (p == 0 && TRACE_PLAN[f] >= 0) { /* -1: no Python decision (synthetic room) */
                 ok = (k == TRACE_PLAN[f]);
                 plans_ok += ok;
                 plans_checked++;
@@ -326,7 +334,9 @@ static void app_main(void)
         pmsis_exit(-1);
     }
     pi_cluster_task(&task, cluster_main, NULL);
-    task.stack_size = 8192;       /* core 0: the algorithm (largest frame ~3 kB) */
+    /* core 0: the algorithm; its per-cell locals (zoi_belief_update 16 B, perception and
+     * planner 1 B each) take ~3 kB in the Webots room, so a larger map gets a larger stack. */
+    task.stack_size = 8192 + (ZOI_CELLS > 143 ? 24 * (ZOI_CELLS - 143) : 0);
     task.slave_stack_size = 2048; /* cores 1..7: the kernels */
     pi_cluster_send_task_to_cl(&cluster_dev, &task);
     pi_cluster_close(&cluster_dev);
